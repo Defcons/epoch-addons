@@ -188,8 +188,10 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - Epoch-specific NPC/quest database layered over pfQuest-wotlk via `patchtable()` merge system
 - `overwrites.lua` removes content not present on Epoch (Silithus NPCs, TBC quest givers, Zul'Aman island)
 - Version checking via `GetAddOnMetadata()` with addon messaging for update notifications
+- Update notifications (`pfQuest-epoch.lua`, `pfQuest-updater.lua`) now gated behind `pfQuest_config["updatenotify"]` — default off; only print if config key is explicitly `"1"`
 
 ### pfQuest-wotlk
+- Added `"Show Update Notifications"` checkbox to `pfQuest_defconfig` (config key `updatenotify`, default `"0"` / off); controls whether pfQuest-epoch version-available messages appear in chat
 - Multi-client compatibility layer (`compat/client.lua`): detects build version and maps API differences between Vanilla/TBC/WotLK
 - `string.gmatch or string.gfind` fallback for Lua 5.0 vs 5.1
 - `mod or math.mod` fallback for math function rename
