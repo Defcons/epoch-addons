@@ -1,4 +1,22 @@
-*.zip
-*.rar
-Thumbs.db
-.DS_Store
+# Ignore everything by default
+/*
+
+# Only track addons we've modified or created
+!.gitignore
+!ItemRack/
+!ItemRackOptions/
+!DeleteItems/
+!Magnify-WotLK/
+!HCBreathBar/
+!TradeSkillMaster_Crafting/
+!TitanSpeed/
+!EpochFixes/
+!FeralAPFix/
+!AuxTSMBridge/
+!unitscan/
+!ArkInventory/
+!pfQuest-epoch/
+!pfQuest-wotlk/
+!FavoriteContacts/
+!TradeSkillMaster_AuctionDB/
+!TitanGoldTracker/

@@ -1,5 +1,0 @@
-<Bindings>
-	<Binding name="LFG" header="LFG">
-		LFG_Toggle()
-	</Binding>
-</Bindings>

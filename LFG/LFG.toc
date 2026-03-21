@@ -1,9 +1,0 @@
-## Interface: 30300
-## Title: LFG |cffff5555[BETA]
-## Author: Xerron/Er (Original - LFT) | Ported by Shadowtoots (LFG)
-## Version: 0.0.1.0
-## Notes: LFG Addon for Project Epoch
-## SavedVariables: LFG_FORMED_GROUPS
-## SavedVariablesPerCharacter: LFG_ROLE, LFG_TYPE, LFG_CONFIG
-ChatThrottleLib\ChatThrottleLib.lua
-LFG.xml

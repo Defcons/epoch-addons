@@ -1,7 +1,0 @@
-## Interface: 30300
-## Title: ChatFilter
-## Notes: Automatically hides chat messages that contain specific keywords
-## Author: Sousou
-## Version: 1.0
-
-ChatFilter.lua

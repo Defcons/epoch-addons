@@ -1,5 +1,0 @@
-<Bindings>
-	<Binding name="MOZZ_WM_CHECKBOX" header="MFWM">
-        	MFWM_KeyBind_Toggle();
-	</Binding>
-</Bindings>
