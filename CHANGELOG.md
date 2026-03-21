@@ -111,6 +111,17 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - Vellum cost integrated into crafting cost display and tooltip breakdown
 - `OnEnable()` migration routine: fixes legacy vellum item string formatting in saved DB (converts bare item IDs to full `item:id:0:0:0:0:0:0` format)
 
+**Crafting queue — intermediate craft flattening overhaul (`Queue.lua`):**
+- Added `FindIntermediateSpellID(itemString)` helper: finds the best spell for crafting an item as an intermediate; tries cost-based `GetLowestCraftPrices` first, falls back to direct `craftReverseLookup` scan when pricing data is absent (e.g. items with no AH data on the private server); prefers non-cooldown crafts
+- `GetIntermediateCrafts`: replaced the old `craftCost and lowestCost and craftCost <= lowestCost` gate — intermediates are now always expanded whenever a known craft exists, not only when TSM pricing data is available; uses `FindIntermediateSpellID`
+- `HasLoop`: updated to use `FindIntermediateSpellID` so loop detection mirrors the new expansion logic
+- Bug fix: `usedMats` re-add at end of `GetQueue()` now skips zero-quantity entries; previously an intermediate craft with zero inventory would be re-inserted into the materials table with `quantity = 0`, causing it to appear in the materials list as "Need 0 / Total 0"
+- Materials calculation reverted to always use full `data.queued` (removed an earlier `effectiveQueued` reduction that caused materials to show Total = 0 when result items were stocked on any character)
+
+**Crafting queue — alt-stock awareness (`CraftingGUI.lua`):**
+- Queue display now shows `(X stocked, craft Y)` annotation next to each craft name when `GetTotalQuantity` detects you already have some of the result item across all characters; correctly reduces the "effective crafts needed" count in the annotation without affecting the materials list
+- Bug fix (`UpdateQueue`): `TSM.db.factionrealm.tradeSkills[UnitName("player")]` nil-guarded with `or {}`; previously crashed when a character that had never scanned professions with TSM opened the queue panel (e.g. a bank alt opening First Aid)
+
 ### TradeSkillMaster_AuctionDB (v2.3.10)
 **Bug fixes — data encoding guards:**
 - Added nil and empty-string guards in `decodeScans()` to prevent corruption when day or market value data fails to decode
