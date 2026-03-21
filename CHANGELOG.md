@@ -167,6 +167,16 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - Item link suffix format differs per client (`":0:0:0"` vs `":0:0:0:0:0:0:0:0"`)
 - Wowhead database URL selected per client (wotlk/tbc/classic)
 
+### Postal
+**Open All — reliability and speed improvements:**
+- Fixed `updateFrame` event handler: on `MAIL_INBOX_UPDATE`, the timer is now accelerated to 0.05 s instead of calling `ProcessNext()` directly; calling `TakeInboxItem` inside an event handler chain causes the request to be silently dropped by the client on Ascension, so deferring to the timer avoids that race
+- Added `stuckTime` tracking: if `CountItemsAndMoney()` reports no change for more than 5 real seconds after a `TakeInboxItem` call, the current mail is skipped and processing continues with the next one (prevents permanent "In Progress" hangs)
+
+**Open All — automatic mailbox pagination:**
+- After exhausting the currently shown mails, `refreshFrame` now calls `CheckInbox()` and waits for the resulting `MAIL_INBOX_UPDATE` event before reading inbox counts; this avoids reading stale data that was a problem with the previous pure-timer approach
+- Initial refresh delay reduced from 5 s to 2 s; an 8 s fallback timer fires a second `CheckInbox()` if `MAIL_INBOX_UPDATE` never arrives
+- Once a full batch (50 mails or all remaining mail) is confirmed, Open All resumes automatically after 1 s
+
 ### TitanGoldTracker
 - Uses `UIDropDownMenu_AddButton()` for context menus (not modern `MenuUtil`)
 - Uses Ace3 timer wrappers (`ScheduleRepeatingTimer`, `CancelTimer`) — no `C_Timer` dependency
