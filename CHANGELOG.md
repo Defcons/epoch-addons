@@ -53,6 +53,7 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - Detects active speed buffs (Druid forms, Sprint, Ghost Wolf, mounts, speed potions)
 - Shows yards/sec and active speed sources in tooltip
 - Polls every 0.2 seconds via `OnUpdate`
+- **Speed buff display:** tooltip now shows each active speed buff with its bonus percentage, e.g. `Cat Form (+30%)`, `Sprint (+70%) - 9s`; rank-varying spells (Sprint, Dash) resolve the correct % from the rank string returned by `UnitBuff`; timed buffs show remaining seconds
 
 ### EpochFixes
 - **Purpose:** Patches four distinct client bugs specific to the Ascension/Epoch environment
@@ -233,3 +234,4 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - Uses Ace3 timer wrappers (`ScheduleRepeatingTimer`, `CancelTimer`) — no `C_Timer` dependency
 - Uses `hooksecurefunc()` for safe function hooking
 - All frame templates are standard 3.3.5 Titan Panel templates
+- **Cross-faction gold:** `GetTooltipText`, `FindGold`, and `TotalGold` now match all characters on the same realm regardless of faction; `server` key is now just the realm name and comparison uses `string.find(charserver, server, 1, true) == 1` to match any `Realm::Alliance` or `Realm::Horde` entry; tooltip header updated to show "All Factions"
