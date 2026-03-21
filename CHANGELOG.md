@@ -125,11 +125,19 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 **Ace3 library xpcall fix (Lua 5.1 / 3.3.5 compatibility):**
 - All embedded Ace3 libraries (AceGUI-3.0, AceAddon-3.0, AceTimer-3.0, AceConfigDialog-3.0, AceBucket-3.0, CallbackHandler-1.0) use the `CreateDispatcher(argCount)` pattern — generates closures via `loadstring` that capture arguments before calling `xpcall(call, errorhandler)` with no extra args, working around the 3.3.5 limitation where `xpcall(f, h, ...)` silently drops variadic arguments
 
-### Magnify-Wotlk
-- Settings panel uses `InterfaceOptions_AddCategory` / `InterfaceOptionsFrame_OpenToCategory` (3.3.5 API)
-- `WORLD_MAP_UPDATE` event timing fix: wraps `SetMapToCurrentZone()` to suppress BattlefieldMinimap's automatic zone reset, accounting for 3.3.5's OnUpdate-before-event dispatch order
-- All hooking done via `hooksecurefunc()` — no CreateFromMixins or EventRegistry
+### Magnify-WotLK
+**3.3.5 API compatibility:**
+- Settings panel uses `InterfaceOptions_AddCategory` / `InterfaceOptionsFrame_OpenToCategory`
+- All hooking via `hooksecurefunc()` — no `CreateFromMixins` or `EventRegistry`
 - Textures use `CreateTexture()` + `SetTexture()` — no `SetAtlas` or `SetColorTexture`
+
+**Bug fix — zone navigation always landing on the player's current zone:**
+- Root cause: `Blizzard_BattlefieldMinimap.lua` registers a `WORLD_MAP_UPDATE` handler that calls `SetMapToCurrentZone()`, overriding any `SetMapZoom()` call made during navigation
+- Secondary issue: WoW 3.3.5's game loop runs `OnUpdate` scripts *before* dispatching queued game events, so an `OnUpdate`-based suppression flag clears too early and lets the reset through
+- Added `MagnifyNavigateMap()` to replace `WorldMapButton_OnClick` for continent→zone and world→continent clicks: matches `WorldMapFrame.areaName` (set by `UpdateMapHighlight` in `OnUpdate`) against `GetMapZones()` / `GetMapContinents()` and calls `SetMapZoom()` directly, bypassing the game's click handler which does not account for Magnify's scroll frame
+- Added `SetMapToCurrentZone` wrapper with a `Magnify_SuppressMapReset` flag; flag is cleared in a `WORLD_MAP_UPDATE` event listener registered after BattlefieldMinimap loads, so our handler fires *after* BattlefieldMinimap's reset call is suppressed
+- Added empty `OnClick` handler on `WorldMapButton` to prevent the game's native click event from firing `WorldMapButton_OnClick` a second time after `OnMouseUp` already handled navigation
+- `SetDetailFrameScale` (which internally calls `WorldMapFrame_OnEvent`) is now only called when `WorldMapScrollFrame.zoomedIn` is true, preventing spurious map resets on every plain click
 
 ### HCBreathBar
 - Hooks `OnUpdate` for all MirrorTimer frames; detects BREATH type and replaces the default bar with a custom `StatusBar`
