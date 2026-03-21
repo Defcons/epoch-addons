@@ -80,6 +80,10 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 ## PORTED ADDONS (Modified for 3.3.5a compatibility)
 
 ### NotPlater-3.3.5
+**Bug fix — "Usage: UnitDetailedThreatSituation" error (`modules/threat-3.3.5.lua`):**
+- `GetThreat` and `GetMaxThreatOnTarget` called `UnitDetailedThreatSituation` unconditionally; compound unit tokens like `"pet-target"` and stale/non-existent units cause the API to throw a hard Lua error in combat
+- Fixed by adding `UnitExists()` guards in both functions before calling the API; invalid units return `nil`/`0` safely instead
+
 **Bug fix — login crash "table index is nil" (`modules/threat-3.3.5.lua:80`):**
 - `PARTY_MEMBERS_CHANGED` and `RAID_ROSTER_UPDATE` are called from `OnInitialize` before `PLAYER_LOGIN`, at which point `UnitGUID("player")` returns nil — using nil as a table key is a hard Lua error
 - Fixed by storing all `UnitGUID()` calls in locals and nil-checking before assigning: `playerGuid`, `UnitGUID("party"..i)`, and `UnitGUID("raid"..i)` all guarded
@@ -290,6 +294,13 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - Only triggers inside instances (`IsInInstance() ~= "none"`); open-world dismissals are unaffected
 
 ### pfQuest-epoch
+**New feature — Rares/Chests toggle buttons on the WorldMap (`pfQuest-worldmap.lua`):**
+- Two small toggle buttons (76×16 px, custom backdrop) anchored inside `WorldMapPositioningGuide` top-right, below the close/arrow buttons, with no gap between them
+- **Rares** button and **Chests** button each toggle their respective `pfDatabase:TrackMeta()` tracking on/off with a single click; label and backdrop colour update to reflect current state (green = ON, dark = OFF)
+- Tooltip on hover shows current state and equivalent slash command (`/db track rares` / `/db track chests`)
+- Syncs with slash-command state changes via `WORLD_MAP_UPDATE` event (safe — does not hook `WorldMapFrame_Update` or `SetScript OnShow`, both of which break `SetupFullscreenScale` in 3.3.5)
+- Buttons use `SetFrameStrata("DIALOG")` + `SetFrameLevel(100)` so they remain clickable in windowed map mode
+
 - Epoch-specific NPC/quest database layered over pfQuest-wotlk via `patchtable()` merge system
 - `overwrites.lua` removes content not present on Epoch (Silithus NPCs, TBC quest givers, Zul'Aman island)
 - Version checking via `GetAddOnMetadata()` with addon messaging for update notifications
@@ -320,7 +331,15 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - Initial refresh delay reduced from 5 s to 2 s; an 8 s fallback timer fires a second `CheckInbox()` if `MAIL_INBOX_UPDATE` never arrives
 - Once a full batch (50 mails or all remaining mail) is confirmed, Open All resumes automatically after 1 s
 
-### Aux-addon (Post tab & Auctions tab)
+### Aux-addon (Post tab, Auctions tab & Tooltip)
+**Bug fix — tooltip crash "Invalid quest item in SetQuestLogItem" (`core/tooltip.lua`):**
+- Hook wrapper called the original `SetQuestLogItem` (and all other hooked tooltip methods) unconditionally; when `LibExtraTip` called it with a stale/invalid quest item, the WoW API threw before returning, crashing the whole chain
+- Fixed by wrapping the original call in `pcall` — on failure the error is caught silently and the custom `extend_tooltip` logic is skipped (correct, nothing valid to show); on success everything proceeds as before
+
+**Bug fix — deposit always showing 1 silver (`tabs/post/core.lua`):**
+- `unit_vendor_price()` works by temporarily slotting the item into the auction sell slot; in 3.3.5 this often returns `0` or fails silently, bypassing the `GetItemInfo` fallback (which only ran on `nil`, not `0`) and falling through to the `100 * stack_count` minimum
+- Fixed by flipping priority: `GetItemInfo(item_id)` return value 11 (vendor sell price) is checked first since it is always reliable once the item is cached; the scanned `unit_vendor_price` is only used as a fallback when `GetItemInfo` returns nothing
+
 **Bug fix — Buyout button never executing the bid:**
 - `PlaceAuctionBid` must be called from a hardware event (button click), not from an `OnUpdate`/scan-thread callback; calling it from `on_auction` silently did nothing
 - Replaced the old single-click flow with a two-click state machine (`idle → searching → found → idle`) in a `do`-block with private state (`buyout_state`, `buyout_index`, `buyout_price_total`)
@@ -369,10 +388,24 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - After a scan completes, the buyout listing now automatically selects the first non-historical-value row (i.e. the lowest-priced real auction) so prices are immediately ready for undercutting without requiring a manual click
 - Auto-selection is skipped if `user_price_override` is true (user has manually typed a price)
 
+**Bug fix — deposit always showing 1s:**
+- Deposit rate was 5%/25% — corrected to 15%/75% matching actual WoW 3.3.5 faction/neutral AH rates
+- Duration dropdown stores enum integers (1/2/3), not hours; fixed by mapping DURATION_12/24/48 → 12/24/48 hours before computing `duration_factor = hours / 12`; previously dividing by 120 produced a near-zero multiplier that collapsed the deposit to the 1s minimum floor
+- Deposit calculation now tries `select(11, GetItemInfo(item_id))` as primary vendor price source and falls back to `unit_vendor_price`; `GetAuctionSellItemInfo` is unreliable on Epoch
+
+**Bug fix — default stack count now half of total quantity:**
+- When selecting an item, stack size defaults to 1 and stack count defaults to `floor(total / 2)` (minimum 1), so half the bag quantity is queued by default instead of 1
+
 ### !!!ClassicAPI (game-shipped library)
 **Bug fix — `SetAtlas` hard-error on unknown atlas name (`Util/SharedExtendedMethods.lua`):**
 - `Method_SetAtlas()` called `Assert(Atlas, "SetAtlas: Atlas named X does not exist")` when a requested atlas wasn't in `ATLAS_INFO_STORAGE`; `Ascension_HelpUI` (a built-in game UI addon) requests `transmog-no-item` which only exists in retail — this caused a hard Lua error every time the Help menu was opened, crashing the entire layout generator
 - Fixed by replacing the `Assert` with a silent `if not Atlas then return end` — the icon simply doesn't render instead of erroring; matches the expected graceful behaviour when an atlas is unavailable on the 3.3.5 client
+
+### Whats-Training-Epoch
+**Bug fix — "Now available at trainer" messages shown at level 60 (`Announce.lua`):**
+- Login announcement and level-up announcement both fire at level 60 even though there are no more trainable levels beyond cap
+- Added `UnitLevel("player") < 60` guard to the login delayed-announcement scheduler; added early `return` in the `PLAYER_LEVEL_UP` handler when new level ≥ 60
+- `/wte test` command is unaffected and still works for manual testing
 
 ### TitanGoldTracker
 - Uses `UIDropDownMenu_AddButton()` for context menus (not modern `MenuUtil`)
