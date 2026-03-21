@@ -285,6 +285,19 @@ All addons modified or created with Claude Code assistance for the Ascension pri
   2. Item is gone → pick next item alphabetically by name
   3. Nothing after it → fall back to first remaining auction
 
+**New feature — auto-advance to next item after posting:**
+- After clicking Post, the callback now builds a sorted, filtered inventory list and selects the first item alphabetically after the one just posted
+- Fallback chain: stay on same item if it still has quantity remaining → take the last item if nothing comes after alphabetically
+- `select_next_item()` function added for the new **Next** button, with wrap-around (goes back to first item after the last)
+
+**New feature — Next button:**
+- New `Next` button in the Post tab toolbar advances to the next item in the inventory list (alphabetical order, wraps around)
+- Enabled whenever inventory contains at least one auctionable item
+
+**New feature — buyout auto-select lowest price:**
+- After a scan completes, the buyout listing now automatically selects the first non-historical-value row (i.e. the lowest-priced real auction) so prices are immediately ready for undercutting without requiring a manual click
+- Auto-selection is skipped if `user_price_override` is true (user has manually typed a price)
+
 ### TitanGoldTracker
 - Uses `UIDropDownMenu_AddButton()` for context menus (not modern `MenuUtil`)
 - Uses Ace3 timer wrappers (`ScheduleRepeatingTimer`, `CancelTimer`) — no `C_Timer` dependency
