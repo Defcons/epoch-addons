@@ -192,6 +192,42 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - Initial refresh delay reduced from 5 s to 2 s; an 8 s fallback timer fires a second `CheckInbox()` if `MAIL_INBOX_UPDATE` never arrives
 - Once a full batch (50 mails or all remaining mail) is confirmed, Open All resumes automatically after 1 s
 
+### Aux-addon (Post tab & Auctions tab)
+**Bug fix — Buyout button never executing the bid:**
+- `PlaceAuctionBid` must be called from a hardware event (button click), not from an `OnUpdate`/scan-thread callback; calling it from `on_auction` silently did nothing
+- Replaced the old single-click flow with a two-click state machine (`idle → searching → found → idle`) in a `do`-block with private state (`buyout_state`, `buyout_index`, `buyout_price_total`)
+- First click: validates selection, starts a list scan to locate the exact auction; sets state to `searching` and disables button
+- On match found: stores auction index + total price, sets state to `found`, re-enables button with "click again to confirm" status
+- Second click: IS the hardware event — safely calls `place_bid` and resets state to `idle`
+- `reset_buyout_state()` called in `update_item()` to clear stale state when switching items
+
+**Bug fix — Unit Starting Price showing inflated value after auto-selection:**
+- Root cause: `bid_selection` was auto-selected to the cheapest bid row; `undercut()` with `stack=true` computes `ceil(unit_price × record.stack_size) / slider_stack_size`, producing e.g. 250g start price for a 5-stack at 50g/item when slider=1
+- Fix: removed `bid_selection` auto-selection entirely from `update_auction_listing`; `bid_selection` is now only set when the user manually clicks a bid row
+- Both start price and buyout price now derive from `buyout_selection` (same record, same stack size), so `unit_start_price ≤ unit_buyout_price` is always satisfied
+
+**Bug fix — price_update running one frame before auto-selections were visible:**
+- `price_update()` was called before `update_auction_listings()` in `on_update()`, so auto-selections from the current frame weren't yet in `buyout_selection` when prices were computed
+- Fix: reordered `on_update()` — `update_auction_listings()` first, then `price_update()`
+
+**New feature — manual price override:**
+- Typing a custom price in the Unit Starting Price or Unit Buyout Price edit boxes was immediately overwritten on the next frame by the auto-selection logic
+- Added `user_price_override` flag (private `do`-block with `get_user_price_override` / `set_user_price_override`)
+- `char` handlers on both price inputs now set `user_price_override = true`; cleared on item switch (`update_item`) or explicit refresh (`refresh_entries`)
+- `update_auction_listing` skips buyout auto-selection when `user_price_override` is true
+
+**New feature — inventory list auto-scroll to selected item:**
+- After posting or pressing Next, the newly selected item could be off-screen, requiring manual scrollbar use
+- Added `M.scroll_to(item_listing, target_record)` to `gui/item_listing.lua`: finds item index, checks if already visible, and calls `scroll_frame:SetVerticalScroll(offset * ROW_HEIGHT)` only when needed
+- `update_inventory_listing` wrapped in a `do`-block with `last_scroll_target` tracking; scrolls only when `selected_item` changes, preventing scroll disruption on same-item refreshes
+
+**Bug fix — Auctions tab selection reset after cancelling an auction:**
+- `CancelAuction()` fires `AUCTION_OWNED_LIST_UPDATE` → `scan_auctions()` → `wipe(auction_records)` → `SetDatabase(empty)` → `UpdateRowInfo()` calls `SetSelectedRecord(nil)`, destroying the selection before the rescan completes
+- Fix in `tabs/auctions/core.lua`: save `prev_item_key` and `prev_name` from `listing.selected` before wiping; after `update_listing()` in `on_complete`, restore selection with three-tier fallback:
+  1. Same `item_key` still has auctions → stay on it
+  2. Item is gone → pick next item alphabetically by name
+  3. Nothing after it → fall back to first remaining auction
+
 ### TitanGoldTracker
 - Uses `UIDropDownMenu_AddButton()` for context menus (not modern `MenuUtil`)
 - Uses Ace3 timer wrappers (`ScheduleRepeatingTimer`, `CancelTimer`) — no `C_Timer` dependency
