@@ -79,6 +79,28 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ## PORTED ADDONS (Modified for 3.3.5a compatibility)
 
+### NotPlater-3.3.5
+**Bug fix — "High Threat" color never displayed (`modules/threat-3.3.5.lua`):**
+- `lastThreat` was keyed by volatile unit-ID strings (`"mouseover"`, `"party1-target"`, etc.) which change between calls, so the threat-trajectory comparison (`highestThreat - (playerThreat + 3*(playerThreat - lastThreat[unit]))`) always saw `nil` and skipped the High Threat (c2) state entirely
+- Fixed by adding `healthFrame.lastUnitGuid` (stable GUID) stored alongside `lastUnitMatch` at all three match sites (`group target`, `mouseover`, `focus`) in `ThreatCheck`, in `MouseoverThreatCheck`, and cleared in `ThreatComponentsOnShow`
+- `lastThreat` now keyed and read by GUID instead of unit-ID string
+
+**Bug fix — `MouseoverThreatCheck` ignored its `guid` parameter:**
+- Was always setting `lastUnitMatch = "mouseover"` and discarding the passed-in `guid`; now also sets `lastUnitGuid = guid` so the stable key is available for `lastThreat`
+
+**Bug fix — `tgetn(group)` on a hash table always returned 0:**
+- `group` is keyed by GUID (hash table), so `table.getn` always returned 0, making the number-text ranking threshold division wrong
+- Replaced with `groupSize` counter incremented inside the existing loop, with a `groupSize > 1` guard
+
+**Bug fix — `ThreatComponentsOnShow` crash on login ("Font not set"):**
+- `SetText("")` was called on FontStrings before `ConfigureThreatComponents` had set their font, causing a Lua error on every nameplate shown at login
+- Fixed by guarding with `if healthFrame.threatDifferentialText:GetFont() then`
+
+**Feature — solo play support (Hunter pet threat):**
+- `PARTY_MEMBERS_CHANGED` now always builds `self.party` (previously `nil` when solo), always including `"player"` and `"pet"` if present
+- `ThreatCheck` and `MouseoverThreatCheck` gate changed from `UnitInParty/UnitInRaid` check to `if group then`, so solo always runs the full threat path
+- Solo correction in `OnNameplateMatch`: `UnitDetailedThreatSituation` for the pet may return `nil` when not in a party/raid, causing `highestThreat == playerThreat` and always showing c1; fixed by reading the player's own `status` field (0/1 = not tanking, 2/3 = tanking) and bumping `highestThreat` when the API confirms the player is not the aggro holder
+
 ### ItemRack (v2.243)
 **New Feature — "Disable in BG/Arena" per-set option:**
 - Added `NoBG` flag to the set data structure (`ItemRackUser.Sets[name].NoBG`)
