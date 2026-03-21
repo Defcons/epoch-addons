@@ -65,10 +65,15 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 ### AuxTSMBridge
 - **Purpose:** Two-way price data bridge between Aux auction scanner and TradeSkillMaster
 - Registers two TSM price sources: `AuxMarket` (weighted median) and `AuxMinBuyout` (daily low)
-- Auto-syncs all Aux scanned prices into TSM AuctionDB when the Auction House closes (throttled to once per 12 hours)
-- Calculates weighted median with exponential time decay (0.99^days_ago)
-- Parses Aux's raw history strings directly to avoid crash when calling Aux's Lua functions thousands of times synchronously
-- Slash commands: `/axtsm sync` (manual sync), `/axtsm status`
+- Auto-syncs all Aux scanned prices into TSM AuctionDB when the Auction House closes (throttled to once per 12 real hours, persisted across sessions via `AuxTSMBridgeDB` SavedVariable)
+- Calculates weighted median with exponential time decay (0.99^days_ago), replicating Aux's own algorithm
+- Parses Aux's raw history strings directly instead of calling `auxHistory.value()` in a loop — the latter goes through Aux's temp-table allocator (`T.lua`) and causes `memory allocation error: block too big` when called thousands of times synchronously outside Aux's execution context
+- Slash commands: `/axtsm sync` (force immediate sync, resets the 12-hour timer), `/axtsm status`
+
+**Bug fixes:**
+- `quantity = 0` written during sync encoded to TSM's sentinel `"~"` which decodes back to `nil`; TSM's tooltip then calls `format("%d auctions", nil)` and crashes — fixed by defaulting to `1` in the bridge and adding `or 0` guard directly in `TradeSkillMaster_AuctionDB.lua` line 295
+- `AUCTION_HOUSE_CLOSED` fires twice in 3.3.5 (Aux hides its frame in the same event, re-triggering it); the 12-hour cooldown naturally absorbs the double-fire
+- Removed noisy login message "Registered AuxMarket and AuxMinBuyout as TSM price sources"
 
 ---
 
@@ -132,6 +137,9 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - Added `DecodeJSON()` function using `gsub()` + `loadstring()` to parse JSON-like app data into Lua tables
 - Supports realm/faction data merging with multi-hyphen realm name parsing
 - Accepts cross-faction auction data imports within a configurable `MAX_AVG_DAY` time window
+
+**AuxTSMBridge compatibility fix:**
+- Added `or 0` guard on `TSM.data[itemID].quantity` in `GetTooltip()` (line 295) — AuxTSMBridge writes synced items with no auction count; TSM's `encode(0)` stores `"~"` which decodes to `nil`, causing `format("%d auctions", nil)` to crash on item hover
 
 ### ArkInventory
 **Ace3 library xpcall fix (Lua 5.1 / 3.3.5 compatibility):**
