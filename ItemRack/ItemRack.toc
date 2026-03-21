@@ -1,0 +1,15 @@
+## Interface: 30000
+## Title: ItemRack
+## Author: Gello
+## SavedVariables: ItemRackSettings, ItemRackItems, ItemRackEvents
+## SavedVariablesPerCharacter: ItemRackUser
+ItemRack.lua
+ItemRack.xml
+ItemRackButtons.lua
+ItemRackButtons.xml
+ItemRackEquip.lua
+ItemRackQueue.lua
+ItemRackEvents.lua
+
+
+

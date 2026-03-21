@@ -1,0 +1,16 @@
+## Interface: 30100
+## Title: Broker [ItemRack]
+## Author: Tristanian
+## Notes: Minimalistic LDB plugin for the ItemRack addon.
+## Dependencies: ItemRack
+## OptionalDeps: Ace3
+## X-Embeds: Ace3
+## X-Category: Miscellaneous
+## SavedVariables: Broker_ItemRackConfig
+## Version: 1.9
+## X-WoWI-ID: 10610
+
+embeds.xml
+LibDataBroker-1.1.lua
+locale-enUS.lua
+Broker_ItemRack.lua

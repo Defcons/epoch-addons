@@ -1,0 +1,17 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 10.00
+# WowAddonStudio Solution File, Format Version 10.00
+Project("{E6E1D386-69D8-4755-9E61-0950293915FC}") = "MozzFullWorldMap", "MozzFullWorldMap.wowproj", "{43287E98-336E-4936-95DC-9309BC83A99C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Default|Any CPU = Default|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{43287E98-336E-4936-95DC-9309BC83A99C}.Default|Any CPU.ActiveCfg = Default|Any CPU
+		{43287E98-336E-4936-95DC-9309BC83A99C}.Default|Any CPU.Build.0 = Default|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

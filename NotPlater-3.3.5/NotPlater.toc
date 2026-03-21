@@ -1,0 +1,32 @@
+## Interface: 20400
+## Title: NotPlater
+## Notes: Feature rich nameplate addon (Design inspired by Plater)
+## Author: RichSteini
+## SavedVariables: NotPlaterDB
+## OptionalDeps: LibStub, CallbackHandler, LibSharedMedia, Ace3, Threat
+
+# Libs
+embeds.xml
+
+# Localisation
+locales.xml
+
+# Core
+NotPlater.lua
+
+# Config and utility functions
+misc\simulatorFrame.lua
+misc\configPrototypes.lua
+misc\config.lua
+misc\configDefaults.lua
+misc\utils.lua
+
+# Modules
+modules\castBar.lua
+modules\healthBar.lua
+modules\icon.lua
+modules\levelText.lua
+modules\nameText.lua
+modules\stacking.lua
+modules\target.lua
+modules\threat.lua

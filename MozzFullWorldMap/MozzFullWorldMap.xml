@@ -1,0 +1,71 @@
+<!--
+
+MozzFullWorldMap.xml
+MozzFullWorldMap (Fan's Update)
+
+-->
+
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/FrameXML/UI.xsd">
+
+	<Script file="localisation.en.lua"/>
+	<Script file="localisation.de.lua"/>
+	<Script file="localisation.fr.lua"/>
+	<Script file="localisation.es.lua"/>
+	<Script file="localisation.tw.lua"/>
+	<Script file="MozzFullWorldMap.lua"/>
+
+	<Frame name="MozzFullWorldMapFrame" hidden="false" toplevel="true" frameStrata="LOW" enableMouse="false" parent="UIParent">
+		<Anchor point="TOPLEFT">
+			<Offset>
+				<AbsDimension x="0" y="0"/>
+			</Offset>
+		</Anchor>
+		<Size>
+			<AbsDimension x="1" y="1"/>
+		</Size>
+		<Scripts>
+			<OnLoad>
+				MozzFullWorldMapFrame_OnLoad();
+			</OnLoad>
+			<OnEvent>
+				MozzFullWorldMapFrame_OnEvent();
+			</OnEvent>
+			<OnUpdate>
+				MozzFullWorldMapFrame_OnUpdate(self, arg1);
+			</OnUpdate>
+		</Scripts>
+	</Frame>
+
+	<CheckButton name="MozzWorldMapShowAllCheckButton" hidden="false" inherits="OptionsCheckButtonTemplate" parent="WorldMapPositioningGuide">
+		<HitRectInsets>
+			<AbsInset left="0" right="-125" top="0" bottom="0"/>
+		</HitRectInsets>
+		<Size>
+			<AbsDimension x="24" y="25"/>
+		</Size>
+		<Scripts>
+			<OnClick>
+				if ( this:GetChecked() ) then
+					MozzFullWorldMap.Enabled = true;
+				else
+					MozzFullWorldMap.Enabled = false;
+				end
+				WorldMapFrame_Update();
+			</OnClick>
+			<OnShow>
+				Mozz_AnchorMapOptions();
+				this:SetChecked( MozzFullWorldMap.Enabled );
+			</OnShow>
+		</Scripts>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<FontString name="MozzWorldMapShowAllLabel" inherits="GameFontNormalSmall" justifyH="LEFT" text="BINDING_NAME_MOZZ_WM_CHECKBOX">
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="MozzWorldMapShowAllCheckButton" relativePoint="RIGHT">
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+	</CheckButton>
+</Ui>

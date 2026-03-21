@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: CircadianRhythm
+## Notes: A simple addon to show Epoch game time.
+## Author: Bennylava
+## Version: 1.0
+## SavedVariables: CircadianRhythmSettings
+CircadianRhythm.lua

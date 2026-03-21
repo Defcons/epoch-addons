@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: DeleteItems
+## Notes: Automatically delete unwanted items from your bags.
+## Author: Gemini (rewritten)
+## SavedVariables: DIData, DITotalSavedItems, DICurrentList
+
+DeleteItems.lua

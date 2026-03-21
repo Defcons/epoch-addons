@@ -1,0 +1,20 @@
+## Interface: 30300
+## Title:|cffffe00a<|r|cffff7d0aDBM|r|cffffe00a>|r |cff69ccf0Onyxia|r
+## LoadOnDemand: 1
+## RequiredDeps: DBM-Core
+## SavedVariables: DBMOnyxia_AllSavedVars
+## SavedVariablesPerCharacter: DBMOnyxia_SavedStats
+## X-DBM-Mod: 1
+## X-DBM-Mod-Type: RAID
+## X-DBM-Mod-Category: Classic
+## X-DBM-StatTypes: normal
+## X-DBM-Mod-Sort: 1108
+## X-DBM-Mod-MapID: 719
+## X-DBM-Mod-Name: Onyxia's Lair
+## X-DBM-Mod-LoadZone: Onyxia's Lair
+
+localization.en.lua
+
+OrtorgTheSentinel.lua
+AtressianTheKeeper.lua
+Onyxia.lua

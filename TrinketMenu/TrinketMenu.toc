@@ -1,0 +1,12 @@
+## Interface: 30000
+## Title: TrinketMenu
+## Author: Gello
+## Notes: AddOn to manage trinkets
+## SavedVariables: TrinketMenuOptions
+## SavedVariablesPerCharacter: TrinketMenuPerOptions, TrinketMenuQueue
+TrinketMenu.lua
+TrinketMenu.xml
+TrinketMenuOpt.lua
+TrinketMenuOpt.xml
+TrinketMenuQueue.lua
+TrinketMenuQueue.xml

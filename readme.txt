@@ -1,0 +1,1 @@
+Project Epoch still uses 3.3.5 addons. At this time, do not use the addons from the ascension launcher they are customized for the ascension client. You can get addons here  https://felbite.com/wow-3-3-5-addons/, 3.3.5 curseforge, or use 3.3.5 addons you already have.

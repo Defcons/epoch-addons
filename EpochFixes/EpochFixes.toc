@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: EpochFixes
+## Notes: Small bug fixes for Project Epoch 3.3.5
+## Version: 1.1.0
+## LoadOnDemand: 0
+
+EpochFixes.lua

@@ -1,0 +1,8 @@
+## Interface: 30300
+## Author: p3lim, Ty
+## Version: v1.0-Epoch
+## Title: Molinari
+## Notes: One-click Lockpicking, Milling, Prospecting and Disenchanting!
+
+Molinari.lua
+Disenchanting.lua

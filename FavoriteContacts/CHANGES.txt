@@ -1,0 +1,20 @@
+lightweight tag 219ae762b5f0dcc7d2e0c88beb7068d081f1dafb 2.0
+Author:	GitHub <noreply@github.com>
+Date:	Fri Oct 26 21:35:09 2018 +0200
+
+commit 219ae762b5f0dcc7d2e0c88beb7068d081f1dafb
+Author: exochron <exochron@gamerstate.de>
+Date:   Fri Oct 26 21:35:09 2018 +0200
+
+    2.0
+    
+    - settings scope now always per realm
+    - added auto scale
+    - UI: bigger EditPopup
+    - UI: edit note in EditPopup
+    - UI: added interface options
+    - Locals: added french by PodVibe
+    - Libs: removed CoreFramework
+    - Libs: added MSA-DropDownMenu-1.0
+    - Code: more modular code
+
