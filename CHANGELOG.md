@@ -179,6 +179,9 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - Queue display now shows `(X stocked, craft Y)` annotation next to each craft name when `GetTotalQuantity` detects you already have some of the result item across all characters; correctly reduces the "effective crafts needed" count in the annotation without affecting the materials list
 - Bug fix (`UpdateQueue`): `TSM.db.factionrealm.tradeSkills[UnitName("player")]` nil-guarded with `or {}`; previously crashed when a character that had never scanned professions with TSM opened the queue panel (e.g. a bank alt opening First Aid)
 
+**New slash command — `/tsm queue` (`TradeSkillMaster_Crafting.lua`):**
+- Added `/tsm queue` slash command that opens/closes the standalone crafting queue window; works from any character, not just those who have scanned professions
+
 ### TradeSkillMaster_AuctionDB (v2.3.10)
 **Bug fixes — data encoding guards:**
 - Added nil and empty-string guards in `decodeScans()` to prevent corruption when day or market value data fails to decode
@@ -336,6 +339,11 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 **New feature — buyout auto-select lowest price:**
 - After a scan completes, the buyout listing now automatically selects the first non-historical-value row (i.e. the lowest-priced real auction) so prices are immediately ready for undercutting without requiring a manual click
 - Auto-selection is skipped if `user_price_override` is true (user has manually typed a price)
+
+### !!!ClassicAPI (game-shipped library)
+**Bug fix — `SetAtlas` hard-error on unknown atlas name (`Util/SharedExtendedMethods.lua`):**
+- `Method_SetAtlas()` called `Assert(Atlas, "SetAtlas: Atlas named X does not exist")` when a requested atlas wasn't in `ATLAS_INFO_STORAGE`; `Ascension_HelpUI` (a built-in game UI addon) requests `transmog-no-item` which only exists in retail — this caused a hard Lua error every time the Help menu was opened, crashing the entire layout generator
+- Fixed by replacing the `Assert` with a silent `if not Atlas then return end` — the icon simply doesn't render instead of erroring; matches the expected graceful behaviour when an atlas is unavailable on the 3.3.5 client
 
 ### TitanGoldTracker
 - Uses `UIDropDownMenu_AddButton()` for context menus (not modern `MenuUtil`)
