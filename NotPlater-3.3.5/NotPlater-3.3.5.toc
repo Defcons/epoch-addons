@@ -1,0 +1,32 @@
+## Interface: 30300
+## Title: NotPlater
+## Notes: Feature rich nameplate addon (Design inspired by Plater)
+## Author: RichSteini
+## SavedVariables: NotPlaterDB
+## OptionalDeps: LibStub, CallbackHandler, LibSharedMedia, Ace3
+
+# Libs
+embeds-3.3.5.xml
+
+# Localisation
+locales.xml
+
+# Core
+NotPlater-3.3.5.lua
+
+# Config and utility functions
+misc\simulatorFrame-3.3.5.lua
+misc\configPrototypes.lua
+misc\config-3.3.5.lua
+misc\configDefaults.lua
+misc\utils.lua
+
+# Modules
+modules\castBar.lua
+modules\healthBar.lua
+modules\icon.lua
+modules\levelText.lua
+modules\nameText.lua
+modules\stacking.lua
+modules\target.lua
+modules\threat-3.3.5.lua
