@@ -85,6 +85,11 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - `ItemRackEvents.lua`: Checks `inPVP` + `NoBG` flag before equipping in all three event processors — stance events (line 324), zone events (line 360), and buff events (line 397)
 - Prevents any automatic set equip trigger while player is inside a battleground or arena
 
+**Bug fix — trinket autoqueue cross-slot stop:**
+- `ItemRackQueue.lua` `ProcessAutoQueue()`: added paired-slot buff check using `SlotInfo[slot].other`
+- When either trinket fires and its buff becomes active, the *other* trinket's queue now also pauses — preventing unnecessary swaps during the 20-second shared trinket cooldown
+- Fix is symmetric: works regardless of which trinket (slot 13 or 14) was used first
+
 ### ItemRackOptions (v2.243)
 **New Feature — "Disable in BG/Arena" checkbox in Sets panel:**
 - Added `"Disable in BG/Arena"` label string to `ItemRack.CheckButtonLabels`
@@ -92,6 +97,11 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - `ItemRackOpt.NoBGSet()` function reads checkbox state and writes/clears `NoBG` on the active set
 - Checkbox is disabled when no set is selected; enabled and synced to saved value when a set is loaded
 - Increased Sets panel frame height to accommodate new checkbox
+
+**Bug fix — "stop queue here" always available for all slots:**
+- `PopulateSortList()`: unconditionally calls `AddToSortList(sortList, 0)` after the item loop
+- Previously the `0` sentinel ("-- stop queue here --") was only added when `AllowEmpty=="ON"` AND the slot had an item equipped AND the bank was closed — meaning slot 14 (bottom trinket) would often be missing the stop marker
+- Since `AddToSortList` deduplicates, this is safe to call unconditionally and decouples queue-control from the empty-slot-in-menu setting
 
 ### FavoriteContacts (v2.13.1) — Ported from Retail 12.0
 **API compatibility fixes:**
