@@ -364,8 +364,8 @@ end
 
 -------------------------------------------------
 -- Junk scanner: scan logic
--- Gray items (quality 0): always suggested.
--- White items (quality 1): suggested only if sellPrice <= threshold (copper).
+-- threshold = 0  → show ALL gray items (any sell price), no whites.
+-- threshold > 0  → show gray AND white items whose sell price <= threshold (copper).
 -- Skips items already in any deletion list OR in the ignore list.
 -- Also counts how many of each item are currently in bags and gets max stack size.
 -- Sorts purely by sell price ascending (cheapest / no-value first).
@@ -627,7 +627,7 @@ local function BuildJunkFrame()
     ---- Row A: threshold controls (label + editbox + unit — NO button on this row) ----
     local threshLabel = junkFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     threshLabel:SetPoint("TOPLEFT", junkFrame, "TOPLEFT", 14, -40)
-    threshLabel:SetText("Max white item sell price:")
+    threshLabel:SetText("Max sell price (gray/white):")
 
     local threshBox = CreateFrame("EditBox", ADDON_NAME .. "ThreshBox", junkFrame)
     threshBox:SetSize(44, 20)
