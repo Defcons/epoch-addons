@@ -58,7 +58,7 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 ### EpochFixes
 - **Purpose:** Patches four distinct client bugs specific to the Ascension/Epoch environment
 - **Fix 1 — SpellBook tab:** Wraps `OnEnter` handler in `pcall()` to suppress nil concatenation error when `TOGGLEPETBOOK` keybind is unassigned
-- **Fix 2 — Quest abandon:** Captures quest log index before abandon popup opens; re-selects correct quest when popup is accepted, preventing index shift from other addons (e.g. Leatrix)
+- **Fix 2 — Quest abandon:** Hooks `QuestLogAbandonButton:OnClick` to snapshot the quest log selection index; wraps `StaticPopupDialogs["ABANDON_QUEST"].OnAccept` to call `SelectQuestLogEntry(savedIndex)` just before `AbandonQuest()` runs — guarantees the right quest is selected at the last possible moment regardless of what other addons (e.g. Leatrix auto-quest scan via `SelectQuestLogEntry` loop) did to the selection while the popup was open; works in tandem with pfQuest-wotlk/quest.lua raw-override fixes
 - **Fix 3 — Quest reward tooltips:** Hooks quest item `OnEnter` events to reclaim `GameTooltip` ownership when pfQuest or Leatrix corrupt the tooltip anchor state
 - **Fix 4 — Inspect tooltips:** Caches all 19 equipped item links on `INSPECT_READY`; falls back to cached links after API returns nil (~10–15 seconds after cache expiry)
 
@@ -223,6 +223,11 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - `QuestWatchFrame` vs `WatchFrame` handled per client version
 - Item link suffix format differs per client (`":0:0:0"` vs `":0:0:0:0:0:0:0:0"`)
 - Wowhead database URL selected per client (wotlk/tbc/classic)
+
+**Bug fixes — quest log raw override removal (`quest.lua`):**
+- Replaced raw `AbandonQuest = function()` global override with `QuestLogAbandonButton:HookScript("OnClick")` — the override was calling `GetAbandonQuestName()` at confirm time, which could return a stale/wrong quest if another addon (e.g. Leatrix auto-quest scan) called `SelectQuestLogEntry()` while the confirmation popup was open; hooking the button captures the name at click time before any event can shift the selection
+- Replaced raw `QuestLog_Update = function()` global override with `hooksecurefunc("QuestLog_Update", ...)` — the raw replacement was creating a tainted version of this function, which on 3.3.5 can prevent `QuestLogAbandonButton` (controlled by `QuestLog_Update`'s call chain) from responding to clicks
+- Replaced raw `QuestLogTitleButton_OnClick = function()` global override with `hooksecurefunc("QuestLogTitleButton_OnClick", ...)` for the same taint reason
 
 ### Postal
 **Open All — reliability and speed improvements:**
