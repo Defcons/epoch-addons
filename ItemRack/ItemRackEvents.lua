@@ -309,8 +309,8 @@ function ItemRack.ProcessStanceEvent()
 	local currentStance = GetShapeshiftForm()
 	local stance, setToEquip, setToUnequip, setname, skip
 
-	local _,instanceType = IsInInstance()
-	local inPVP = instanceType=="arena" or instanceType=="pvp"
+	local inInstance,instanceType = IsInInstance()
+	local inPVP = inInstance and (instanceType=="arena" or instanceType=="pvp") -- Claude: guard inInstance so open-world never reads as pvp
 
 	for eventName in pairs(enabled) do
 		if events[eventName].Type=="Stance" then
@@ -321,12 +321,8 @@ function ItemRack.ProcessStanceEvent()
 			if not skip then
 				stance = ItemRack.GetStanceNumber(events[eventName].Stance)
 				setname = ItemRackUser.Events.Set[eventName]
-				if inPVP and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].NoBG then
-					skip = 1
-				end
-			end
-			if not skip then
-				if stance==currentStance and not ItemRack.IsSetEquipped(setname) then
+				local noBG = setname and inPVP and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].NoBG -- Claude: nil-guard setname; only block equip not whole event
+				if stance==currentStance and not ItemRack.IsSetEquipped(setname) and not noBG then
 					-- if this event is for this stance, then we'll want to equip this one
 					setToEquip = ItemRackUser.Events.Set[eventName]
 				end
@@ -351,13 +347,13 @@ function ItemRack.ProcessZoneEvent()
 
 	local currentZone = GetRealZoneText()
 	local setToEquip, setToUnequip, setname
-	local _,instanceType = IsInInstance()
-	local inPVP = instanceType=="arena" or instanceType=="pvp"
+	local inInstance,instanceType = IsInInstance()
+	local inPVP = inInstance and (instanceType=="arena" or instanceType=="pvp") -- Claude: guard inInstance
 
 	for eventName in pairs(enabled) do
 		if events[eventName].Type=="Zone" then
 			setname = ItemRackUser.Events.Set[eventName]
-			local noBG = inPVP and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].NoBG
+			local noBG = setname and inPVP and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].NoBG -- Claude: nil-guard setname
 			if events[eventName].Zones[currentZone] and not ItemRack.IsSetEquipped(setname) and not noBG then
 				setToEquip = setname
 			elseif not events[eventName].Zones[currentZone] and events[eventName].Unequip and ItemRack.IsSetEquipped(setname) then
@@ -378,8 +374,8 @@ function ItemRack.ProcessBuffEvent()
 	local events = ItemRackEvents
 
 	local buff, setname, isSetEquipped, skip
-	local _,instanceType = IsInInstance()
-	local inPVP = instanceType=="arena" or instanceType=="pvp"
+	local inInstance,instanceType = IsInInstance()
+	local inPVP = inInstance and (instanceType=="arena" or instanceType=="pvp") -- Claude: guard inInstance
 
 	for eventName in pairs(enabled) do
 		if events[eventName].Type=="Buff" then
@@ -394,13 +390,9 @@ function ItemRack.ProcessBuffEvent()
 					buff = UnitAura("player",events[eventName].Buff)
 				end
 				setname = ItemRackUser.Events.Set[eventName]
-				if inPVP and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].NoBG then
-					skip = 1
-				end
-			end
-			if not skip then
+				local noBG = setname and inPVP and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].NoBG -- Claude: nil-guard setname; only block equip not whole event
 				isSetEquipped = ItemRack.IsSetEquipped(setname)
-				if buff and not isSetEquipped then
+				if buff and not isSetEquipped and not noBG then
 					ItemRack.EquipSet(setname)
 				elseif not buff and isSetEquipped then
 					ItemRack.UnequipSet(setname)
