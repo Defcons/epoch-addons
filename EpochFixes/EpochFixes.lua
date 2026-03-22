@@ -44,16 +44,14 @@ local function InstallSelectionHook()
         if EFDebug.enabled then
             local before = GetQuestLogSelection()
             -- Grab 2-level traceback: skip this wrapper (level 1), show the caller (level 2+)
+            -- Claude: use WoW's debugstack() instead of debug.traceback (unavailable in 3.3.5 sandbox)
             local tb = ""
-            if debug and debug.traceback then
-                -- Trim to first 3 lines to keep output readable
-                local raw = debug.traceback("", 2) or ""
-                local lines = {}
-                for line in raw:gmatch("[^\n]+") do
-                    lines[#lines + 1] = line
-                    if #lines >= 3 then break end
-                end
-                tb = table.concat(lines, " | ")
+            if debugstack then
+                -- debugstack(level, topCount, tailCount): skip 1 = this wrapper, show 4 frames
+                local raw = debugstack(2, 4, 0) or ""
+                -- Collapse to one line for readability
+                raw = raw:gsub("\n", " | "):gsub("%s+", " ")
+                tb = raw
             end
             DBG(string.format(
                 "SelectQuestLogEntry(%s)  before=%s  caller=%s",
