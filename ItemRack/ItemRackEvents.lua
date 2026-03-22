@@ -410,15 +410,15 @@ function ItemRack.ProcessBuffEvent()
 			end
 			if not skip then
 				isSetEquipped = ItemRack.IsSetEquipped(setname)
-				if dbg then
-					ItemRack.Print("  ["..eventName.."] buff="..(buff and "YES" or "no").." set="..(setname or "NIL").." equipped="..(isSetEquipped and "YES" or "no").." skip="..(skip and "YES" or "no"))
+				if dbg and ItemRack.DebugTick == 0 then -- Claude: throttle per-event lines same as header
+					ItemRack.Print("  ["..eventName.."] buff="..(buff and "YES" or "no").." set="..(setname or "NIL").." equipped="..(isSetEquipped and "YES" or "no"))
 				end
 				if buff and not isSetEquipped then
 					ItemRack.EquipSet(setname)
 				elseif not buff and isSetEquipped then
 					ItemRack.UnequipSet(setname)
 				end
-			elseif dbg then
+			elseif dbg and ItemRack.DebugTick == 0 then -- Claude: throttle per-event lines same as header
 				ItemRack.Print("  ["..eventName.."] SKIPPED (NotInPVP or NoBG) set="..(setname or "NIL"))
 			end
 		end
