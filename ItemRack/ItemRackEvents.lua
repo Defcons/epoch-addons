@@ -381,6 +381,16 @@ function ItemRack.ProcessBuffEvent()
 	local inInstance,instanceType = IsInInstance()
 	local inPVP = inInstance and (instanceType=="arena" or instanceType=="pvp") -- Claude: guard inInstance
 
+	-- Claude: debug mode — print one report per second, not every 0.25s tick
+	local dbg = ItemRack.DebugEvents
+	if dbg then
+		ItemRack.DebugTick = (ItemRack.DebugTick or 0) + 1
+		if ItemRack.DebugTick >= 4 then
+			ItemRack.DebugTick = 0
+			ItemRack.Print("DEBUG BuffEvent — inPVP="..(inPVP and "YES" or "no").." IsMounted="..(IsMounted() and "YES" or "no").." OnTaxi="..(UnitOnTaxi("player") and "YES" or "no"))
+		end
+	end
+
 	for eventName in pairs(enabled) do
 		if events[eventName].Type=="Buff" then
 			skip = nil
@@ -400,11 +410,16 @@ function ItemRack.ProcessBuffEvent()
 			end
 			if not skip then
 				isSetEquipped = ItemRack.IsSetEquipped(setname)
+				if dbg then
+					ItemRack.Print("  ["..eventName.."] buff="..(buff and "YES" or "no").." set="..(setname or "NIL").." equipped="..(isSetEquipped and "YES" or "no").." skip="..(skip and "YES" or "no"))
+				end
 				if buff and not isSetEquipped then
 					ItemRack.EquipSet(setname)
 				elseif not buff and isSetEquipped then
 					ItemRack.UnequipSet(setname)
 				end
+			elseif dbg then
+				ItemRack.Print("  ["..eventName.."] SKIPPED (NotInPVP or NoBG) set="..(setname or "NIL"))
 			end
 		end
 	end

@@ -1834,6 +1834,10 @@ function ItemRack.SlashHandler(arg1)
 		ItemRack.ReflectLock()
 	elseif arg1=="opt" or arg1=="options" or arg1=="config" then
 		ItemRack.ToggleOptions()
+	elseif arg1=="debug" then -- Claude: toggle event debug output
+		ItemRack.DebugEvents = not ItemRack.DebugEvents
+		ItemRack.DebugTick = 0
+		ItemRack.Print("Event debug "..(ItemRack.DebugEvents and "ON — watch chat for buff event reports." or "OFF."))
 	else
 		ItemRack.Print("/itemrack opt : summons options window.")
 		ItemRack.Print("/itemrack equip set name : equip set 'set name'.")
@@ -1841,6 +1845,7 @@ function ItemRack.SlashHandler(arg1)
 		ItemRack.Print("/itemrack reset : resets buttons and their settings.")
 		ItemRack.Print("/itemrack reset everything : wipes ItemRack to default.")
 		ItemRack.Print("/itemrack lock/unlock : locks/unlocks the buttons.")
+		ItemRack.Print("/itemrack debug : toggle buff event debug output.")
 	end
 
 end
