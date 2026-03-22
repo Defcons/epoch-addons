@@ -1,5 +1,102 @@
 -- EpochFixes.lua
 
+-- ============================================================
+-- Claude: Quest debug system (/epochdebug on|off|status)
+-- Tracks quest log selection changes, SelectQuestLogEntry calls,
+-- QUEST_LOG_UPDATE firings, and the full abandon flow to diagnose
+-- wrong-quest-abandoned and related quest log bugs.
+-- ============================================================
+
+local EFDebug = {
+    enabled = false,
+    selectionHooked = false,
+}
+
+-- Print a timestamped debug line to the chat frame.
+local function DBG(msg)
+    if not EFDebug.enabled then return end
+    local t = GetTime()
+    DEFAULT_CHAT_FRAME:AddMessage(
+        string.format("|cffff9900[EFDebug %.3f]|r %s", t, tostring(msg)),
+        1, 0.6, 0
+    )
+end
+
+-- Return a short description of the currently selected quest log entry.
+local function QuestDesc(index)
+    index = index or GetQuestLogSelection()
+    if not index or index == 0 then return "none(0)" end
+    local title, _, _, _, isHeader = GetQuestLogTitle(index)
+    if not title then return "nil@" .. index end
+    if isHeader then return "[HDR:" .. title .. "]@" .. index end
+    return '"' .. title .. '"@' .. index
+end
+
+-- Hook SelectQuestLogEntry so we can see every caller that shifts the
+-- quest selection. Works by replacing the global with a wrapper that
+-- logs caller info (via debug.traceback when available) then calls through.
+local function InstallSelectionHook()
+    if EFDebug.selectionHooked then return end
+    EFDebug.selectionHooked = true
+
+    local _orig_SelectQuestLogEntry = SelectQuestLogEntry
+    SelectQuestLogEntry = function(index, ...)
+        if EFDebug.enabled then
+            local before = GetQuestLogSelection()
+            -- Grab 2-level traceback: skip this wrapper (level 1), show the caller (level 2+)
+            local tb = ""
+            if debug and debug.traceback then
+                -- Trim to first 3 lines to keep output readable
+                local raw = debug.traceback("", 2) or ""
+                local lines = {}
+                for line in raw:gmatch("[^\n]+") do
+                    lines[#lines + 1] = line
+                    if #lines >= 3 then break end
+                end
+                tb = table.concat(lines, " | ")
+            end
+            DBG(string.format(
+                "SelectQuestLogEntry(%s)  before=%s  caller=%s",
+                tostring(index), QuestDesc(before), tb
+            ))
+        end
+        return _orig_SelectQuestLogEntry(index, ...)
+    end
+end
+
+-- Watch QUEST_LOG_UPDATE events so we know when and how often the log
+-- refreshes (each refresh can trigger addons to call SelectQuestLogEntry).
+-- Claude: separate frames so PLAYER_LOGIN and QUEST_LOG_UPDATE don't clobber each other
+local debugLoginFrame = CreateFrame("Frame")
+debugLoginFrame:RegisterEvent("PLAYER_LOGIN")
+debugLoginFrame:SetScript("OnEvent", function()
+    InstallSelectionHook()
+end)
+
+local debugQuestFrame = CreateFrame("Frame")
+debugQuestFrame:RegisterEvent("QUEST_LOG_UPDATE")
+debugQuestFrame:SetScript("OnEvent", function(self, event)
+    DBG("QUEST_LOG_UPDATE  selection=" .. QuestDesc())
+end)
+
+-- Slash command: /epochdebug [on|off|status]
+SLASH_EPOCHDEBUG1 = "/epochdebug"
+SlashCmdList["EPOCHDEBUG"] = function(msg)
+    msg = strtrim(msg or ""):lower()
+    if msg == "on" then
+        EFDebug.enabled = true
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EpochFixes]|r Quest debug ON. Use /epochdebug off to stop.", 0, 1, 0)
+    elseif msg == "off" then
+        EFDebug.enabled = false
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EpochFixes]|r Quest debug OFF.", 0, 1, 0)
+    else
+        local state = EFDebug.enabled and "|cff00ff00ON|r" or "|cffff0000OFF|r"
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EpochFixes]|r Quest debug is " .. state .. ".  Usage: /epochdebug on|off", 0, 1, 0)
+    end
+end
+
+-- ============================================================
+
 -- Fix 1: nil concatenation error on SpellBookFrameTabButton2 OnEnter
 -- when TOGGLEPETBOOK has no keybind assigned.
 local f = CreateFrame("Frame")
@@ -48,6 +145,9 @@ fixFrame:SetScript("OnEvent", function()
     if QuestLogAbandonButton then
         QuestLogAbandonButton:HookScript("OnClick", function()
             savedAbandonIndex = GetQuestLogSelection()
+            -- Claude: debug — log what quest was selected when Abandon was clicked
+            DBG("AbandonButton clicked  savedIndex=" .. tostring(savedAbandonIndex)
+                .. "  quest=" .. QuestDesc(savedAbandonIndex))
         end)
     end
 
@@ -60,6 +160,12 @@ fixFrame:SetScript("OnEvent", function()
     if popup and popup.OnAccept then
         local originalAccept = popup.OnAccept
         popup.OnAccept = function(self, ...)
+            local currentSel = GetQuestLogSelection()
+            -- Claude: debug — show selection drift between click and confirm
+            DBG("ABANDON_QUEST OnAccept  savedIndex=" .. tostring(savedAbandonIndex)
+                .. "  currentSel=" .. tostring(currentSel)
+                .. "  drift=" .. tostring(savedAbandonIndex ~= currentSel)
+                .. "  abandoning=" .. QuestDesc(savedAbandonIndex))
             if savedAbandonIndex then
                 -- Re-select the quest the player originally clicked Abandon on.
                 -- This corrects any selection drift that happened while the popup
