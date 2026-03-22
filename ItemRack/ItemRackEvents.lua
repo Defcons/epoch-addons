@@ -321,8 +321,12 @@ function ItemRack.ProcessStanceEvent()
 			if not skip then
 				stance = ItemRack.GetStanceNumber(events[eventName].Stance)
 				setname = ItemRackUser.Events.Set[eventName]
-				local noBG = setname and inPVP and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].NoBG -- Claude: nil-guard setname; only block equip not whole event
-				if stance==currentStance and not ItemRack.IsSetEquipped(setname) and not noBG then
+				if setname and inPVP and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].NoBG then -- Claude: nil-guard setname
+					skip = 1
+				end
+			end
+			if not skip then
+				if stance==currentStance and not ItemRack.IsSetEquipped(setname) then
 					-- if this event is for this stance, then we'll want to equip this one
 					setToEquip = ItemRackUser.Events.Set[eventName]
 				end
@@ -390,9 +394,13 @@ function ItemRack.ProcessBuffEvent()
 					buff = UnitAura("player",events[eventName].Buff)
 				end
 				setname = ItemRackUser.Events.Set[eventName]
-				local noBG = setname and inPVP and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].NoBG -- Claude: nil-guard setname; only block equip not whole event
+				if setname and inPVP and ItemRackUser.Sets[setname] and ItemRackUser.Sets[setname].NoBG then -- Claude: nil-guard setname
+					skip = 1
+				end
+			end
+			if not skip then
 				isSetEquipped = ItemRack.IsSetEquipped(setname)
-				if buff and not isSetEquipped and not noBG then
+				if buff and not isSetEquipped then
 					ItemRack.EquipSet(setname)
 				elseif not buff and isSetEquipped then
 					ItemRack.UnequipSet(setname)
