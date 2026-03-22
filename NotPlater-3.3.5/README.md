@@ -1,72 +1,22 @@
-# NotPlater Nameplate Addon for 2.4.3 and 3.3.5 Clients
+# NotPlater-3.3.5
 
-<p align="center">
-  <img src="/images/demo.png">
-</p>
+A feature-rich nameplate addon with threat coloring, ported and bug-fixed for **WoW 3.3.5a (Ascension/Epoch)**.
 
-Feature rich nameplate addon for TBC 2.4.3 that was designed based on the modern Plater addon. The main purpose is to provide extensive threat information on nameplates with fully configurable options. The core features include:
-- Threat display with dps / healer and tank mode 
-    - Nameplate Color Coding (including an option for class colors)
-    - Threat Status Bar/Text
-    - Threat Differential Text 
-    - Threat Number Text
-- Fully customizable look, every bar (including borders) / text is movable / scalable
-- Textual health font for enemy healthbar in different configurations (percent, min / max, both)
-- Textual casting fonts for enemy castbar in different configurations (spellname, time remaining, time taken, both)\
-- Highly adjustable Target Options
-    - Border Indicator and Highlight like in Plater
-    - Non-Target Shading
-    - Target Overlay
-    - Mouseover Highlight
-    - Target-Target Text
-- Stacking Options
-- Simulator Frame
-- Profiles
+## Changes from the original
 
-If you find any bugs feel free to message me (Hardc0re#6291 on discord) or report an issue.
+### Bug fixes
+- **"Usage: UnitDetailedThreatSituation" error** — added `UnitExists()` guards before all `UnitDetailedThreatSituation` calls; compound unit tokens like `"pet-target"` and stale units no longer cause hard Lua errors in combat
+- **Login crash "table index is nil"** — `UnitGUID("player")` returns nil during early events before `PLAYER_LOGIN`; all GUID calls are now nil-checked before use as table keys
+- **"High Threat" color never shown** — `lastThreat` was keyed by volatile unit-ID strings which change between calls; now keyed by stable GUID via `healthFrame.lastUnitGuid`
+- **`MouseoverThreatCheck` ignoring its `guid` parameter** — always set `lastUnitMatch = "mouseover"` and discarded the passed GUID; now also sets `lastUnitGuid = guid`
+- **`tgetn(group)` always returning 0** — `group` is a GUID-keyed hash table; replaced `table.getn` with a `groupSize` counter
+- **`ThreatComponentsOnShow` crash on login ("Font not set")** — `SetText("")` called before font was set; guarded with `GetFont()` check
 
-## Threat Display Feature Description
+### New features
+- **Solo play / Hunter pet threat** — threat path now runs for solo players; Hunter pet threat correctly shown using `UnitDetailedThreatSituation` status field fallback when not in a party or raid
 
-<p align="center">
-  <img src="/images/demo4.png">
-</p>
+## Compatibility
 
-The picture above shows all the threat features that are available. They can be independently enabled / disabled. There exist two different modes, namely dps / healer and tank mode. For each mode the colors of the fonts and bars can be set individually.
-- Threat Color Coding\
-  Three different threat colors of the healthbar based on the colors of Plater, but can be changed settings.
-- Threat Status Bar/Text\
-  Shows your % on threat based on the highest person on threat within your group as a status bar and/or text. There are also color options for 100%, above 90% and below 90% for both status bar and text.
-- Threat Differential Text\
-  This shows the threat differential between you and second on threat if you are first on threat. If you are not first on threat then it shows the threat differential between the first on threat and you. Colors can be changed for each mode, default colors have the following intend, respective to the meaning of the modes: Green - save zone, Red - danger, Orange - close to danger. The font is fully customizable.
-- Threat Number Text\
-  This shows the number you are on threat. There are three different colors which display, depending on the mode with respective colors: First on threat, above 80% on threat and below 80% on threat. The font is fully customizable.
-
-## NotPlater Simulator Frame
-
-<p align="center">
-  <img src="/images/notplater_simulator_frame.gif">
-</p>
-
-This frame simulates a nameplate and is meant to ease the process of configuring, so you don't have to look for proper test scenarios. It also simulates a threat scenario of a group of 10 people internally, which is shown when you hover over the simulated frame. The simulator is moveable on the outer region and you can target/untarget the simulated frame by clicking on it.
-
-## Settings (/np or /notplater or Click on the Minimap Button)
-
-<p align="center">
-  <img src="/images/demo_settings.png">
-</p>
-
-The image above shows the settings that are available for the addon. You can either access them over the minimap button or with the slash commands /np or /notplater. All features that have been described are adjustable in the settings dialog.
-
-## Installation 2.4.3
-
-Rename the downloaded folder to "NotPlater" and put the folder in the AddOns directory:\
-..\Interface\AddOns\NotPlater
-
-## Installation 3.3.5
-
-Rename the downloaded folder to "NotPlater-3.3.5" and put the folder in the AddOns directory:\
-..\Interface\AddOns\NotPlater-3.3.5
-
-## Acknowledgements
-
-As already mentioned, the design is inspired by the Plater addon.
+- **Server:** Ascension / Epoch private server
+- **Interface:** 30300 (WoW 3.3.5a)
+- **Lua:** 5.1

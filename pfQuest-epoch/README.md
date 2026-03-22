@@ -1,36 +1,27 @@
-# pfQuest [Project Epoch DB]: Cuddlehorn's fork
+# pfQuest-epoch
 
-**NOTE: I do not give permission for this addon to be hosted in any servers launchers of any kind unless directly pulled from my repo and you must contact me before doing so.**
+An Epoch-specific quest and NPC database overlay for **pfQuest-wotlk**, designed for **WoW 3.3.5a (Ascension/Epoch)**.
 
-**NOTE: This is a fork of Bennylavaa's PFQuest-Epoch (https://github.com/Bennylavaa/pfQuest-epoch) which has been archived.
+## Features
 
-An extension for [pfQuest-wotlk](https://github.com/shagu/pfQuest) which adds support for [Project Epoch](https://www.project-epoch.net/).
-The latest version of [pfQuest-wotlk](https://github.com/shagu/pfQuest) is required and only enUS-Gameclients are supported at the time.
+- Layers Epoch-specific NPC and quest data over pfQuest-wotlk via a `patchtable()` merge system
+- `overwrites.lua` removes content not present on Epoch (Silithus NPCs, TBC quest givers, Zul'Aman island, etc.)
+- Version checking with optional update notifications (off by default — enable via pfQuest config)
 
-## Installation
-pfQuest-epoch is dependant on pfQuest to work.
+### Rares/Chests toggle buttons on the WorldMap
+- Two small toggle buttons anchored inside the WorldMap (top-right area)
+- **Rares** and **Chests** buttons toggle their respective `pfDatabase:TrackMeta()` tracking on/off with a single click
+- Label and colour update to reflect current state (green = ON, dark = OFF)
+- Tooltip shows current state and equivalent slash command
+- Syncs with slash-command state changes via `WORLD_MAP_UPDATE` event
+- Buttons use `SetFrameStrata("DIALOG")` + `SetFrameLevel(100)` so they remain clickable in windowed map mode
 
-1. Download the latest release **[pfQuest-wotlk](https://github.com/shagu/pfQuest/releases/latest/download/pfQuest-full-wotlk.zip)**
-2. Unzip it and place the "pfQuest-wotlk" folder into Wow-Directory\Interface\AddOns
-3. Download the latest release **[pfQuest-epoch](https://github.com/Cuddlehorn/pfQuest-epoch/releases/latest/download/pfQuest-epoch.zip)**
-4. Unzip it and place the "pfQuest-epoch" folder into Wow-Directory\Interface\AddOns
+## Requirements
 
-## Contribute
-To my knowledge there is no way to automate the data gathering so I urge
-as many as possible to read the contribution guide and help as this is not
-a one man job.
-[How to contribute](Contribute.md)
+- **pfQuest-wotlk** must be installed
 
-## Progress
+## Compatibility
 
-[Google Sheet](https://docs.google.com/spreadsheets/d/1uTlB9E-YUPJxO96Kn9RCpvx76kmhvHEs-i7XV8rPpW8/edit?usp=sharing)
-
-## License ![License](https://img.shields.io/badge/License-Custom-blue.svg)
-This project is licensed under a custom license that allows personal use and GitHub forks only. Redistribution or rehosting elsewhere is not permitted. See the [LICENSE](LICENSE) file for details.
-
-## Special Thank You
-- Bennylavaa: for all the hard work he put into pfquest-epoch.
-- Shagu: for making the base addon and creating pfQuest-turtle which this is based off of.
-- snifflewow: for the auto release workflow idea as well as the cleaned up readme documentation.
-- Exuria: for their countless hours spent contrubuting. 
-- trav346: for the foundation of the overworld map markers.
+- **Server:** Ascension / Epoch private server
+- **Interface:** 30300 (WoW 3.3.5a)
+- **Lua:** 5.1

@@ -1,25 +1,24 @@
 # Magnify-WotLK
 
-Magnify is a World of Warcraft WotLK (3.3.5a) add-on which allows the user to zoom the world map in or out. The functionality was copied from [Magnify](https://github.com/luskanek/Magnify), and updated/reworked to support the WotLK map.
+A world map zoom addon ported and bug-fixed for **WoW 3.3.5a (Ascension/Epoch)**.
 
-**Features**
+## Changes from the original
 
-- Scroll to zoom on world map, click + drag to pan
-- Ctrl + Scroll to scale the windowed world map
-- Class color player icons on the world map ([before](https://github.com/user-attachments/assets/ee8e0f9b-d80d-4e8b-9e8c-0d518b4a7052), [after](https://github.com/user-attachments/assets/cb266429-6c9f-4f1a-a1b8-a7cb593ba252))
-- Options are configurable using `/magnify`
-- Recommended: Install [MozzFullWorldMap](https://www.curseforge.com/wow/addons/mozz-full-world-map-fans-update/files/430783) addon to display unexplored areas. Combined, these two addons provide similar functionality to Leatrix Maps.
+### API compatibility
+- Settings panel uses `InterfaceOptions_AddCategory` / `InterfaceOptionsFrame_OpenToCategory`
+- All hooking via `hooksecurefunc()` — no `CreateFromMixins` or `EventRegistry`
+- Textures use `CreateTexture()` + `SetTexture()` — no `SetAtlas` or `SetColorTexture`
 
-# How to install
- * Click the green Code button near the top right, then select Download ZIP.
- * Extract the contents of the ZIP file to your Interface/AddOns folder.
- * :warning: The extracted folder will have a -main suffix (i.e., Magnify-WotLK-main); **you must rename it to remove the suffix (i.e., Magnify-WotLK).**
- * Restart the game to load the addon.
+### Bug fix — zone navigation always landing on the player's current zone
+- Root cause: `Blizzard_BattlefieldMinimap.lua` registers a `WORLD_MAP_UPDATE` handler that calls `SetMapToCurrentZone()`, overriding any `SetMapZoom()` call made during navigation
+- Secondary issue: WoW 3.3.5's game loop runs `OnUpdate` scripts *before* dispatching queued game events, so an `OnUpdate`-based suppression flag clears too early
+- Added `MagnifyNavigateMap()` to replace `WorldMapButton_OnClick` for continent→zone and world→continent clicks
+- Added `SetMapToCurrentZone` wrapper with a `Magnify_SuppressMapReset` flag; flag is cleared in a `WORLD_MAP_UPDATE` event listener registered after BattlefieldMinimap loads
+- Added empty `OnClick` handler on `WorldMapButton` to prevent the native click event from firing a second time
+- `SetDetailFrameScale` is now only called when `WorldMapScrollFrame.zoomedIn` is true
 
-**Compatibility**
+## Compatibility
 
-- :white_check_mark: ElvUI
-- :white_check_mark: Gatherer
-- :white_check_mark: Mapster
-- :white_check_mark: MozzFullWorldMap
-- :white_check_mark: pfQuest
+- **Server:** Ascension / Epoch private server
+- **Interface:** 30300 (WoW 3.3.5a)
+- **Lua:** 5.1
