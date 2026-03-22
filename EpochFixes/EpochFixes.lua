@@ -131,48 +131,90 @@ end)
 -- re-selects that exact index before AbandonQuest() is called, regardless of
 -- what other addons did to the selection while the popup was open.
 
+-- Claude: save both title and index for robust abandon targeting
+local savedAbandonTitle = nil
 local savedAbandonIndex = nil
+
+-- Claude: find a quest in the log by title; returns its index or nil
+local function FindQuestIndexByTitle(title)
+    for i = 1, GetNumQuestLogEntries() do
+        local t, _, _, _, isHeader = GetQuestLogTitle(i)
+        if not isHeader and t == title then
+            return i
+        end
+    end
+    return nil
+end
+
+local function ClearAbandonState()
+    savedAbandonTitle = nil
+    savedAbandonIndex = nil
+end
 
 local fixFrame = CreateFrame("Frame")
 fixFrame:RegisterEvent("PLAYER_LOGIN")
 fixFrame:SetScript("OnEvent", function()
 
-    -- Step 1: Record the selection index at the moment the player clicks Abandon.
-    -- HookScript fires after the original OnClick (which shows the popup), so the
-    -- quest log selection is still guaranteed to be the player's intended quest.
+    -- Step 1: Capture quest title + index when the player clicks Abandon.
+    -- Title is the robust identifier: immune to index drift if quests are
+    -- added/removed while the confirmation popup is open.
+    -- Index is kept as a fallback only.
     if QuestLogAbandonButton then
         QuestLogAbandonButton:HookScript("OnClick", function()
             savedAbandonIndex = GetQuestLogSelection()
-            -- Claude: debug — log what quest was selected when Abandon was clicked
-            DBG("AbandonButton clicked  savedIndex=" .. tostring(savedAbandonIndex)
-                .. "  quest=" .. QuestDesc(savedAbandonIndex))
+            savedAbandonTitle = savedAbandonIndex and GetQuestLogTitle(savedAbandonIndex) or nil
+            -- Claude: debug
+            DBG("AbandonButton clicked  idx=" .. tostring(savedAbandonIndex)
+                .. "  title=" .. tostring(savedAbandonTitle))
         end)
     end
 
-    -- Step 2: Wrap the popup's OnAccept to restore the correct quest selection
-    -- just before AbandonQuest() is called. This is the authoritative fix point:
-    -- by the time OnAccept fires, any other addon's QUEST_LOG_UPDATE handling
-    -- has already run and may have shifted the selection away from the intended
-    -- quest. We force it back here, guaranteeing the right quest is abandoned.
     local popup = StaticPopupDialogs and StaticPopupDialogs["ABANDON_QUEST"]
-    if popup and popup.OnAccept then
+    if not popup then return end
+
+    -- Step 2: On confirm — find the quest by title (robust) or fall back to
+    -- saved index, then force-select it immediately before AbandonQuest() runs.
+    -- This corrects any selection drift from addons (e.g. Leatrix's
+    -- QUEST_LOG_UPDATE scanner) that ran while the popup was open.
+    if popup.OnAccept then
         local originalAccept = popup.OnAccept
         popup.OnAccept = function(self, ...)
             local currentSel = GetQuestLogSelection()
-            -- Claude: debug — show selection drift between click and confirm
-            DBG("ABANDON_QUEST OnAccept  savedIndex=" .. tostring(savedAbandonIndex)
-                .. "  currentSel=" .. tostring(currentSel)
-                .. "  drift=" .. tostring(savedAbandonIndex ~= currentSel)
-                .. "  abandoning=" .. QuestDesc(savedAbandonIndex))
-            if savedAbandonIndex then
-                -- Re-select the quest the player originally clicked Abandon on.
-                -- This corrects any selection drift that happened while the popup
-                -- was open (e.g. Leatrix's SelectQuestLogEntry loop).
-                SelectQuestLogEntry(savedAbandonIndex)
+            local targetIndex = nil
+
+            if savedAbandonTitle then
+                -- Primary: find by title — works even if indices shifted
+                targetIndex = FindQuestIndexByTitle(savedAbandonTitle)
             end
-            savedAbandonIndex = nil
+            if not targetIndex then
+                -- Fallback: use the saved numeric index
+                targetIndex = savedAbandonIndex
+            end
+
+            -- Claude: debug
+            DBG("ABANDON_QUEST OnAccept  title=" .. tostring(savedAbandonTitle)
+                .. "  savedIdx=" .. tostring(savedAbandonIndex)
+                .. "  resolvedIdx=" .. tostring(targetIndex)
+                .. "  currentSel=" .. tostring(currentSel)
+                .. "  drift=" .. tostring(targetIndex ~= currentSel))
+
+            if targetIndex then
+                SelectQuestLogEntry(targetIndex)
+            end
+            ClearAbandonState()
             originalAccept(self, ...)
         end
+    end
+
+    -- Step 3: Clean up saved state if the player cancels or closes the popup.
+    -- Without this, a stale savedAbandonTitle from a cancelled attempt could
+    -- interfere with the next abandon.
+    local originalCancel = popup.OnCancel
+    popup.OnCancel = function(self, ...)
+        -- Claude: debug
+        DBG("ABANDON_QUEST OnCancel — clearing saved state")
+        ClearAbandonState()
+        if originalCancel then originalCancel(self, ...) end
     end
 
 end)
