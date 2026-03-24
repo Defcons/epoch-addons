@@ -9,6 +9,27 @@ local history_schema = {'tuple', '#', {next_push='number'}, {daily_min_buyout='n
 
 local value_cache = {}
 
+-- Claude: configurable decay base for weighted median history calculation.
+-- Lower = faster response to recent prices. Default 0.75 (was 0.99 upstream).
+-- 0.99 = very slow (~11-day half-life), 0.75 = fast, 0.50 = very aggressive.
+-- Stored in account_data so it persists across sessions and applies globally.
+local DEFAULT_DECAY = 0.75
+
+-- Claude: local so it can be called from within M.value (M.xxx not accessible internally)
+local function get_decay()
+    return (aux.account.history_decay ~= nil) and aux.account.history_decay or DEFAULT_DECAY
+end
+M.get_decay = get_decay  -- expose for slash.lua external callers
+
+function M.set_decay(v)
+    aux.account.history_decay = v
+    -- Flush value cache so next access recalculates with new decay
+    for k in pairs(value_cache) do
+        release(value_cache[k])
+        value_cache[k] = nil
+    end
+end
+
 function LOAD2()
 	data = faction_data'history'
 end
@@ -66,7 +87,7 @@ function M.value(item_key)
 		if getn(item_record.data_points) > 0 then
 			local total_weight, weighted_values = 0, temp-T
 			for _, data_point in pairs(item_record.data_points) do
-				local weight = .99 ^ round((item_record.data_points[1].time - data_point.time) / (60 * 60 * 24))
+				local weight = get_decay() ^ round((item_record.data_points[1].time - data_point.time) / (60 * 60 * 24)) -- Claude: configurable decay
 				total_weight = total_weight + weight
 				tinsert(weighted_values, O('value', data_point.value, 'weight', weight))
 			end

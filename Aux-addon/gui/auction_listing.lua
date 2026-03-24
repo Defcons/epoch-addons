@@ -352,7 +352,7 @@ M.auctions_columns = {
     },
     {
         title = 'High Bidder',
-        width = .21,
+        width = .13, -- Claude: reduced from .21 to make room for % Hist. Value
         align = 'CENTER',
         fill = function(cell, record)
             cell.text:SetText(record.high_bidder or color.red 'No Bids')
@@ -367,6 +367,20 @@ M.auctions_columns = {
             else
                 return sort_util.compare(record_a.high_bidder, record_b.high_bidder, desc)
             end
+        end,
+    },
+    { -- Claude: add % Hist. Value column to Auctions tab
+        title = '% Hist.\nValue',
+        width = .08,
+        align = 'CENTER',
+        fill = function(cell, record)
+            local pct, bidPct = record_percentage(record)
+            cell.text:SetText((pct or bidPct) and percentage_historical(pct or bidPct, not pct) or '?')
+        end,
+        cmp = function(record_a, record_b, desc)
+            local pct_a = record_percentage(record_a) or (desc and -huge or huge)
+            local pct_b = record_percentage(record_b) or (desc and -huge or huge)
+            return sort_util.compare(pct_a, pct_b, desc)
         end,
     },
 }
@@ -426,7 +440,7 @@ M.bids_columns = {
     },
     {
         title = 'Seller',
-        width = .13,
+        width = .09, -- Claude: reduced from .13 to make room for % Hist. Value
         align = 'CENTER',
         fill = function(cell, record)
             cell.text:SetText(cache.is_player(record.owner) and (color.yellow(record.owner)) or (record.owner or '?'))
@@ -493,7 +507,7 @@ M.bids_columns = {
     },
     {
         title = 'Status',
-        width = .115,
+        width = .075, -- Claude: reduced from .115 to make room for % Hist. Value
         align = 'CENTER',
         fill = function(cell, record)
             local status
@@ -506,6 +520,20 @@ M.bids_columns = {
         end,
         cmp = function(record_a, record_b, desc)
             return sort_util.compare(record_a.high_bidder and 1 or 0, record_b.high_bidder and 1 or 0, desc)
+        end,
+    },
+    { -- Claude: add % Hist. Value column to Bids tab
+        title = '% Hist.\nValue',
+        width = .08,
+        align = 'CENTER',
+        fill = function(cell, record)
+            local pct, bidPct = record_percentage(record)
+            cell.text:SetText((pct or bidPct) and percentage_historical(pct or bidPct, not pct) or '?')
+        end,
+        cmp = function(record_a, record_b, desc)
+            local pct_a = record_percentage(record_a) or (desc and -huge or huge)
+            local pct_b = record_percentage(record_b) or (desc and -huge or huge)
+            return sort_util.compare(pct_a, pct_b, desc)
         end,
     },
 }

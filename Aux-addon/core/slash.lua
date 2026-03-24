@@ -47,6 +47,17 @@ function SlashCmdList.AUX(command)
     elseif arguments[1] == 'tooltip' and arguments[2] == 'disenchant' and arguments[3] == 'distribution' then
 	    tooltip_settings.disenchant_distribution = not tooltip_settings.disenchant_distribution
         print('tooltip disenchant distribution ' .. status(tooltip_settings.disenchant_distribution))
+    elseif arguments[1] == 'history' and arguments[2] == 'decay' then
+        local history = require 'aux.core.history'
+        local v = tonumber(arguments[3])
+        if v and v > 0 and v < 1 then
+            history.set_decay(v)
+            print('history decay set to ' .. color.blue(v) .. ' (was ' .. color.blue(history.get_decay()) .. ')')
+        else
+            print('history decay: ' .. color.blue(history.get_decay()) .. '  (default: 0.75)')
+            print('Usage: /aux history decay <0.01–0.99>  -- lower = faster, higher = slower')
+            print('Examples: 0.99=very slow  0.75=fast(default)  0.50=very aggressive')
+        end
     elseif arguments[1] == 'clear' and arguments[2] == 'item' and arguments[3] == 'cache' then
 	    _G.aux_items = {}
 	    _G.aux_item_ids = {}
@@ -65,6 +76,7 @@ function SlashCmdList.AUX(command)
 		print('- tooltip merchant sell [' .. status(tooltip_settings.merchant_sell) .. ']')
 		print('- tooltip disenchant value [' .. status(tooltip_settings.disenchant_value) .. ']')
 		print('- tooltip disenchant distribution [' .. status(tooltip_settings.disenchant_distribution) .. ']')
+		print('- history decay [' .. color.blue(require('aux.core.history').get_decay()) .. ']  (0.01-0.99, lower=faster)')
 		print('- clear item cache')
 		print('- populate wdb')
     end
