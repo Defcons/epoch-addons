@@ -78,25 +78,38 @@ function Queue:CreateRestockQueue(groupInfo)
 	TSMAPI:FireEvent("CRAFTING:QUEUE:RESTOCKED", numItems)
 end
 
+-- Returns true if any mat for this spell is poor (gray) quality.
+-- Used to skip "scrap conversion" recipes like Ruined Leather Scraps -> Light Leather.
+local function HasPoorQualityMat(spellID)
+	local craft = TSM.db.factionrealm.crafts[spellID]
+	if not craft then return false end
+	for matItemString in pairs(craft.mats) do
+		local _, _, quality = TSMAPI:GetSafeItemInfo(matItemString)
+		if quality and quality == 0 then return true end -- Claude: skip gray-mat recipes
+	end
+	return false
+end
+
 -- Returns a spellID to use when crafting itemString as an intermediate.
 -- Prefers the cheapest cost-calculated spell; falls back to any known craftable
 -- spell (non-cooldown preferred) when pricing data is unavailable.
+-- Never returns a spell whose mats include poor-quality (gray) items.
 local function FindIntermediateSpellID(itemString)
 	-- Cost-based path: respects CD exclusions and picks cheapest option.
 	local spellID = TSM.Cost:GetLowestCraftPrices(itemString, true)
-	if spellID then return spellID end
+	if spellID and not HasPoorQualityMat(spellID) then return spellID end
 
 	-- Fallback: no pricing data available, use any craft we know for this item.
 	local spellIDs = TSM.craftReverseLookup[itemString]
 	if not spellIDs then return nil end
-	-- Prefer crafts without a cooldown.
+	-- Prefer crafts without a cooldown and without poor-quality mats.
 	for _, sid in ipairs(spellIDs) do
 		local craft = TSM.db.factionrealm.crafts[sid]
-		if craft and not craft.hasCD then return sid end
+		if craft and not craft.hasCD and not HasPoorQualityMat(sid) then return sid end
 	end
-	-- Accept a cooldown craft as last resort.
+	-- Accept a cooldown craft as last resort, still skip poor-quality mats.
 	for _, sid in ipairs(spellIDs) do
-		if TSM.db.factionrealm.crafts[sid] then return sid end
+		if TSM.db.factionrealm.crafts[sid] and not HasPoorQualityMat(sid) then return sid end
 	end
 end
 
