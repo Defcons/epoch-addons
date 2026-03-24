@@ -63,6 +63,18 @@ local LB = LibStub("AceLocale-3.0"):GetLocale("Titan_GoldTracker", true)
 local TitanGoldTracker = LibStub("AceAddon-3.0"):NewAddon("TitanGoldTracker", "AceHook-3.0", "AceTimer-3.0")
 local GoldTrackerTimer = nil;
 local _G = getfenv(0);
+
+-- ================================ Item Wealth Tracking ================================
+-- Session-only caches (never persisted across logins)
+local GT_PriceCache  = {}   -- [item_key]  = copper value (0 means "no price found")
+local GT_QualCache   = {}   -- [item_link] = quality integer (0-6)
+local GT_BagScanTimer = nil -- AceTimer handle; debounces BAG_UPDATE floods
+
+-- Forward declarations so event handlers and tooltip defined above can call these.
+local GT_ScanBagsNow, GT_ScanBankNow, GT_ScanAHNow
+local GT_GetCharItemValue, GT_GetCharAHValue
+local GT_GetItemPrice, GT_GetItemQuality, GT_ItemKeyFromLink
+
 -- ******************************** Functions *******************************
 
 -- **************************************************************************
@@ -85,6 +97,9 @@ function TitanPanelGoldTrackerButton_OnLoad(self)
      self:RegisterEvent("PLAYER_MONEY");
      self:RegisterEvent("VARIABLES_LOADED");
      self:RegisterEvent("UNIT_NAME_UPDATE");
+     self:RegisterEvent("BAG_UPDATE");
+     self:RegisterEvent("BANKFRAME_OPENED");
+     self:RegisterEvent("AUCTION_OWNED_LIST_UPDATE");
      
      -- support for picking up money     
      TitanGoldTracker:SecureHook("OpenCoinPickupFrame",TitanGoldTracker_OpenCoinPickupFrame);     
@@ -146,6 +161,30 @@ function TitanGoldTracker_OnEvent(self, event, ...)
           end
           return;
      end
+
+     if (event == "BAG_UPDATE") then
+          if (GOLDTRACKER_INITIALIZED) then
+               -- Debounce: bags fire many updates at once; wait 0.5s before scanning.
+               if GT_BagScanTimer then TitanGoldTracker:CancelTimer(GT_BagScanTimer, true) end
+               GT_BagScanTimer = TitanGoldTracker:ScheduleTimer(GT_ScanBagsNow, 0.5)
+          end
+          return;
+     end
+
+     if (event == "BANKFRAME_OPENED") then
+          if (GOLDTRACKER_INITIALIZED) then
+               GT_ScanBagsNow()   -- refresh bags too (catches anything missed)
+               GT_ScanBankNow()
+          end
+          return;
+     end
+
+     if (event == "AUCTION_OWNED_LIST_UPDATE") then
+          if (GOLDTRACKER_INITIALIZED) then
+               GT_ScanAHNow()
+          end
+          return;
+     end
 end
  
 -- *******************************************************************************************
@@ -165,10 +204,13 @@ function TitanPanelGoldTrackerButton_GetTooltipText()
 
      local GoldArraySorted = {};
      for index, money in pairs(GoldArray) do
-          local character, charserver = string.match(index, '(.*)_(.*)');
-          if (character) then
-               if (string.find(charserver, server, 1, true) == 1) then
-                    table.insert(GoldArraySorted, index); -- insert all keys from hash into the array
+          -- Only include numeric (gold) entries; skip table entries like BAGS_/BANK_/AH_/ITEMVAL_/AHVAL_.
+          if type(money) == "number" then
+               local character, charserver = string.match(index, '(.*)_(.*)');
+               if (character) then
+                    if (string.find(charserver, server, 1, true) == 1) then
+                         table.insert(GoldArraySorted, index); -- insert all keys from hash into the array
+                    end
                end
           end
      end
@@ -179,18 +221,46 @@ function TitanPanelGoldTrackerButton_GetTooltipText()
           table.sort(GoldArraySorted, function (key1, key2) return GoldArray[key1] > GoldArray[key2] end) 
      end
      
-     for i = 1, getn(GoldArraySorted) do 
+     local ttlItemVal = 0;
+     local ttlAHVal   = 0;
+     for i = 1, getn(GoldArraySorted) do
           local character, charserver = string.match(GoldArraySorted[i], '(.*)_(.*)');
           if (character) then
                if (string.find(charserver, server, 1, true) == 1) then
                     if (mod(GoldArray[GoldArraySorted[i]],10) == 0) then
-                         currentMoneyRichText = currentMoneyRichText.."\n"..character.."\t"..TitanUtils_GetHighlightText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(floor(GoldArray[GoldArraySorted[i]]/10))));                    
+                         local goldText = TitanUtils_GetHighlightText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(floor(GoldArray[GoldArraySorted[i]]/10))));
+                         local extraText = "";
+                         if (GoldArray["SHOWITEMWEALTH"]) then
+                              local iv = GT_GetCharItemValue(GoldArraySorted[i]);
+                              ttlItemVal = ttlItemVal + iv;
+                              if (iv > 0) then
+                                   extraText = extraText.."  |cffcccc33"..LB["TITAN_GOLDTRACKER_BAGS"]..": "..format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(iv)).."|r";
+                              end
+                         end
+                         if (GoldArray["SHOWAHLISTINGS"]) then
+                              local av = GT_GetCharAHValue(GoldArraySorted[i]);
+                              ttlAHVal = ttlAHVal + av;
+                              if (av > 0) then
+                                   extraText = extraText.."  |cff33cc66"..LB["TITAN_GOLDTRACKER_AH"]..": "..format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(av)).."|r";
+                              end
+                         end
+                         currentMoneyRichText = currentMoneyRichText.."\n"..character.."\t"..goldText..extraText;
                     end
                end
           end
      end
 
      currentMoneyRichText = currentMoneyRichText.."\n"..TITAN_GOLDTRACKER_SPACERBAR.."\n"..LB["TITAN_GOLDTRACKER_TTL_GOLD"].."\t"..TitanUtils_GetHighlightText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(TitanPanelGoldTrackerButton_TotalGold())));
+     if (GoldArray["SHOWITEMWEALTH"] and ttlItemVal > 0) then
+          currentMoneyRichText = currentMoneyRichText.."\n"..LB["TITAN_GOLDTRACKER_TTL_ITEMS"].."\t"..TitanUtils_GetHighlightText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(ttlItemVal)));
+     end
+     if (GoldArray["SHOWAHLISTINGS"] and ttlAHVal > 0) then
+          currentMoneyRichText = currentMoneyRichText.."\n"..LB["TITAN_GOLDTRACKER_TTL_AH"].."\t"..TitanUtils_GetHighlightText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(ttlAHVal)));
+     end
+     if (GoldArray["SHOWITEMWEALTH"] and (ttlItemVal > 0 or ttlAHVal > 0)) then
+          local grandTotal = TitanPanelGoldTrackerButton_TotalGold() + ttlItemVal + ttlAHVal;
+          currentMoneyRichText = currentMoneyRichText.."\n"..LB["TITAN_GOLDTRACKER_GRANDTOTAL"].."\t"..TitanUtils_GetHighlightText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(grandTotal)));
+     end
 
      -- find session earnings and earning per hour
      local sesstotal = GetMoney("player") - GOLDTRACKER_STARTINGGOLD;
@@ -244,11 +314,13 @@ function TitanPanelGoldTrackerButton_FindGold()
      
      if (GoldArray["VIEWALL"]) then
           for index, money in pairs(GoldArray) do
-               local character, charserver = string.match(index, '(.*)_(.*)');
-               if (character) then
-                    if (string.find(charserver, server, 1, true) == 1) then
-                         if (mod(money,10)==0) then
-                              ttlgold = ttlgold + floor(money / 10);
+               if type(money) == "number" then
+                    local character, charserver = string.match(index, '(.*)_(.*)');
+                    if (character) then
+                         if (string.find(charserver, server, 1, true) == 1) then
+                              if (mod(money,10)==0) then
+                                   ttlgold = ttlgold + floor(money / 10);
+                              end
                          end
                     end
                end
@@ -271,11 +343,13 @@ function TitanPanelGoldTrackerButton_TotalGold()
     local ttlgold = 0;
      
      for index, money in pairs(GoldArray) do
-          local character, charserver = string.match(index, '(.*)_(.*)');
-          if (character) then
-               if (string.find(charserver, server, 1, true) == 1) then
-                    if (mod(money,10)==0) then
-                         ttlgold = ttlgold + floor(money / 10);
+          if type(money) == "number" then
+               local character, charserver = string.match(index, '(.*)_(.*)');
+               if (character) then
+                    if (string.find(charserver, server, 1, true) == 1) then
+                         if (mod(money,10)==0) then
+                              ttlgold = ttlgold + floor(money / 10);
+                         end
                     end
                end
           end
@@ -314,7 +388,32 @@ function TitanPanelRightClickMenu_PrepareGoldTrackerMenu()
      else
           TitanPanelRightClickMenu_AddCommand(LB["TITAN_GOLDTRACKER_TOGGLE_GPH_SHOW"], TITAN_GOLDTRACKER_ID,"TitanPanelGoldTrackerGPH_Toggle");
      end
-          
+
+     -- Item wealth: toggle visibility
+     if (GoldArray["SHOWITEMWEALTH"]) then
+          TitanPanelRightClickMenu_AddCommand(LB["TITAN_GOLDTRACKER_TOGGLE_ITEMWEALTH_HIDE"], TITAN_GOLDTRACKER_ID, "TitanPanelGoldTrackerItemWealth_Toggle");
+     else
+          TitanPanelRightClickMenu_AddCommand(LB["TITAN_GOLDTRACKER_TOGGLE_ITEMWEALTH_SHOW"], TITAN_GOLDTRACKER_ID, "TitanPanelGoldTrackerItemWealth_Toggle");
+     end
+
+     -- AH listings and quality threshold (only shown when item wealth is active)
+     if (GoldArray["SHOWITEMWEALTH"]) then
+          if (GoldArray["SHOWAHLISTINGS"]) then
+               TitanPanelRightClickMenu_AddCommand(LB["TITAN_GOLDTRACKER_TOGGLE_AH_HIDE"], TITAN_GOLDTRACKER_ID, "TitanPanelGoldTrackerAHListings_Toggle");
+          else
+               TitanPanelRightClickMenu_AddCommand(LB["TITAN_GOLDTRACKER_TOGGLE_AH_SHOW"], TITAN_GOLDTRACKER_ID, "TitanPanelGoldTrackerAHListings_Toggle");
+          end
+
+          -- Quality threshold cycle: shows current setting, click to advance
+          local minQ = GoldArray["MINQUALITY"] or 1;
+          local qualLabel;
+          if     (minQ <= 0) then qualLabel = LB["TITAN_GOLDTRACKER_MINQUALITY_GREY"];
+          elseif (minQ == 1) then qualLabel = LB["TITAN_GOLDTRACKER_MINQUALITY_WHITE"];
+          else                    qualLabel = LB["TITAN_GOLDTRACKER_MINQUALITY_GREEN"];
+          end
+          TitanPanelRightClickMenu_AddCommand(qualLabel, TITAN_GOLDTRACKER_ID, "TitanPanelGoldTrackerMinQuality_Cycle");
+     end
+
      -- A blank line in the menu
      TitanPanelRightClickMenu_AddSpacer();
 
@@ -372,6 +471,7 @@ function TitanPanelRightClickMenu_PrepareGoldTrackerMenu()
 			local name = GetUnitName("player");
 			local server = GetRealmName();
 				for index, money in pairs(GoldArray) do
+				if type(money) == "number" then
       		local character, charserver = string.match(index, "(.*)_(.*)::Alliance");
       			if character then
 							info.text = character.." - "..charserver;
@@ -390,11 +490,13 @@ function TitanPanelRightClickMenu_PrepareGoldTrackerMenu()
 							UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL);
 						end						
 				end												
+			end   -- for loop
 		elseif UIDROPDOWNMENU_MENU_LEVEL == 3 and UIDROPDOWNMENU_MENU_VALUE == "Horde" then
 			local info = {};
 			local name = GetUnitName("player");
 			local server = GetRealmName();
 				for index, money in pairs(GoldArray) do
+				if type(money) == "number" then
       		local character, charserver = string.match(index, "(.*)_(.*)::Horde");
       			if character then
 							info.text = character.." - "..charserver;
@@ -411,6 +513,7 @@ function TitanPanelRightClickMenu_PrepareGoldTrackerMenu()
 							end
 							UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL);
 						end
+				end  -- type check
 				end		
 		end     
 end
@@ -425,6 +528,9 @@ function TitanPanelGoldTrackerButton_ClearData(self)
      REMEMBER_VIEWALL =      GoldArray["VIEWALL"];
      REMEMBER_SORTBYNAME = GoldArray["SORTBYNAME"];
      REMEMBER_SHOWGPH = GoldArray["DISPLAYGPH"];
+     local REMEMBER_SHOWITEMWEALTH = GoldArray["SHOWITEMWEALTH"];
+     local REMEMBER_SHOWAHLISTINGS = GoldArray["SHOWAHLISTINGS"];
+     local REMEMBER_MINQUALITY     = GoldArray["MINQUALITY"];
      
      GoldArray = {};
      TitanPanelGoldTrackerButton_Initialize_Array(self);
@@ -432,6 +538,9 @@ function TitanPanelGoldTrackerButton_ClearData(self)
      GoldArray["VIEWALL"] = REMEMBER_VIEWALL;
      GoldArray["SORTBYNAME"] = REMEMBER_SORTBYNAME;
      GoldArray["DISPLAYGPH"] = REMEMBER_SHOWGPH;
+     GoldArray["SHOWITEMWEALTH"] = REMEMBER_SHOWITEMWEALTH;
+     GoldArray["SHOWAHLISTINGS"] = REMEMBER_SHOWAHLISTINGS;
+     GoldArray["MINQUALITY"]     = REMEMBER_MINQUALITY;
           
      DEFAULT_CHAT_FRAME:AddMessage(LB["TITAN_GOLDTRACKER_DB_CLEARED"], 1.0, 0.0, 1.0 );
 end
@@ -467,10 +576,12 @@ function TitanPanelGoldTrackerButton_Initialize_Array(self)
      if (GoldArray["VERSION2"] == nil) then
           GoldArray["VERSION2"] = true;
           for index, money in pairs(GoldArray) do
-               local character, charserver = string.match(index, '(.*)_(.*)');
-               if (character) then
-                         money = money * 10;
-                         GoldArray[index] = money;
+               if type(money) == "number" then
+                    local character, charserver = string.match(index, '(.*)_(.*)');
+                    if (character) then
+                              money = money * 10;
+                              GoldArray[index] = money;
+                    end
                end
           end
      end
@@ -489,6 +600,20 @@ function TitanPanelGoldTrackerButton_Initialize_Array(self)
      MoneyFrame_Update("TitanPanelGoldTrackerButton", TitanPanelGoldTrackerButton_FindGold());
 
      GOLDTRACKER_INITIALIZED = true;
+
+     -- Item-wealth config defaults (only on first ever load)
+     if (GoldArray["SHOWITEMWEALTH"] == nil) then
+          GoldArray["SHOWITEMWEALTH"] = true;
+     end
+     if (GoldArray["SHOWAHLISTINGS"] == nil) then
+          GoldArray["SHOWAHLISTINGS"] = true;
+     end
+     if (GoldArray["MINQUALITY"] == nil) then
+          GoldArray["MINQUALITY"] = 1;   -- 0=grey+, 1=white+, 2=green+
+     end
+
+     -- Trigger an initial bag scan now that the index is known.
+     GT_ScanBagsNow();
 end
 
 -- *******************************************************************************************
@@ -653,6 +778,280 @@ function TitanGoldTracker_OpenCoinPickupFrame(multiplier, maxMoney, parent)
      CoinPickupFrame:Show();
      --PlaySound("igBackPackCoinSelect");
 end
+
+-- ===========================================================================
+-- ITEM WEALTH TRACKING
+-- ===========================================================================
+-- Prices come from Aux (direct raw-string parse, same technique as AuxTSMBridge)
+-- with a fallback to TSM AuctionDB.  Grey items (quality 0) are filtered by
+-- the MINQUALITY threshold (default 1 = white+) to avoid polluting totals with
+-- near-zero vendor prices.
+--
+-- Per-character inventory is stored in GoldArray under:
+--   BAGS_<charIndex>  – bag slots (updated on BAG_UPDATE)
+--   BANK_<charIndex>  – bank slots (updated on BANKFRAME_OPENED)
+--   AH_<charIndex>    – owned AH auctions (updated on AUCTION_OWNED_LIST_UPDATE)
+--
+-- Pre-computed copper totals are cached in:
+--   ITEMVAL_<charIndex>  – bags + bank value
+--   AHVAL_<charIndex>    – AH listing value
+-- These are set to nil whenever the underlying store changes, forcing a lazy
+-- recalculate on the next tooltip hover.
+-- ===========================================================================
+
+-- ---- Aux raw-history price lookup ----------------------------------------
+-- Mirrors AuxTSMBridge's GetAuxPricesDirect to avoid calling into aux's
+-- internal temp-table allocator (which crashes when iterated externally).
+
+local function GT_GetAuxFactionKey()
+     local realm   = GetCVar("realmName")       or "";
+     local faction = UnitFactionGroup("player") or "";
+     return realm .. "|" .. faction;
+end
+
+GT_ItemKeyFromLink = function(link)
+     if not link then return nil; end
+     local itemID, suffixID = link:match("item:(%d+):%d+:%d+:%d+:%d+:%d+:(%-?%d+):?");
+     if not itemID then return nil; end
+     return itemID .. ":" .. (suffixID or "0");
+end
+
+local function GT_ParseAuxRecord(str)
+     if not str or str == "" then return nil, {}; end
+     local _, s2, s3 = str:match("^([^#]*)#([^#]*)#?(.*)");
+     local daily_min = tonumber(s2);
+     local pts = {};
+     if s3 and s3 ~= "" then
+          for entry in (s3 .. ";"):gmatch("([^;]+);") do
+               local vs, ts = entry:match("^([^@]+)@(.+)$");
+               local v, t = tonumber(vs), tonumber(ts);
+               if v and t then tinsert(pts, {value=v, time=t}); end
+          end
+     end
+     return daily_min, pts;
+end
+
+local function GT_WeightedMedian(pts)
+     if not pts or #pts == 0 then return nil; end
+     local ref   = pts[1].time;
+     -- Honour the same configurable decay as Aux itself.
+     local decay = (aux and aux.account and type(aux.account.history_decay)=="number"
+                    and aux.account.history_decay) or 0.75;
+     local W, wtbl = 0, {};
+     for _, dp in ipairs(pts) do
+          local days = floor((ref - dp.time) / 86400 + 0.5);
+          local w    = decay ^ days;
+          W = W + w;
+          tinsert(wtbl, {value=dp.value, weight=w});
+     end
+     if W == 0 then return nil; end
+     table.sort(wtbl, function(a, b) return a.value < b.value; end);
+     local cum = 0;
+     for _, w in ipairs(wtbl) do
+          cum = cum + w.weight / W;
+          if cum >= 0.5 then return w.value; end
+     end
+     return wtbl[#wtbl] and wtbl[#wtbl].value;
+end
+
+local function GT_LookupAuxPrice(itemKey)
+     local fKey  = GT_GetAuxFactionKey();
+     local hdata = aux and aux.faction and aux.faction[fKey] and aux.faction[fKey]["history"];
+     if not hdata then return nil; end
+     local str = hdata[itemKey];
+     if not str then return nil; end
+     local daily_min, pts = GT_ParseAuxRecord(str);
+     if pts and #pts > 0 then return GT_WeightedMedian(pts); end
+     return daily_min;
+end
+
+local function GT_LookupTSMPrice(itemKey)
+     if not TSMAPI then return nil; end
+     local itemID = tonumber(itemKey:match("^(%d+):"));
+     if not itemID then return nil; end
+     local ok, price = pcall(function()
+          local AceAddon = LibStub and LibStub("AceAddon-3.0", true);
+          local adb = AceAddon and AceAddon:GetAddon("TSM_AuctionDB", true);
+          if adb then return adb:GetMarketValue(itemID); end
+     end);
+     return ok and type(price)=="number" and price > 0 and price or nil;
+end
+
+-- Returns unit AH price in copper, nil when unknown.  Cached per session.
+GT_GetItemPrice = function(itemKey)
+     if GT_PriceCache[itemKey] ~= nil then
+          return GT_PriceCache[itemKey] ~= 0 and GT_PriceCache[itemKey] or nil;
+     end
+     local price = GT_LookupAuxPrice(itemKey) or GT_LookupTSMPrice(itemKey);
+     GT_PriceCache[itemKey] = price or 0;
+     return price;
+end
+
+-- Returns item quality (0-6), nil when WoW client hasn't cached it yet.
+GT_GetItemQuality = function(link)
+     if not link then return nil; end
+     if GT_QualCache[link] ~= nil then return GT_QualCache[link]; end
+     local _, _, q = GetItemInfo(link);
+     if q ~= nil then GT_QualCache[link] = q; end
+     return q;
+end
+
+-- ---- Generic value calculator for a stored item table --------------------
+
+local function GT_CalcStoreValue(store)
+     if not store then return 0; end
+     local minQ  = GoldArray and (GoldArray["MINQUALITY"] or 1) or 1;
+     local total = 0;
+     for ik, info in pairs(store) do
+          -- Lazy quality fetch: we may not have had it at scan time.
+          local q = info.quality;
+          if q == nil and info.link then
+               q = GT_GetItemQuality(info.link);
+               if q ~= nil then info.quality = q; end
+          end
+          -- nil quality = unknown → include it so nothing is accidentally hidden.
+          if q == nil or q >= minQ then
+               local price = GT_GetItemPrice(ik);
+               if price then total = total + price * info.count; end
+          end
+     end
+     return total;
+end
+
+-- ---- Scanning functions --------------------------------------------------
+
+GT_ScanBagsNow = function()
+     if not GOLDTRACKER_INITIALIZED then return; end
+     GT_BagScanTimer = nil;
+     local items = {};
+     for bag = 0, NUM_BAG_SLOTS do
+          for slot = 1, GetContainerNumSlots(bag) do
+               local link = GetContainerItemLink(bag, slot);
+               if link then
+                    local _, count = GetContainerItemInfo(bag, slot);
+                    count = count or 1;
+                    local ik = GT_ItemKeyFromLink(link);
+                    if ik then
+                         if not items[ik] then
+                              items[ik] = {link=link, count=0, quality=GT_GetItemQuality(link)};
+                         end
+                         items[ik].count = items[ik].count + count;
+                    end
+               end
+          end
+     end
+     GoldArray["BAGS_"..GOLDTRACKER_INDEX] = items;
+     GoldArray["ITEMVAL_"..GOLDTRACKER_INDEX] = nil;   -- invalidate cached total
+end
+
+GT_ScanBankNow = function()
+     if not GOLDTRACKER_INITIALIZED then return; end
+     local items = {};
+     -- Main bank frame: BANK_CONTAINER (-1), NUM_BANKGENERIC_SLOTS slots.
+     for slot = 1, NUM_BANKGENERIC_SLOTS do
+          local link = GetContainerItemLink(BANK_CONTAINER, slot);
+          if link then
+               local _, count = GetContainerItemInfo(BANK_CONTAINER, slot);
+               count = count or 1;
+               local ik = GT_ItemKeyFromLink(link);
+               if ik then
+                    if not items[ik] then
+                         items[ik] = {link=link, count=0, quality=GT_GetItemQuality(link)};
+                    end
+                    items[ik].count = items[ik].count + count;
+               end
+          end
+     end
+     -- Bank bag slots (NUM_BAG_SLOTS+1 … NUM_BAG_SLOTS+NUM_BANKBAGSLOTS).
+     for bag = NUM_BAG_SLOTS + 1, NUM_BAG_SLOTS + NUM_BANKBAGSLOTS do
+          for slot = 1, GetContainerNumSlots(bag) do
+               local link = GetContainerItemLink(bag, slot);
+               if link then
+                    local _, count = GetContainerItemInfo(bag, slot);
+                    count = count or 1;
+                    local ik = GT_ItemKeyFromLink(link);
+                    if ik then
+                         if not items[ik] then
+                              items[ik] = {link=link, count=0, quality=GT_GetItemQuality(link)};
+                         end
+                         items[ik].count = items[ik].count + count;
+                    end
+               end
+          end
+     end
+     GoldArray["BANK_"..GOLDTRACKER_INDEX] = items;
+     GoldArray["ITEMVAL_"..GOLDTRACKER_INDEX] = nil;
+end
+
+GT_ScanAHNow = function()
+     if not GOLDTRACKER_INITIALIZED then return; end
+     local numOwned = GetNumAuctionItems("owner") or 0;
+     local ahItems = {};
+     for i = 1, numOwned do
+          local link = GetAuctionItemLink("owner", i);
+          if link then
+               local _, _, count = GetAuctionItemInfo("owner", i);
+               count = count or 1;
+               local ik = GT_ItemKeyFromLink(link);
+               if ik then
+                    if not ahItems[ik] then
+                         ahItems[ik] = {link=link, count=0, quality=GT_GetItemQuality(link)};
+                    end
+                    ahItems[ik].count = ahItems[ik].count + count;
+               end
+          end
+     end
+     GoldArray["AH_"..GOLDTRACKER_INDEX] = ahItems;
+     GoldArray["AHVAL_"..GOLDTRACKER_INDEX] = nil;
+end
+
+-- ---- Per-character value accessors (lazy-cached) -------------------------
+
+GT_GetCharItemValue = function(charIndex)
+     if GoldArray["ITEMVAL_"..charIndex] then
+          return GoldArray["ITEMVAL_"..charIndex];
+     end
+     local val = GT_CalcStoreValue(GoldArray["BAGS_"..charIndex])
+               + GT_CalcStoreValue(GoldArray["BANK_"..charIndex]);
+     GoldArray["ITEMVAL_"..charIndex] = val;
+     return val;
+end
+
+GT_GetCharAHValue = function(charIndex)
+     if GoldArray["AHVAL_"..charIndex] then
+          return GoldArray["AHVAL_"..charIndex];
+     end
+     local val = GT_CalcStoreValue(GoldArray["AH_"..charIndex]);
+     GoldArray["AHVAL_"..charIndex] = val;
+     return val;
+end
+
+-- ---- Toggle / config functions (global so Titan's menu dispatcher finds them) ---
+
+function TitanPanelGoldTrackerItemWealth_Toggle()
+     GoldArray["SHOWITEMWEALTH"] = not GoldArray["SHOWITEMWEALTH"];
+end
+
+function TitanPanelGoldTrackerAHListings_Toggle()
+     GoldArray["SHOWAHLISTINGS"] = not GoldArray["SHOWAHLISTINGS"];
+end
+
+-- Cycles quality threshold: grey+(0) → white+(1) → green+(2) → grey+(0) …
+-- Invalidates all cached item-value totals so they recalculate with the new filter.
+function TitanPanelGoldTrackerMinQuality_Cycle()
+     local q = GoldArray["MINQUALITY"] or 1;
+     if     q <= 0 then GoldArray["MINQUALITY"] = 1;
+     elseif q == 1 then GoldArray["MINQUALITY"] = 2;
+     else               GoldArray["MINQUALITY"] = 0;
+     end
+     for key in pairs(GoldArray) do
+          if string.sub(key, 1, 8) == "ITEMVAL_" or string.sub(key, 1, 6) == "AHVAL_" then
+               GoldArray[key] = nil;
+          end
+     end
+end
+
+-- ===========================================================================
 
 function TitanGoldTracker_ClearDB()
 	StaticPopupDialogs["TITANGOLDTRACKER_CLEAR_DATABASE"] = {

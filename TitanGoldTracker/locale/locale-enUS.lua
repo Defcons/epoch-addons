@@ -30,3 +30,18 @@ L["TITAN_GOLDTRACKER_DELETE_PLAYER"] = "Delete toon";
 L["TITAN_GOLDTRACKER_FACTION_PLAYER_ALLY"] = "Alliance";
 L["TITAN_GOLDTRACKER_FACTION_PLAYER_HORDE"] = "Horde";
 L["TITAN_GOLDTRACKER_CLEAR_DATA_WARNING"] = GREEN_FONT_COLOR_CODE.."Warning: "..FONT_COLOR_CODE_CLOSE.."This setting will wipe your Gold Tracker database. If you wish to continue with this operation, push 'Accept', otherwise push 'Cancel' or the 'Escape' key.";
+
+-- Item wealth tracking
+L["TITAN_GOLDTRACKER_BAGS"]                    = "bags";
+L["TITAN_GOLDTRACKER_AH"]                      = "AH";
+L["TITAN_GOLDTRACKER_TTL_ITEMS"]               = "Total Items";
+L["TITAN_GOLDTRACKER_TTL_AH"]                  = "Total AH";
+L["TITAN_GOLDTRACKER_GRANDTOTAL"]              = "Grand Total";
+L["TITAN_GOLDTRACKER_TOGGLE_ITEMWEALTH_SHOW"]  = "Show item wealth";
+L["TITAN_GOLDTRACKER_TOGGLE_ITEMWEALTH_HIDE"]  = "Hide item wealth";
+L["TITAN_GOLDTRACKER_TOGGLE_AH_SHOW"]          = "Show AH listings value";
+L["TITAN_GOLDTRACKER_TOGGLE_AH_HIDE"]          = "Hide AH listings value";
+-- Quality threshold: clicking cycles grey+ → white+ → green+ → grey+
+L["TITAN_GOLDTRACKER_MINQUALITY_GREY"]         = "Item quality: Grey+ (all) \226\134\146 White+";
+L["TITAN_GOLDTRACKER_MINQUALITY_WHITE"]        = "Item quality: White+ \226\134\146 Green+";
+L["TITAN_GOLDTRACKER_MINQUALITY_GREEN"]        = "Item quality: Green+ \226\134\146 Grey+";
