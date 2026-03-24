@@ -719,7 +719,7 @@ function pfMap:BuildNode(name, parent)
 end
 
 pfMap.highlightdb = {}
-function pfMap:UpdateNode(frame, node, color, obj, distance)
+function pfMap:UpdateNode(frame, node, color, obj, distance, yards_distance)
   -- clear node to title association table
   if pfMap.highlightdb[frame] then
     for k,v in pairs(pfMap.highlightdb[frame]) do
@@ -815,10 +815,16 @@ function pfMap:UpdateNode(frame, node, color, obj, distance)
       frame.pic:Hide()
     end
 
+    local useCutout = false
     if obj == "minimap" and pfQuest_config["cutoutminimap"] == "1" then
-      frame.tex:SetTexture(pfQuestConfig.path.."\\img\\nodecut")
-      frame.tex:SetVertexColor(r,g,b,1)
+      -- Claude: apply cut-out only within the configured yard range (0 = always)
+      local range = tonumber(pfQuest_config["cutoutminimaprange"]) or 0
+      useCutout = (range == 0) or (yards_distance and yards_distance <= range)
     elseif obj ~= "minimap" and pfQuest_config["cutoutworldmap"] == "1" then
+      useCutout = true
+    end
+
+    if useCutout then
       frame.tex:SetTexture(pfQuestConfig.path.."\\img\\nodecut")
       frame.tex:SetVertexColor(r,g,b,1)
     else
@@ -998,6 +1004,8 @@ function pfMap:UpdateMinimap()
 
         local display = nil
         local distance = sqrt(xPos * xPos + yPos * yPos)
+        -- Claude: convert pixel distance to yards for cut-out range check
+        local yards_distance = distance * mapZoom / pfMap.drawlayer:GetWidth()
 
         if pfUI.minimap then
           display = ( abs(xPos) + 8 < pfMap.drawlayer:GetWidth() / 2 and abs(yPos) + 8 < pfMap.drawlayer:GetHeight()/2 ) and true or nil
@@ -1010,7 +1018,7 @@ function pfMap:UpdateMinimap()
             pfMap.mpins[i] = pfMap:BuildNode(nodename .. i, pfMap.drawlayer)
           end
 
-          pfMap:UpdateNode(pfMap.mpins[i], node, color, "minimap", distance)
+          pfMap:UpdateNode(pfMap.mpins[i], node, color, "minimap", distance, yards_distance)
 
           pfMap.mpins[i].hl:Hide()
 

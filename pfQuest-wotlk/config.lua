@@ -122,6 +122,8 @@ pfQuest_defconfig = {
     default = "0", type = "checkbox", config = "clustermono" },
   { text = L["Use Cut-Out Minimap Node Icons"],
     default = "1", type = "checkbox", config = "cutoutminimap" },
+  { text = L["Cut-Out Range (yards, 0=always)"],
+    default = "0", type = "text", config = "cutoutminimaprange" },
   { text = L["Use Cut-Out World Map Node Icons"],
     default = "0", type = "checkbox", config = "cutoutworldmap" },
   { text = L["Color Map Nodes By Spawn"],
