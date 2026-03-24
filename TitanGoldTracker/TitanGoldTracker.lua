@@ -65,9 +65,11 @@ local GoldTrackerTimer = nil;
 local _G = getfenv(0);
 
 -- ================================ Item Wealth Tracking ================================
--- Session-only caches (never persisted across logins)
-local GT_PriceCache  = {}   -- [item_key]  = copper value (0 means "no price found")
-local GT_QualCache   = {}   -- [item_link] = quality integer (0-6)
+-- Session-only caches (NEVER stored in GoldArray / SavedVariables)
+local GT_PriceCache   = {}  -- [item_key]   = copper value (0 = no price found)
+local GT_QualCache    = {}  -- [item_link]  = quality integer (0-6)
+local GT_ItemValCache = {}  -- [charIndex]  = bags+bank total in copper
+local GT_AHValCache   = {}  -- [charIndex]  = AH listings total in copper
 local GT_BagScanTimer = nil -- AceTimer handle; debounces BAG_UPDATE floods
 
 -- Forward declarations so event handlers and tooltip defined above can call these.
@@ -601,6 +603,16 @@ function TitanPanelGoldTrackerButton_Initialize_Array(self)
 
      GOLDTRACKER_INITIALIZED = true;
 
+     -- Purge any numeric ITEMVAL_/AHVAL_ keys written by a previous buggy build.
+     -- These were incorrectly stored in GoldArray, causing phantom entries in the
+     -- tooltip and inflated totals.  They are now kept as session-local variables.
+     for key in pairs(GoldArray) do
+          local p = string.sub(key, 1, 8);
+          if p == "ITEMVAL_" or string.sub(key, 1, 6) == "AHVAL_" then
+               GoldArray[key] = nil;
+          end
+     end
+
      -- Item-wealth config defaults (only on first ever load)
      if (GoldArray["SHOWITEMWEALTH"] == nil) then
           GoldArray["SHOWITEMWEALTH"] = true;
@@ -941,7 +953,7 @@ GT_ScanBagsNow = function()
           end
      end
      GoldArray["BAGS_"..GOLDTRACKER_INDEX] = items;
-     GoldArray["ITEMVAL_"..GOLDTRACKER_INDEX] = nil;   -- invalidate cached total
+     GT_ItemValCache[GOLDTRACKER_INDEX] = nil;   -- invalidate session cache
 end
 
 GT_ScanBankNow = function()
@@ -980,7 +992,7 @@ GT_ScanBankNow = function()
           end
      end
      GoldArray["BANK_"..GOLDTRACKER_INDEX] = items;
-     GoldArray["ITEMVAL_"..GOLDTRACKER_INDEX] = nil;
+     GT_ItemValCache[GOLDTRACKER_INDEX] = nil;   -- invalidate session cache
 end
 
 GT_ScanAHNow = function()
@@ -1002,27 +1014,27 @@ GT_ScanAHNow = function()
           end
      end
      GoldArray["AH_"..GOLDTRACKER_INDEX] = ahItems;
-     GoldArray["AHVAL_"..GOLDTRACKER_INDEX] = nil;
+     GT_AHValCache[GOLDTRACKER_INDEX] = nil;   -- invalidate session cache
 end
 
 -- ---- Per-character value accessors (lazy-cached) -------------------------
 
 GT_GetCharItemValue = function(charIndex)
-     if GoldArray["ITEMVAL_"..charIndex] then
-          return GoldArray["ITEMVAL_"..charIndex];
+     if GT_ItemValCache[charIndex] then
+          return GT_ItemValCache[charIndex];
      end
      local val = GT_CalcStoreValue(GoldArray["BAGS_"..charIndex])
                + GT_CalcStoreValue(GoldArray["BANK_"..charIndex]);
-     GoldArray["ITEMVAL_"..charIndex] = val;
+     GT_ItemValCache[charIndex] = val;   -- session-local only, never in GoldArray
      return val;
 end
 
 GT_GetCharAHValue = function(charIndex)
-     if GoldArray["AHVAL_"..charIndex] then
-          return GoldArray["AHVAL_"..charIndex];
+     if GT_AHValCache[charIndex] then
+          return GT_AHValCache[charIndex];
      end
      local val = GT_CalcStoreValue(GoldArray["AH_"..charIndex]);
-     GoldArray["AHVAL_"..charIndex] = val;
+     GT_AHValCache[charIndex] = val;   -- session-local only, never in GoldArray
      return val;
 end
 
@@ -1044,11 +1056,9 @@ function TitanPanelGoldTrackerMinQuality_Cycle()
      elseif q == 1 then GoldArray["MINQUALITY"] = 2;
      else               GoldArray["MINQUALITY"] = 0;
      end
-     for key in pairs(GoldArray) do
-          if string.sub(key, 1, 8) == "ITEMVAL_" or string.sub(key, 1, 6) == "AHVAL_" then
-               GoldArray[key] = nil;
-          end
-     end
+     -- Wipe session-local caches so values recalculate with the new threshold.
+     GT_ItemValCache = {};
+     GT_AHValCache   = {};
 end
 
 -- ===========================================================================
