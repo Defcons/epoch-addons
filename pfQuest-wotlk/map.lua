@@ -817,9 +817,12 @@ function pfMap:UpdateNode(frame, node, color, obj, distance, yards_distance)
 
     local useCutout = false
     if obj == "minimap" and pfQuest_config["cutoutminimap"] == "1" then
-      -- Claude: apply cut-out only within the configured yard range (0 = always)
-      local range = tonumber(pfQuest_config["cutoutminimaprange"]) or 0
-      useCutout = (range == 0) or (yards_distance and yards_distance <= range)
+      -- Claude: only apply cut-out to object nodes (chests, gathering etc.), not units/mobs or quest icons
+      local isObject = frame.spawntype == pfQuest_Loc["Object"]
+      if isObject then
+        local range = tonumber(pfQuest_config["cutoutminimaprange"]) or 0
+        useCutout = (range == 0) or (yards_distance and yards_distance <= range)
+      end
     elseif obj ~= "minimap" and pfQuest_config["cutoutworldmap"] == "1" then
       useCutout = true
     end

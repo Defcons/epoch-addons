@@ -28,7 +28,7 @@ customBar:SetStatusBarColor(BAR_R, BAR_G, BAR_B)
 customBar:SetMinMaxValues(0, 180)
 customBar:SetValue(180)
 
-local customText = customFrame:CreateFontString(nil, "OVERLAY")
+local customText = customBar:CreateFontString(nil, "OVERLAY")
 customText:SetFont("Fonts\\FRIZQT__.ttf", 13, "THICKOUTLINE")  -- Claude: FRIZQT__ bold + thick outline for contrast against the fill
 customText:SetTextColor(1, 1, 1)
 customText:SetAllPoints(customFrame)

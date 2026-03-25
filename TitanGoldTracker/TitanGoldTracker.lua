@@ -51,8 +51,6 @@ local GOLDTRACKER_VARIABLES_LOADED = false;
 local GOLDTRACKER_ENTERINGWORLD = false;
 local GOLDTRACKER_INDEX = "";
 local GOLDTRACKER_COLOR;
-local GOLDTRACKER_SESS_STATUS;
-local GOLDTRACKER_PERHOUR_STATUS;
 local GOLDTRACKER_STARTINGGOLD;
 local GOLDTRACKER_SESSIONSTART;
 local REMEMBER_VIEWALL;
@@ -71,6 +69,11 @@ local GT_QualCache    = {}  -- [item_link]  = quality integer (0-6)
 local GT_ItemValCache = {}  -- [charIndex]  = bags+bank total in copper
 local GT_AHValCache   = {}  -- [charIndex]  = AH listings total in copper
 local GT_BagScanTimer = nil -- AceTimer handle; debounces BAG_UPDATE floods
+
+-- Session-relative AH wealth tracking
+local GT_SessAHBase    = nil  -- (currentBags+currentAH) at session start; nil = lazy init on first tooltip
+local GT_SessMailedVal = 0    -- cumulative copper value of items mailed this session
+local GT_SessBagAtMail = nil  -- bags value snapshot taken when mailbox opens
 
 -- Forward declarations so event handlers and tooltip defined above can call these.
 local GT_ScanBagsNow, GT_ScanBankNow, GT_ScanAHNow
@@ -102,6 +105,8 @@ function TitanPanelGoldTrackerButton_OnLoad(self)
      self:RegisterEvent("BAG_UPDATE");
      self:RegisterEvent("BANKFRAME_OPENED");
      self:RegisterEvent("AUCTION_OWNED_LIST_UPDATE");
+     self:RegisterEvent("MAIL_SHOW");
+     self:RegisterEvent("MAIL_SEND_SUCCESS");
      
      -- support for picking up money     
      TitanGoldTracker:SecureHook("OpenCoinPickupFrame",TitanGoldTracker_OpenCoinPickupFrame);     
@@ -187,6 +192,30 @@ function TitanGoldTracker_OnEvent(self, event, ...)
           end
           return;
      end
+
+     if (event == "MAIL_SHOW") then
+          if (GOLDTRACKER_INITIALIZED) then
+               -- Snapshot bag item value before the player sends anything
+               GT_SessBagAtMail = GT_GetCharItemValue(GOLDTRACKER_INDEX);
+          end
+          return;
+     end
+
+     if (event == "MAIL_SEND_SUCCESS") then
+          if (GOLDTRACKER_INITIALIZED) then
+               -- Force an immediate bag rescan (skip the 0.5s debounce)
+               if GT_BagScanTimer then TitanGoldTracker:CancelTimer(GT_BagScanTimer, true); end
+               GT_ScanBagsNow();
+               -- Items that left bags via mail still count toward session AH value
+               if GT_SessBagAtMail then
+                    local newBagVal = GT_GetCharItemValue(GOLDTRACKER_INDEX);
+                    local mailed    = GT_SessBagAtMail - newBagVal;
+                    if mailed > 0 then GT_SessMailedVal = GT_SessMailedVal + mailed; end
+                    GT_SessBagAtMail = newBagVal;   -- update snapshot for subsequent sends
+               end
+          end
+          return;
+     end
 end
  
 -- *******************************************************************************************
@@ -223,6 +252,14 @@ function TitanPanelGoldTrackerButton_GetTooltipText()
           table.sort(GoldArraySorted, function (key1, key2) return GoldArray[key1] > GoldArray[key2] end) 
      end
      
+     -- Compute session data up front so totals and session stats can share it.
+     local sesstotal = GetMoney("player") - GOLDTRACKER_STARTINGGOLD;
+     local sessNeg   = (sesstotal < 0);
+     if (sessNeg) then sesstotal = math.abs(sesstotal); end
+     local sesslength = math.max(GetTime() - GOLDTRACKER_SESSIONSTART, 1);
+     local perhour    = math.floor(sesstotal / sesslength * 3600);
+     local sessColor  = sessNeg and TITAN_GOLDTRACKER_RED or TITAN_GOLDTRACKER_GREEN;
+
      local ttlItemVal = 0;
      local ttlAHVal   = 0;
      for i = 1, getn(GoldArraySorted) do
@@ -230,68 +267,86 @@ function TitanPanelGoldTrackerButton_GetTooltipText()
           if (character) then
                if (string.find(charserver, server, 1, true) == 1) then
                     if (mod(GoldArray[GoldArraySorted[i]],10) == 0) then
-                         local goldText = TitanUtils_GetHighlightText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(floor(GoldArray[GoldArraySorted[i]]/10))));
+                         local goldText = TitanUtils_GetHighlightText(floor(GoldArray[GoldArraySorted[i]]/100000).."g");
                          local extraText = "";
+                         local refreshFlag = "";
                          if (GoldArray["SHOWITEMWEALTH"]) then
                               local iv = GT_GetCharItemValue(GoldArraySorted[i]);
                               ttlItemVal = ttlItemVal + iv;
                               if (iv > 0) then
-                                   extraText = extraText.."  |cffcccc33"..LB["TITAN_GOLDTRACKER_BAGS"]..": "..format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(iv)).."|r";
+                                   extraText = extraText.."  |cffcccc33"..LB["TITAN_GOLDTRACKER_BAGS"]..": "..floor(iv/10000).."g|r";
+                              end
+                              -- Mark characters whose bag/bank data has never been captured
+                              if (GoldArray["BAGS_"..GoldArraySorted[i]] == nil) then
+                                   refreshFlag = " |cffff9900[?]|r";
                               end
                          end
                          if (GoldArray["SHOWAHLISTINGS"]) then
                               local av = GT_GetCharAHValue(GoldArraySorted[i]);
                               ttlAHVal = ttlAHVal + av;
                               if (av > 0) then
-                                   extraText = extraText.."  |cff33cc66"..LB["TITAN_GOLDTRACKER_AH"]..": "..format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(av)).."|r";
+                                   extraText = extraText.."  |cff33cc66"..LB["TITAN_GOLDTRACKER_AH"]..": "..floor(av/10000).."g|r";
                               end
                          end
-                         currentMoneyRichText = currentMoneyRichText.."\n"..character.."\t"..goldText..extraText;
+                         currentMoneyRichText = currentMoneyRichText.."\n"..character..refreshFlag.."\t"..goldText..extraText;
                     end
                end
           end
      end
 
-     currentMoneyRichText = currentMoneyRichText.."\n"..TITAN_GOLDTRACKER_SPACERBAR.."\n"..LB["TITAN_GOLDTRACKER_TTL_GOLD"].."\t"..TitanUtils_GetHighlightText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(TitanPanelGoldTrackerButton_TotalGold())));
+     currentMoneyRichText = currentMoneyRichText.."\n"..TITAN_GOLDTRACKER_SPACERBAR.."\n"..LB["TITAN_GOLDTRACKER_TTL_GOLD"].."\t"..TitanUtils_GetHighlightText(floor(TitanPanelGoldTrackerButton_TotalGold()/10000).."g");
      if (GoldArray["SHOWITEMWEALTH"] and ttlItemVal > 0) then
-          currentMoneyRichText = currentMoneyRichText.."\n"..LB["TITAN_GOLDTRACKER_TTL_ITEMS"].."\t"..TitanUtils_GetHighlightText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(ttlItemVal)));
+          currentMoneyRichText = currentMoneyRichText.."\n"..LB["TITAN_GOLDTRACKER_TTL_ITEMS"].."\t"..TitanUtils_GetHighlightText(floor(ttlItemVal/10000).."g");
      end
      if (GoldArray["SHOWAHLISTINGS"] and ttlAHVal > 0) then
-          currentMoneyRichText = currentMoneyRichText.."\n"..LB["TITAN_GOLDTRACKER_TTL_AH"].."\t"..TitanUtils_GetHighlightText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(ttlAHVal)));
+          currentMoneyRichText = currentMoneyRichText.."\n"..LB["TITAN_GOLDTRACKER_TTL_AH"].."\t"..TitanUtils_GetHighlightText(floor(ttlAHVal/10000).."g");
      end
      if (GoldArray["SHOWITEMWEALTH"] and (ttlItemVal > 0 or ttlAHVal > 0)) then
           local grandTotal = TitanPanelGoldTrackerButton_TotalGold() + ttlItemVal + ttlAHVal;
-          currentMoneyRichText = currentMoneyRichText.."\n"..LB["TITAN_GOLDTRACKER_GRANDTOTAL"].."\t"..TitanUtils_GetHighlightText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(grandTotal)));
+          currentMoneyRichText = currentMoneyRichText.."\n"..LB["TITAN_GOLDTRACKER_GRANDTOTAL"].."\t"..TitanUtils_GetHighlightText(floor(grandTotal/10000).."g");
      end
 
-     -- find session earnings and earning per hour
-     local sesstotal = GetMoney("player") - GOLDTRACKER_STARTINGGOLD;
-     local negative = false;
-     if (sesstotal < 0) then
-          sesstotal = math.abs(sesstotal);
-          negative = true;
+     -- Session-relative AH value for the current character only.
+     -- Baseline is (bags + AH listings) at session start.  Items that leave bags
+     -- via vendor/delete automatically reduce this.  Items mailed to alts are
+     -- tracked separately and added back so they still count.
+     local curBagVal  = GT_GetCharItemValue(GOLDTRACKER_INDEX);
+     local curAHVal   = GT_GetCharAHValue(GOLDTRACKER_INDEX);
+     if GT_SessAHBase == nil then GT_SessAHBase = curBagVal + curAHVal; end
+     local sessAHVal  = math.max(0, (curBagVal + curAHVal) - GT_SessAHBase + GT_SessMailedVal);
+
+     -- Session Statistics block
+     local sessionMoneyRichText = "\n\n"..TitanUtils_GetHighlightText(LB["TITAN_GOLDTRACKER_STATS_TITLE"]).."\n"..LB["TITAN_GOLDTRACKER_START_GOLD"].."\t"..(TitanUtils_GetColoredText(floor(GOLDTRACKER_STARTINGGOLD/10000).."g", TITAN_GOLDTRACKER_BLUE) or "");
+
+     -- Gold earned/lost row
+     local goldSessLabel = (sessNeg and LB["TITAN_GOLDTRACKER_SESS_LOST_GOLD"] or LB["TITAN_GOLDTRACKER_SESS_EARNED_GOLD"]) or "";
+     sessionMoneyRichText = sessionMoneyRichText.."\n"..goldSessLabel.."\t"..(TitanUtils_GetColoredText(floor(sesstotal/10000).."g", sessColor) or "");
+     if (GoldArray["DISPLAYGPH"]) then
+          local goldGphLabel = (sessNeg and LB["TITAN_GOLDTRACKER_GPH_LOST_GOLD"] or LB["TITAN_GOLDTRACKER_GPH_EARNED_GOLD"]) or "";
+          sessionMoneyRichText = sessionMoneyRichText.."\n"..goldGphLabel.."\t"..(TitanUtils_GetColoredText(floor(perhour/10000).."g", sessColor) or "");
      end
 
-     local sesslength = GetTime() - GOLDTRACKER_SESSIONSTART;
-     local perhour = math.floor(sesstotal / sesslength * 3600);
-
-     local sessionMoneyRichText = "\n\n"..TitanUtils_GetHighlightText(LB["TITAN_GOLDTRACKER_STATS_TITLE"]).."\n"..LB["TITAN_GOLDTRACKER_START_GOLD"].."\t"..TitanUtils_GetColoredText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(GOLDTRACKER_STARTINGGOLD)),TITAN_GOLDTRACKER_BLUE).."\n";
-
-     if (negative) then
-          GOLDTRACKER_COLOR = TITAN_GOLDTRACKER_RED;
-          GOLDTRACKER_SESS_STATUS = LB["TITAN_GOLDTRACKER_SESS_LOST"];
-          GOLDTRACKER_PERHOUR_STATUS = LB["TITAN_GOLDTRACKER_PERHOUR_LOST"];
-     else
-          GOLDTRACKER_COLOR = TITAN_GOLDTRACKER_GREEN;
-          GOLDTRACKER_SESS_STATUS = LB["TITAN_GOLDTRACKER_SESS_EARNED"];
-          GOLDTRACKER_PERHOUR_STATUS = LB["TITAN_GOLDTRACKER_PERHOUR_EARNED"];
-     end     
-
-          sessionMoneyRichText = sessionMoneyRichText..GOLDTRACKER_SESS_STATUS.."\t"..TitanUtils_GetColoredText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(sesstotal)),GOLDTRACKER_COLOR).."\n";
-          
+     -- AH Value rows: session-relative, resets with the session button
+     if (GoldArray["SHOWAHLISTINGS"] and sessAHVal > 0) then
+          local ahperhour = math.floor(sessAHVal / sesslength * 3600);
+          sessionMoneyRichText = sessionMoneyRichText.."\n"..LB["TITAN_GOLDTRACKER_SESS_AH_VALUE"].."\t"..TitanUtils_GetHighlightText(floor(sessAHVal/10000).."g");
           if (GoldArray["DISPLAYGPH"]) then
-               sessionMoneyRichText = sessionMoneyRichText..GOLDTRACKER_PERHOUR_STATUS.."\t"..TitanUtils_GetColoredText(format(L["TITAN_MONEY_FORMAT"], TitanPanelGoldTracker_BreakMoney(perhour)),GOLDTRACKER_COLOR);
+               sessionMoneyRichText = sessionMoneyRichText.."\n"..LB["TITAN_GOLDTRACKER_GPH_AH_VALUE"].."\t"..TitanUtils_GetHighlightText(floor(ahperhour/10000).."g");
           end
+
+          -- Combined (signed gold delta + session AH value)
+          local rawCombined   = (sessNeg and -sesstotal or sesstotal) + sessAHVal;
+          local combinedNeg   = rawCombined < 0;
+          local combinedAbs   = math.abs(rawCombined);
+          local combinedColor = combinedNeg and TITAN_GOLDTRACKER_RED or TITAN_GOLDTRACKER_GREEN;
+          local combSessLabel = (combinedNeg and LB["TITAN_GOLDTRACKER_SESS_COMBINED_LOSS"] or LB["TITAN_GOLDTRACKER_SESS_COMBINED"]) or "";
+          sessionMoneyRichText = sessionMoneyRichText.."\n"..combSessLabel.."\t"..(TitanUtils_GetColoredText(floor(combinedAbs/10000).."g", combinedColor) or "");
+          if (GoldArray["DISPLAYGPH"]) then
+               local combinedPerhour = math.floor(combinedAbs / sesslength * 3600);
+               local combGphLabel = (combinedNeg and LB["TITAN_GOLDTRACKER_GPH_COMBINED_LOSS"] or LB["TITAN_GOLDTRACKER_GPH_COMBINED"]) or "";
+               sessionMoneyRichText = sessionMoneyRichText.."\n"..combGphLabel.."\t"..(TitanUtils_GetColoredText(floor(combinedPerhour/10000).."g", combinedColor) or "");
+          end
+     end
      
      
      local final_tooltip = LB["TITAN_GOLDTRACKER_TOOLTIPTEXT"].." : "..GetCVar("realmName").." : All Factions";
@@ -406,14 +461,14 @@ function TitanPanelRightClickMenu_PrepareGoldTrackerMenu()
                TitanPanelRightClickMenu_AddCommand(LB["TITAN_GOLDTRACKER_TOGGLE_AH_SHOW"], TITAN_GOLDTRACKER_ID, "TitanPanelGoldTrackerAHListings_Toggle");
           end
 
-          -- Quality threshold cycle: shows current setting, click to advance
-          local minQ = GoldArray["MINQUALITY"] or 1;
-          local qualLabel;
-          if     (minQ <= 0) then qualLabel = LB["TITAN_GOLDTRACKER_MINQUALITY_GREY"];
-          elseif (minQ == 1) then qualLabel = LB["TITAN_GOLDTRACKER_MINQUALITY_WHITE"];
-          else                    qualLabel = LB["TITAN_GOLDTRACKER_MINQUALITY_GREEN"];
-          end
-          TitanPanelRightClickMenu_AddCommand(qualLabel, TITAN_GOLDTRACKER_ID, "TitanPanelGoldTrackerMinQuality_Cycle");
+          -- Quality threshold: three direct-select options; [x] = currently active
+          local minQ    = GoldArray["MINQUALITY"] or 1;
+          local selGrey  = (minQ <= 0) and "[x] " or "[ ] ";
+          local selWhite = (minQ == 1) and "[x] " or "[ ] ";
+          local selGreen = (minQ >= 2) and "[x] " or "[ ] ";
+          TitanPanelRightClickMenu_AddCommand(selGrey ..LB["TITAN_GOLDTRACKER_MINQUALITY_OPT_GREY"],  TITAN_GOLDTRACKER_ID, "TitanPanelGoldTrackerMinQualityGrey_Set");
+          TitanPanelRightClickMenu_AddCommand(selWhite..LB["TITAN_GOLDTRACKER_MINQUALITY_OPT_WHITE"], TITAN_GOLDTRACKER_ID, "TitanPanelGoldTrackerMinQualityWhite_Set");
+          TitanPanelRightClickMenu_AddCommand(selGreen..LB["TITAN_GOLDTRACKER_MINQUALITY_OPT_GREEN"], TITAN_GOLDTRACKER_ID, "TitanPanelGoldTrackerMinQualityGreen_Set");
      end
 
      -- A blank line in the menu
@@ -626,6 +681,11 @@ function TitanPanelGoldTrackerButton_Initialize_Array(self)
 
      -- Trigger an initial bag scan now that the index is known.
      GT_ScanBagsNow();
+
+     -- Reset session AH baseline so it's recomputed on first tooltip access.
+     GT_SessAHBase    = nil;
+     GT_SessMailedVal = 0;
+     GT_SessBagAtMail = nil;
 end
 
 -- *******************************************************************************************
@@ -667,7 +727,9 @@ end
 function TitanPanelGoldTrackerButton_ResetSession()
      GOLDTRACKER_STARTINGGOLD = GetMoney("player");
      GOLDTRACKER_SESSIONSTART = GetTime();
-     
+     GT_SessAHBase    = nil;   -- recomputed on next tooltip access
+     GT_SessMailedVal = 0;
+     GT_SessBagAtMail = nil;
      DEFAULT_CHAT_FRAME:AddMessage(LB["TITAN_GOLDTRACKER_SESSION_RESET"], 1.0, 0.0, 1.0 );
 end
      
@@ -1057,6 +1119,25 @@ function TitanPanelGoldTrackerMinQuality_Cycle()
      else               GoldArray["MINQUALITY"] = 0;
      end
      -- Wipe session-local caches so values recalculate with the new threshold.
+     GT_ItemValCache = {};
+     GT_AHValCache   = {};
+end
+
+-- Direct-set quality functions used by the radio-style right-click menu.
+function TitanPanelGoldTrackerMinQualityGrey_Set()
+     GoldArray["MINQUALITY"] = 0;
+     GT_ItemValCache = {};
+     GT_AHValCache   = {};
+end
+
+function TitanPanelGoldTrackerMinQualityWhite_Set()
+     GoldArray["MINQUALITY"] = 1;
+     GT_ItemValCache = {};
+     GT_AHValCache   = {};
+end
+
+function TitanPanelGoldTrackerMinQualityGreen_Set()
+     GoldArray["MINQUALITY"] = 2;
      GT_ItemValCache = {};
      GT_AHValCache   = {};
 end

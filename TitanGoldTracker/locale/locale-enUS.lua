@@ -41,7 +41,19 @@ L["TITAN_GOLDTRACKER_TOGGLE_ITEMWEALTH_SHOW"]  = "Show item wealth";
 L["TITAN_GOLDTRACKER_TOGGLE_ITEMWEALTH_HIDE"]  = "Hide item wealth";
 L["TITAN_GOLDTRACKER_TOGGLE_AH_SHOW"]          = "Show AH listings value";
 L["TITAN_GOLDTRACKER_TOGGLE_AH_HIDE"]          = "Hide AH listings value";
--- Quality threshold: clicking cycles grey+ → white+ → green+ → grey+
-L["TITAN_GOLDTRACKER_MINQUALITY_GREY"]         = "Item quality: Grey+ (all) \226\134\146 White+";
-L["TITAN_GOLDTRACKER_MINQUALITY_WHITE"]        = "Item quality: White+ \226\134\146 Green+";
-L["TITAN_GOLDTRACKER_MINQUALITY_GREEN"]        = "Item quality: Green+ \226\134\146 Grey+";
+-- Session statistics (new split rows)
+L["TITAN_GOLDTRACKER_SESS_EARNED_GOLD"]        = "Earned Gold this session";
+L["TITAN_GOLDTRACKER_SESS_LOST_GOLD"]          = "Lost Gold this session";
+L["TITAN_GOLDTRACKER_GPH_EARNED_GOLD"]         = "Gold earned per hour";
+L["TITAN_GOLDTRACKER_GPH_LOST_GOLD"]           = "Gold lost per hour";
+L["TITAN_GOLDTRACKER_SESS_AH_VALUE"]           = "AH Value this session";
+L["TITAN_GOLDTRACKER_GPH_AH_VALUE"]            = "AH Value per hour";
+L["TITAN_GOLDTRACKER_SESS_COMBINED"]           = "Combined this session";
+L["TITAN_GOLDTRACKER_SESS_COMBINED_LOSS"]      = "Combined loss this session";
+L["TITAN_GOLDTRACKER_GPH_COMBINED"]            = "Combined per hour";
+L["TITAN_GOLDTRACKER_GPH_COMBINED_LOSS"]       = "Combined loss per hour";
+
+-- Quality threshold: three direct-select options shown in right-click menu
+L["TITAN_GOLDTRACKER_MINQUALITY_OPT_GREY"]    = "All items (grey+)";
+L["TITAN_GOLDTRACKER_MINQUALITY_OPT_WHITE"]   = "White and better";
+L["TITAN_GOLDTRACKER_MINQUALITY_OPT_GREEN"]   = "Green and better";
