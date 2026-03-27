@@ -1,5 +1,8 @@
 -- BuffWatcher_Data.lua
 -- Defines every possible buff/consume check per class.
+-- Claude: BW must exist before BuffWatcher_Config.lua loads (it runs next in the TOC)
+BW = BW or {}
+
 --
 -- Format per entry:
 --   { id = "unique_key", label = "Short Name", buffs = { "Buff Name 1", ... } }
