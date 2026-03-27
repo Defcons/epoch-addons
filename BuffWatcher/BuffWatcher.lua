@@ -5,8 +5,8 @@
 
 BW = BW or {}
 
--- Claude: safe fallback if Data.lua fails to load — prevents nil-index crash in RebuildTable
-local CLASS_COLORS = BW_ClassColors or {}
+-- Claude: resolved at runtime from BW table — safe even if Data.lua had a load error
+local function GetClassColors() return BW.ClassColors or {} end
 
 -- ── Layout constants ─────────────────────────────────────────────────────────
 local STATUS_W   = 500    -- status frame outer width
@@ -53,12 +53,12 @@ end
 -- Claude: scan a single unit; returns a row-data table or nil if fully buffed
 local function ScanUnit(unit)
     if not UnitExists(unit) then return nil end
-    if not BW_Data then return nil end      -- Claude: guard against data file load failure
-    if not BW_IsEnabled then return nil end -- Claude: guard against Config.lua load failure
+    if not BW.Data     then return nil end  -- Claude: guard — Data.lua may not have loaded
+    if not BW.IsEnabled then return nil end -- Claude: guard — Config.lua may not have loaded
 
     local name = UnitName(unit)
     local _, classFile = UnitClass(unit)  -- Claude: 3.3.5 returns only 2 values
-    local classDef = classFile and BW_Data[classFile]
+    local classDef = classFile and BW.Data[classFile]
     if not classDef then return nil end
 
     local db         = BuffWatcherDB
@@ -67,13 +67,13 @@ local function ScanUnit(unit)
 
     -- Flask (always scanned regardless of checkFlask; column just dims when not required)
     local hasFlask = false
-    for _, fn in ipairs(BW_Data.flasks) do
+    for _, fn in ipairs(BW.Data.flasks) do
         if UnitHasBuff(unit, fn) then hasFlask = true; break end
     end
 
     -- World buff checks — skip if disabled in config
     for _, entry in ipairs(classDef.worldbuffs or {}) do
-        if BW_IsEnabled(classFile, "worldbuffs", entry.id) then
+        if BW.IsEnabled(classFile, "worldbuffs", entry.id) then
             local found = false
             for _, bn in ipairs(entry.buffs) do
                 if UnitHasBuff(unit, bn) then found = true; break end
@@ -84,7 +84,7 @@ local function ScanUnit(unit)
 
     -- Consume checks — skip if disabled in config
     for _, entry in ipairs(classDef.consumes or {}) do
-        if BW_IsEnabled(classFile, "consumes", entry.id) then
+        if BW.IsEnabled(classFile, "consumes", entry.id) then
             local found = false
             for _, bn in ipairs(entry.buffs) do
                 if UnitHasBuff(unit, bn) then found = true; break end
@@ -110,14 +110,14 @@ end
 -- ── Scan ──────────────────────────────────────────────────────────────────────
 
 function BW:Refresh()  -- Claude: iterate group, collect problem rows, rebuild table
-    if not BW_Data then return end  -- Claude: guard against data file load failure
+    if not BW.Data then return end  -- Claude: guard — Data.lua may not have loaded
     local results = {}
     local total, ok = 0, 0
 
     for _, unit in ipairs(GetGroupUnits()) do
         if UnitExists(unit) then
             local _, classFile = UnitClass(unit)
-            if classFile and BW_Data[classFile] then
+            if classFile and BW.Data[classFile] then
                 total = total + 1
                 local row = ScanUnit(unit)
                 if row then
@@ -219,7 +219,7 @@ function BW:RebuildTable()  -- Claude: populate row pool from latest scan result
         row:Show()
 
         -- Name (class-coloured)
-        local hex = CLASS_COLORS[data.classFile] or "FFFFFF"  -- Claude: use safe local alias
+        local hex = GetClassColors()[data.classFile] or "FFFFFF"  -- Claude: resolved at runtime via BW.ClassColors
         row.nameFStr:SetText(C(data.name, hex))
 
         -- Missing world buffs: red list, or green "(ok)"

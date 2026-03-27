@@ -13,7 +13,8 @@ BW = BW or {}
 -- To rename a display label: change 'label' only, never 'id'.
 -- flask: any one of these counts as "has flask" (global, shown as a separate column).
 
-BW_Data = {
+-- Claude: stored in BW table to avoid global namespace clobbering by other addons
+BW.Data = {
 
     flasks = {
         "Flask of the Titans",
@@ -206,19 +207,8 @@ BW_Data = {
     },
 }
 
--- Class display order for the Config tab row
-BW_ClassOrder = {
-    "WARRIOR", "ROGUE", "HUNTER", "PALADIN", "PRIEST",
-    "MAGE",    "WARLOCK", "DRUID", "SHAMAN",
-}
-
-BW_ClassLabel = {
-    WARRIOR = "Warrior", ROGUE    = "Rogue",   HUNTER  = "Hunter",
-    PALADIN = "Paladin", PRIEST   = "Priest",  MAGE    = "Mage",
-    WARLOCK = "Warlock", DRUID    = "Druid",   SHAMAN  = "Shaman",
-}
-
-BW_ClassColors = {
+-- Claude: stored in BW table — same namespace safety as BW.Data above
+BW.ClassColors = {
     WARRIOR = "C69B6D", PALADIN = "F48CBA", HUNTER = "AAD372",
     ROGUE   = "FFF468", PRIEST  = "FFFFFF", MAGE   = "3FC7EB",
     WARLOCK = "8788EE", DRUID   = "FF7C0A", SHAMAN = "0070DE",

@@ -25,8 +25,8 @@ local function SetEnabled(classFile, section, id, value)
     db.checks[classFile][section][id] = value and nil or false
 end
 
--- expose for use in BuffWatcher.lua
-BW_IsEnabled  = IsEnabled
+-- Claude: store in BW table so BuffWatcher.lua can reach it without a loose global
+BW.IsEnabled = IsEnabled
 
 -- ── Layout constants ─────────────────────────────────────────────────────────
 
@@ -81,9 +81,13 @@ end
 -- ── Content rebuild ──────────────────────────────────────────────────────────
 
 local function RebuildContent(classFile)
-    -- Claude: guard — BW_Data may be nil if the data file failed to load
-    if not BW_Data then
-        print("|cffFF4444BuffWatcher:|r BW_Data is nil — BuffWatcher_Data.lua may not have loaded correctly.")
+    -- Claude: guard — BW.Data may be nil if the data file failed to load
+    if not BW.Data then
+        -- Claude: print only once per session so we don't spam chat on every tab click
+        if not BW._dataWarnShown then
+            BW._dataWarnShown = true
+            print("|cffFF4444BuffWatcher:|r BW.Data is nil — BuffWatcher_Data.lua may not have loaded.")
+        end
         return
     end
     -- Claude: guard — scrollChild is nil if CreateConfigFrame hasn't finished yet
@@ -99,7 +103,7 @@ local function RebuildContent(classFile)
         fs:Hide()
     end
 
-    local classDef = BW_Data[classFile]
+    local classDef = BW.Data[classFile]
     if not classDef then return end
 
     local yOff   = 0
@@ -290,7 +294,7 @@ function BW:CreateConfigFrame()
             BW.flaskCB:SetChecked(BuffWatcherDB.checkFlask ~= false and 1 or nil)
         end
         -- Claude: lazy-init content on first open rather than at CreateConfigFrame time.
-        -- Avoids a crash if BW_Data is not yet available during PLAYER_LOGIN.
+        -- Avoids a crash if BW.Data is not yet available during PLAYER_LOGIN.
         if not currentClass then
             SelectTab("WARRIOR")
         end

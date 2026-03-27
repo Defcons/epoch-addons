@@ -6,7 +6,7 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ## NEW ADDONS (Created from scratch)
 
-### BuffWatcher *(2026-03-27)*
+### BuffWatcher *(2026-03-27, updated 2026-03-27)*
 - **Purpose:** Raid buff and consumable checker — converted from a WeakAura to a standalone addon
 - Small draggable "BuffWatcher" button; hover (or left-click) opens the status popup
 - Status popup auto-refreshes every 5 s while visible; mousewheel scrolls long results
@@ -17,6 +17,7 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - Slash: `/bw` toggle · `/bw check` force scan · `/bw zan` toggle Zandalar · `/bw help`
 - Supports all vanilla classes: Warrior, Paladin, Hunter, Rogue, Priest, Mage, Warlock, Druid, Shaman
 - Uses native 3.3.5 API: `UnitBuff()` index loop, `GetNumRaidMembers()`, `GetNumPartyMembers()`; no C_Timer
+- **Fix (2026-03-27):** Moved all cross-file globals (`BW_Data`, `BW_ClassColors`, `BW_IsEnabled`) into the `BW` table (`BW.Data`, `BW.ClassColors`, `BW.IsEnabled`) to prevent clobbering by other addons sharing the global namespace — this was causing `BW_Data is nil` on every config-frame tab click
 
 ---
 
