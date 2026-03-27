@@ -1,7 +1,7 @@
 -- BuffWatcher_Config.lua
 -- Configuration frame: per-class checkboxes for every buff/consume check.
 -- Opened via the "Config" button on the status frame or /bw config.
--- Loaded before BuffWatcher.lua (see TOC), so BW:OpenConfig() is defined here.
+-- Loaded after BuffWatcher.lua (see TOC). Attaches BW:CreateConfigFrame / BW:OpenConfig to the existing BW table.
 
 -- ── SavedVar helpers ────────────────────────────────────────────────────────
 
@@ -86,6 +86,8 @@ local function RebuildContent(classFile)
         print("|cffFF4444BuffWatcher:|r BW_Data is nil — BuffWatcher_Data.lua may not have loaded correctly.")
         return
     end
+    -- Claude: guard — scrollChild is nil if CreateConfigFrame hasn't finished yet
+    if not scrollChild then return end
     currentClass = classFile
 
     -- Hide everything in the pool

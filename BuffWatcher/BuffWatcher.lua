@@ -5,6 +5,9 @@
 
 BW = BW or {}
 
+-- Claude: safe fallback if Data.lua fails to load — prevents nil-index crash in RebuildTable
+local CLASS_COLORS = BW_ClassColors or {}
+
 -- ── Layout constants ─────────────────────────────────────────────────────────
 local STATUS_W   = 500    -- status frame outer width
 local STATUS_H   = 340    -- status frame outer height
@@ -50,7 +53,8 @@ end
 -- Claude: scan a single unit; returns a row-data table or nil if fully buffed
 local function ScanUnit(unit)
     if not UnitExists(unit) then return nil end
-    if not BW_Data then return nil end  -- Claude: guard against data file load failure
+    if not BW_Data then return nil end      -- Claude: guard against data file load failure
+    if not BW_IsEnabled then return nil end -- Claude: guard against Config.lua load failure
 
     local name = UnitName(unit)
     local _, classFile = UnitClass(unit)  -- Claude: 3.3.5 returns only 2 values
@@ -215,7 +219,7 @@ function BW:RebuildTable()  -- Claude: populate row pool from latest scan result
         row:Show()
 
         -- Name (class-coloured)
-        local hex = BW_ClassColors[data.classFile] or "FFFFFF"
+        local hex = CLASS_COLORS[data.classFile] or "FFFFFF"  -- Claude: use safe local alias
         row.nameFStr:SetText(C(data.name, hex))
 
         -- Missing world buffs: red list, or green "(ok)"

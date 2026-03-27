@@ -291,6 +291,30 @@ Four targeted client bug patches:
 
 ---
 
+### BuffWatcher
+
+- Draggable button → hover/click opens status table (Player | World Buffs | Consumes | Flask)
+- Config button opens per-class checkbox panel; changes save to `BuffWatcherDB` and live-refresh the table
+- Slash: `/bw`, `/bw config`, `/bw check`, `/bw help`
+
+**TOC load order is critical:** `BuffWatcher_Data.lua` → `BuffWatcher.lua` → `BuffWatcher_Config.lua`
+
+**Cross-file contracts:**
+- `BW_Data` — defined in `Data.lua`; used in `BuffWatcher.lua` (`ScanUnit`, `BW:Refresh`) and `Config.lua` (`RebuildContent`)
+- `BW_IsEnabled` — defined in `Config.lua` line 29 as `= IsEnabled` (a local fn); used in `BuffWatcher.lua` `ScanUnit()`
+- `BW_ClassColors` — defined in `Data.lua`; aliased to `local CLASS_COLORS = BW_ClassColors or {}` at top of `BuffWatcher.lua` to survive Data.lua load failure
+- `scrollChild` — module-level local in `Config.lua`; set during `CreateConfigFrame`; guarded in `RebuildContent`
+
+**Key patterns:**
+- Config content is **lazily initialised** on first `OnShow` of the config frame (not at `CreateConfigFrame` time) — avoids `BW_Data` nil crash during `PLAYER_LOGIN`
+- `ScanUnit` guards: `not BW_Data`, `not BW_IsEnabled` — both return nil silently
+- `db.checks[class][section][id] = false` means disabled; `nil` means enabled (compact storage)
+- `BW:RebuildTable()` guarded by `if not self.scrollChild then return end`
+
+**SavedVariables:** `BuffWatcherDB` → `{ checks = { WARRIOR = { worldbuffs = {}, consumes = {} } }, checkFlask = true, buttonPos = {...} }`
+
+---
+
 ### DeleteItems
 
 - Three named deletion lists (itemID-keyed, account-wide)
