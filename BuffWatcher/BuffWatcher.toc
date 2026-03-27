@@ -1,9 +1,10 @@
 ## Interface: 30300
 ## Title: BuffWatcher
-## Notes: Raid buff and consumable checker — shows who's missing world buffs or consumes
+## Notes: Raid buff and consumable checker — configurable per-class grid view
 ## Author: You
-## Version: 1.0
+## Version: 2.0
 ## SavedVariables: BuffWatcherDB
 
+BuffWatcher_Data.lua
 BuffWatcher_Config.lua
 BuffWatcher.lua
