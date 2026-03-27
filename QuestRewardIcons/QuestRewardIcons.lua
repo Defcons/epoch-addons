@@ -37,7 +37,11 @@ end
 -- ─── Icons ────────────────────────────────────────────────────────────────────
 
 local ICON_GOLD = "Interface\\Icons\\INV_Misc_Coin_01"
-local ICON_DE   = "Interface\\Icons\\Ability_TradeskillEnchanting"
+
+-- Claude: get the Disenchant spell icon from the game's own spell DB (spell 13262 = Disenchant).
+-- Avoids hardcoding a texture path that may not exist on this client.
+local _deSpellIcon = select(3, GetSpellInfo(13262))
+local ICON_DE = _deSpellIcon or "Interface\\Icons\\INV_Misc_Gem_01"
 
 -- ─── Static DE Value Table ────────────────────────────────────────────────────
 
@@ -318,14 +322,17 @@ local function GetOrCreate(btn, kind)
     local f = CreateFrame("Frame", nil, btn)
     f:SetFrameLevel(btn:GetFrameLevel() + 10)
 
-    -- Claude: bg draws the coloured border square behind the icon
+    -- Claude: WHITE8X8 is the reliable 3.3.5 solid-colour texture (used by Aux, HCBreathBar)
     local bg = f:CreateTexture(nil, "BACKGROUND")
+    bg:SetTexture("Interface\\Buttons\\WHITE8X8")
     bg:SetAllPoints(f)
     f.bg = bg
 
-    -- Claude: icon texture, inset from bg so the bg shows as a border
     local tex = f:CreateTexture(nil, "ARTWORK")
     tex:SetTexture(kind == "gold" and ICON_GOLD or ICON_DE)
+    -- Claude: clip the dark rounded outer border WoW bakes into all item/spell icons.
+    -- Without this the icon looks dim; Aux uses the same 0.08/0.92 values.
+    tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     f.tex = tex
 
     overlays[key] = f
@@ -357,19 +364,19 @@ local function PlaceIcon(btn, kind, stackOffset, isWinner)
     f.tex:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -inset,  inset)
 
     if isWinner then
-        -- Claude: bright coloured border: gold=yellow, DE=blue
+        -- Claude: bright coloured border via SetVertexColor on WHITE8X8 (reliable in 3.3.5)
         if kind == "gold" then
-            f.bg:SetTexture(1.0, 0.78, 0.0)
+            f.bg:SetVertexColor(1.0, 0.78, 0.0)  -- yellow
         else
-            f.bg:SetTexture(0.2, 0.45, 1.0)
+            f.bg:SetVertexColor(0.2, 0.45, 1.0)  -- blue
         end
         f.bg:SetAlpha(1.0)
         f.tex:SetAlpha(1.0)
         f.tex:SetVertexColor(1, 1, 1)
     else
-        f.bg:SetTexture(0, 0, 0)
-        f.bg:SetAlpha(0.6)
-        f.tex:SetAlpha(0.6)
+        f.bg:SetVertexColor(0, 0, 0)  -- black bg for loser
+        f.bg:SetAlpha(0.65)
+        f.tex:SetAlpha(0.65)
         f.tex:SetVertexColor(1, 1, 1)
     end
 
