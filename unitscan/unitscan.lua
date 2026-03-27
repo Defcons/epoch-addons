@@ -2426,6 +2426,8 @@ function unitscan.checkTargetDead()
 	end
 	if not isTracked then return end
 	if UnitIsDead("target") or UnitIsCorpse("target") then
+		-- Claude: already announced this death — retargeting the corpse (loot/skin) must not repeat the message
+		if unitscan_dead[key] then return end
 		-- Get respawn duration: prefer pfQuest's data, fall back to configured default.
 		local respawn_secs, from_pfquest = unitscan.pfquest_get_respawn(key)
 		unitscan_dead[key] = { t = time(), secs = respawn_secs, from_pfquest = from_pfquest }
@@ -3112,6 +3114,11 @@ local function unitscan_hook_pfquest()
 							if strupper(title) == name then
 								pfMap.nodes["TRACK_RARES"][map][coords][title] = nil
 							end
+						end
+						-- Claude: clean up empty coords table so UpdateMinimap doesn't render a
+						-- featureless dot with all-UNKNOWN tooltip data for the dead rare
+						if next(pfMap.nodes["TRACK_RARES"][map][coords]) == nil then
+							pfMap.nodes["TRACK_RARES"][map][coords] = nil
 						end
 					end
 				end
