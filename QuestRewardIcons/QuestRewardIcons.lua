@@ -7,9 +7,12 @@
 --   Static: hardcoded copper-value table by quality + ilvl bracket.
 -- Gold wins the overall comparison if its value >= DE value + goldThreshold (default 30s).
 --
--- Slash: /qri              → show current settings
---        /qri source <auto|aux|tsm|static>
---        /qri threshold <silver>   (e.g. /qri threshold 50 = 50s preference for gold)
+-- Slash: /qri                                        → show current settings
+--        /qri source <auto|aux|tsm|static>           → set DE price source
+--        /qri threshold <silver>                     → gold preference margin
+--        /qri static                                 → list all static bracket values
+--        /qri static <green|blue|purple> <ilvl> <g>  → set a bracket (gold decimal, e.g. 4.5)
+--        /qri static reset                           → restore static table to addon defaults
 
 -- ─── SavedVariables defaults ──────────────────────────────────────────────────
 
@@ -20,6 +23,15 @@ local DEFAULTS = { source = "auto", goldThreshold = 3000 }
 local function DB(key) -- Claude: safe accessor for SavedVariables with default fallback
     return (QuestRewardIconsDB and QuestRewardIconsDB[key] ~= nil)
            and QuestRewardIconsDB[key] or DEFAULTS[key]
+end
+
+-- Claude: deep-copy a nested table (used to seed SavedVariables from DE_STATIC defaults)
+local function DeepCopy(orig)
+    local copy = {}
+    for k, v in pairs(orig) do
+        copy[k] = type(v) == "table" and DeepCopy(v) or v
+    end
+    return copy
 end
 
 -- ─── Icons ────────────────────────────────────────────────────────────────────
@@ -60,12 +72,13 @@ local DE_STATIC = {
     },
 }
 
--- Claude: look up static DE value from bracket table (quality + ilvl)
+-- Claude: look up static DE value from SavedVariables (editable in-game via /qri static)
 local function GetDEValue_Static(link)
     if not link then return 0 end
     local _, _, quality, ilvl = GetItemInfo(link)
     if not quality or not ilvl then return 0 end
-    local tbl = DE_STATIC[quality]
+    local sv  = QuestRewardIconsDB and QuestRewardIconsDB.staticValues
+    local tbl = sv and sv[quality] or DE_STATIC[quality]  -- Claude: fallback to hardcoded if SV missing
     if not tbl then return 0 end
     for _, row in ipairs(tbl) do
         if ilvl <= row.max then return row.val end
@@ -418,6 +431,10 @@ initFrame:SetScript("OnEvent", function(self, event, name)
     for k, v in pairs(DEFAULTS) do
         if QuestRewardIconsDB[k] == nil then QuestRewardIconsDB[k] = v end
     end
+    -- Claude: seed editable static table from hardcoded defaults on first install
+    if not QuestRewardIconsDB.staticValues then
+        QuestRewardIconsDB.staticValues = DeepCopy(DE_STATIC)
+    end
     self:UnregisterEvent("ADDON_LOADED")
 end)
 
@@ -439,6 +456,64 @@ SlashCmdList["QUESTREWARDICONS"] = function(msg)
             print("|cff00ff00QuestRewardIcons:|r DE price source set to |cffffff00" .. arg .. "|r")
         else
             print("|cff00ff00QuestRewardIcons:|r Valid sources: |cffffff00auto|r, |cffffff00aux|r, |cffffff00tsm|r, |cffffff00static|r")
+        end
+
+    elseif cmd == "static" then
+        -- Claude: quality name → internal quality index
+        local QMAP  = { green = 2, blue = 3, purple = 4 }
+        local QLBL  = { [2] = "Green", [3] = "Blue", [4] = "Purple" }
+        local sv    = QuestRewardIconsDB.staticValues
+
+        local sub, qname, ilvlStr, goldStr = arg:match("^(%S*)%s*(%S*)%s*(%S*)%s*(%S*)")
+        sub = (sub or ""):lower() ; qname = (qname or ""):lower()
+
+        if sub == "reset" then
+            -- Claude: restore all brackets to hardcoded DE_STATIC defaults
+            QuestRewardIconsDB.staticValues = DeepCopy(DE_STATIC)
+            print("|cff00ff00QuestRewardIcons:|r Static table reset to addon defaults.")
+
+        elseif sub ~= "" and QMAP[sub] then
+            -- Claude: /qri static <green|blue|purple> <maxilvl> <gold>
+            local q     = QMAP[sub]
+            local maxIlvl = tonumber(ilvlStr)
+            local gold    = tonumber(goldStr)
+            if not maxIlvl or not gold then
+                print("|cff00ff00QuestRewardIcons:|r Usage: /qri static <green|blue|purple> <maxilvl> <gold>")
+                print("  Example: /qri static green 60 4.5  (sets ilvl≤60 greens to 4g50s)")
+            else
+                local copper = math.floor(gold * 10000)
+                local found  = false
+                for _, row in ipairs(sv[q] or {}) do
+                    if row.max == maxIlvl then
+                        row.val = copper
+                        found   = true
+                        break
+                    end
+                end
+                if found then
+                    print("|cff00ff00QuestRewardIcons:|r " .. QLBL[q]
+                          .. " ilvl≤" .. maxIlvl .. " → |cffffff00" .. gold .. "g|r")
+                else
+                    -- Claude: list valid maxilvl values for this quality
+                    local valid = {}
+                    for _, row in ipairs(sv[q] or {}) do tinsert(valid, row.max) end
+                    print("|cff00ff00QuestRewardIcons:|r No bracket with maxilvl=" .. maxIlvl
+                          .. " for " .. QLBL[q] .. ". Valid: " .. table.concat(valid, ", "))
+                end
+            end
+
+        else
+            -- Claude: /qri static — list all brackets with current values
+            print("|cff00ff00QuestRewardIcons|r — Static DE table  (edit: /qri static <green|blue|purple> <maxilvl> <gold>)")
+            for _, q in ipairs({2, 3, 4}) do
+                local parts = {}
+                for _, row in ipairs(sv[q] or {}) do
+                    local g = string.format("%.2fg", row.val / 10000)
+                    tinsert(parts, "ilvl≤" .. row.max .. "=" .. g)
+                end
+                print("  |cffffff00" .. QLBL[q] .. ":|r " .. table.concat(parts, "  "))
+            end
+            print("  Reset: /qri static reset")
         end
 
     elseif cmd == "threshold" then
