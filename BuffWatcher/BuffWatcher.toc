@@ -6,5 +6,5 @@
 ## SavedVariables: BuffWatcherDB
 
 BuffWatcher_Data.lua
-BuffWatcher_Config.lua
 BuffWatcher.lua
+BuffWatcher_Config.lua

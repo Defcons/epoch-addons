@@ -1,6 +1,7 @@
 -- BuffWatcher.lua
 -- Core: scan logic, status table frame, button, slash commands, init.
--- Loaded after BuffWatcher_Data.lua and BuffWatcher_Config.lua (see TOC).
+-- Load order: BuffWatcher_Data.lua → BuffWatcher.lua → BuffWatcher_Config.lua
+-- BW must exist before Config.lua runs so it can attach CreateConfigFrame/OpenConfig.
 
 BW = BW or {}
 
