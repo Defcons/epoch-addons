@@ -50,6 +50,7 @@ end
 -- Claude: scan a single unit; returns a row-data table or nil if fully buffed
 local function ScanUnit(unit)
     if not UnitExists(unit) then return nil end
+    if not BW_Data then return nil end  -- Claude: guard against data file load failure
 
     local name = UnitName(unit)
     local _, classFile = UnitClass(unit)  -- Claude: 3.3.5 returns only 2 values
@@ -105,6 +106,7 @@ end
 -- ── Scan ──────────────────────────────────────────────────────────────────────
 
 function BW:Refresh()  -- Claude: iterate group, collect problem rows, rebuild table
+    if not BW_Data then return end  -- Claude: guard against data file load failure
     local results = {}
     local total, ok = 0, 0
 

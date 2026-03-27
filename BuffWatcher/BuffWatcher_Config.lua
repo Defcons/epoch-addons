@@ -81,6 +81,11 @@ end
 -- ── Content rebuild ──────────────────────────────────────────────────────────
 
 local function RebuildContent(classFile)
+    -- Claude: guard — BW_Data may be nil if the data file failed to load
+    if not BW_Data then
+        print("|cffFF4444BuffWatcher:|r BW_Data is nil — BuffWatcher_Data.lua may not have loaded correctly.")
+        return
+    end
     currentClass = classFile
 
     -- Hide everything in the pool
@@ -282,10 +287,12 @@ function BW:CreateConfigFrame()
         if BW and BW.flaskCB then
             BW.flaskCB:SetChecked(BuffWatcherDB.checkFlask ~= false and 1 or nil)
         end
+        -- Claude: lazy-init content on first open rather than at CreateConfigFrame time.
+        -- Avoids a crash if BW_Data is not yet available during PLAYER_LOGIN.
+        if not currentClass then
+            SelectTab("WARRIOR")
+        end
     end)
-
-    -- Show Warrior tab by default
-    SelectTab("WARRIOR")
 end
 
 -- ── Public entry point ────────────────────────────────────────────────────────
