@@ -31,6 +31,13 @@ BW_IsEnabled  = IsEnabled
 -- ── Layout constants ─────────────────────────────────────────────────────────
 
 local CFG_W        = 340   -- config frame outer width
+
+-- Claude: class labels defined locally — no cross-file global dependency
+local CLASS_LABEL = {
+    WARRIOR = "Warrior", PALADIN = "Paladin", HUNTER  = "Hunter",
+    ROGUE   = "Rogue",   PRIEST  = "Priest",  MAGE    = "Mage",
+    WARLOCK = "Warlock", DRUID   = "Druid",   SHAMAN  = "Shaman",
+}
 local TAB_ROW1     = { "WARRIOR", "ROGUE", "HUNTER", "PALADIN", "PRIEST" }
 local TAB_ROW2     = { "MAGE", "WARLOCK", "DRUID", "SHAMAN" }
 local TAB_H        = 20    -- tab button height
@@ -221,7 +228,7 @@ function BW:CreateConfigFrame()
         btn:SetSize(TAB_BTN_W, TAB_H)
         btn:SetPoint("TOPLEFT", cf, "TOPLEFT",
             CONTENT_X + (i - 1) * (TAB_BTN_W + TAB_BTN_GAP), row1Y)
-        btn:SetText(BW_ClassLabel[classFile] or classFile)
+        btn:SetText(CLASS_LABEL[classFile] or classFile)
         -- Claude: capture classFile into local for correct closure
         local cf_local = classFile
         btn:SetScript("OnClick", function() SelectTab(cf_local) end)
@@ -235,7 +242,7 @@ function BW:CreateConfigFrame()
         btn:SetSize(TAB_BTN_W, TAB_H)
         btn:SetPoint("TOPLEFT", cf, "TOPLEFT",
             CONTENT_X + (i - 1) * (TAB_BTN_W + TAB_BTN_GAP), row2Y)
-        btn:SetText(BW_ClassLabel[classFile] or classFile)
+        btn:SetText(CLASS_LABEL[classFile] or classFile)
         local cf_local = classFile
         btn:SetScript("OnClick", function() SelectTab(cf_local) end)
         tabBtns[classFile] = btn
