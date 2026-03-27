@@ -398,8 +398,9 @@ local function FindChoiceButton(i)
 end
 
 local function UpdateIcons()
-    HideAll()
+    HideAll()  -- Claude: always clear first — removes stale icons from previous quest
     local numChoices = GetNumQuestChoices()
+    -- Claude: no comparison possible with 0 or 1 items — show nothing
     if numChoices < 2 then return end
 
     local sellVals, deVals = {}, {}
