@@ -6,6 +6,18 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ## NEW ADDONS (Created from scratch)
 
+### QuestRewardIcons *(2026-03-27)*
+- **Purpose:** Overlays small icons on quest choice reward items showing which has the best vendor or disenchant value
+- Gold-coin icon on the item with the highest vendor sell price
+- Enchanting icon on the item with the highest expected DE value
+- Winner icon is larger (18px) with a coloured background (yellow=gold, blue=DE); loser is smaller (13px) and dimmed
+- Gold wins if its value is ≥ DE value + 30s (configurable `GOLD_THRESHOLD`)
+- DE values use a static lookup table by quality + item level bracket (Strange Dust through Abyss Crystal era); values tunable to server economy
+- When best vendor and best DE item are the same button, both icons stack side by side
+- Only activates when quest has ≥ 2 choice items; hooks `QuestInfo_Display` + `QUEST_COMPLETE`/`QUEST_GREETING` events
+
+---
+
 ### DeleteItems
 - **Purpose:** Complete ground-up rewrite of a basic item-deletion addon; full feature list below
 

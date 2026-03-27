@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: QuestRewardIcons
+## Notes: Shows gold/DE value icons on quest reward choice items. Highlights the best pick.
+## Version: 1.0
+## Author: Claude
+
+QuestRewardIcons.lua
