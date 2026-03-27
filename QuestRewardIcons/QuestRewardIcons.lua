@@ -304,13 +304,12 @@ end
 
 -- ─── Icon Overlay Frames ──────────────────────────────────────────────────────
 
-local overlays = {}
+-- Claude: width of the item icon square in quest reward buttons.
+-- Quest item buttons are wide (icon + name text), so we anchor from TOPLEFT
+-- using this offset to land inside the icon square, not past the text.
+local ICON_BOX_W = 37
 
-local function GetIconAnchor(btn)
-    local name = btn:GetName()
-    return _G[name .. "Icon"] or _G[name .. "IconTexture"]
-        or btn:GetNormalTexture() or btn
-end
+local overlays = {}
 
 local function GetOrCreate(btn, kind)
     local key = btn:GetName() .. "_" .. kind
@@ -319,13 +318,13 @@ local function GetOrCreate(btn, kind)
     local f = CreateFrame("Frame", nil, btn)
     f:SetFrameLevel(btn:GetFrameLevel() + 10)
 
+    -- Claude: bg draws the coloured border square behind the icon
     local bg = f:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(f) ; bg:SetTexture(0, 0, 0, 0.8)
+    bg:SetAllPoints(f)
     f.bg = bg
 
+    -- Claude: icon texture, inset from bg so the bg shows as a border
     local tex = f:CreateTexture(nil, "ARTWORK")
-    tex:SetPoint("TOPLEFT",     f, "TOPLEFT",     1, -1)
-    tex:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1,  1)
     tex:SetTexture(kind == "gold" and ICON_GOLD or ICON_DE)
     f.tex = tex
 
@@ -337,27 +336,43 @@ local function HideAll()
     for _, f in pairs(overlays) do f:Hide() end
 end
 
--- Claude: place and style one icon; winner = large + coloured bg, loser = small + dimmed
-local function PlaceIcon(btn, kind, xOffset, isWinner)
-    local f    = GetOrCreate(btn, kind)
-    local size = isWinner and 18 or 13
+-- Claude: place and style one icon.
+--   winner  = large (22px) + bright coloured bg border, icon fully opaque
+--   loser   = small (16px) + dark bg, icon at 60% alpha
+--   stackOffset > 0 shifts the icon left by that many pixels (used when two
+--   icons sit on the same button so they don't overlap).
+local function PlaceIcon(btn, kind, stackOffset, isWinner)
+    local f     = GetOrCreate(btn, kind)
+    local size  = isWinner and 22 or 16
+    local inset = isWinner and 2  or 0   -- Claude: inset creates a visible bg border on winner
 
     f:SetWidth(size) ; f:SetHeight(size)
     f:ClearAllPoints()
-    f:SetPoint("TOPRIGHT", GetIconAnchor(btn), "TOPRIGHT", xOffset, 0)
+    -- Claude: anchor inside the icon square (ICON_BOX_W px at left of button)
+    f:SetPoint("TOPLEFT", btn, "TOPLEFT", ICON_BOX_W - size - stackOffset, -1)
+
+    -- Claude: reposition tex inside bg (inset changes per winner/loser state)
+    f.tex:ClearAllPoints()
+    f.tex:SetPoint("TOPLEFT",     f, "TOPLEFT",      inset, -inset)
+    f.tex:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -inset,  inset)
 
     if isWinner then
-        f.tex:SetAlpha(1.0)
+        -- Claude: bright coloured border: gold=yellow, DE=blue
         if kind == "gold" then
-            f.bg:SetVertexColor(0.9, 0.75, 0.0)  -- Claude: yellow for gold winner
+            f.bg:SetTexture(1.0, 0.78, 0.0)
         else
-            f.bg:SetVertexColor(0.1, 0.2, 0.85)  -- Claude: blue for DE winner
+            f.bg:SetTexture(0.2, 0.45, 1.0)
         end
-        f.bg:SetAlpha(0.85)
+        f.bg:SetAlpha(1.0)
+        f.tex:SetAlpha(1.0)
+        f.tex:SetVertexColor(1, 1, 1)
     else
-        f.tex:SetAlpha(0.38)
-        f.bg:SetVertexColor(0, 0, 0) ; f.bg:SetAlpha(0.7)
+        f.bg:SetTexture(0, 0, 0)
+        f.bg:SetAlpha(0.6)
+        f.tex:SetAlpha(0.6)
+        f.tex:SetVertexColor(1, 1, 1)
     end
+
     f:Show()
 end
 
@@ -387,6 +402,8 @@ local function UpdateIcons()
         deVals[i]   = GetDEValue(link)
     end
 
+    -- Claude: start at index 1 — if all values are equal every item ties,
+    -- and we correctly mark item 1 for both gold and DE (first = default winner on tie)
     local bestSellIdx, bestSellVal = 1, sellVals[1] or 0
     local bestDEIdx,   bestDEVal   = 1, deVals[1]   or 0
     for i = 2, numChoices do
@@ -404,12 +421,16 @@ local function UpdateIcons()
         local showDE   = (i == bestDEIdx)   and (bestDEVal   > 0)
 
         if showGold and showDE then
-            PlaceIcon(btn, "gold", 0,       goldWins)
-            PlaceIcon(btn, "de",  -(13+2),  not goldWins)
+            -- Claude: both icons on same item — stack side by side with no overlap.
+            -- Gold sits at the right, DE shifts left by (goldSize + 2px gap).
+            -- Sizes depend on who won overall, so compute dynamically.
+            local goldSize = goldWins and 22 or 16
+            PlaceIcon(btn, "gold", 0,              goldWins)
+            PlaceIcon(btn, "de",   goldSize + 2,   not goldWins)
         elseif showGold then
             PlaceIcon(btn, "gold", 0, goldWins)
         elseif showDE then
-            PlaceIcon(btn, "de",  0, not goldWins)
+            PlaceIcon(btn, "de",   0, not goldWins)
         end
     end
 end
