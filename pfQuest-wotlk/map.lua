@@ -729,8 +729,11 @@ function pfMap:UpdateNode(frame, node, color, obj, distance, yards_distance)
     pfMap.highlightdb[frame] = {}
   end
 
-  -- reset layer
+  -- reset layer and spawn so reused frames don't carry stale state into the node loop
+  -- Claude: without this, tab.layer > 0 OR not frame.spawn can both be false on reuse,
+  -- causing frame.title to keep the old value and pfQuest.icons to return wrong icon
   frame.layer = 0
+  frame.spawn = nil
 
   for title, tab in pairs(node) do
     pfMap.highlightdb[frame][title] = true
@@ -816,12 +819,21 @@ function pfMap:UpdateNode(frame, node, color, obj, distance, yards_distance)
     end
 
     local useCutout = false
+    local hideTexDot = false
     if obj == "minimap" and pfQuest_config["cutoutminimap"] == "1" then
-      -- Claude: only apply cut-out to object nodes (chests, gathering etc.), not units/mobs or quest icons
       local isObject = frame.spawntype == pfQuest_Loc["Object"]
-      if isObject then
+      -- Claude: only suppress the dot when the node is an Object AND has a tracking icon to
+      -- show in its place (chests, herbs, mines etc.). Quest objective objects share the
+      -- "Object" spawntype but have no tracking icon — hiding their dot leaves nothing visible.
+      local hasTrackingIcon = (frame.title and pfQuest.icons[frame.title]) or frame.icon
+      if isObject and hasTrackingIcon then
         local range = tonumber(pfQuest_config["cutoutminimaprange"]) or 0
-        useCutout = (range == 0) or (yards_distance and yards_distance <= range)
+        if (range == 0) or (yards_distance and yards_distance <= range) then
+          useCutout = true
+        else
+          -- Claude: outside cut-out range — hide the dot so only the tracking icon shows
+          hideTexDot = true
+        end
       end
     elseif obj ~= "minimap" and pfQuest_config["cutoutworldmap"] == "1" then
       useCutout = true
@@ -830,6 +842,11 @@ function pfMap:UpdateNode(frame, node, color, obj, distance, yards_distance)
     if useCutout then
       frame.tex:SetTexture(pfQuestConfig.path.."\\img\\nodecut")
       frame.tex:SetVertexColor(r,g,b,1)
+    elseif hideTexDot then
+      frame.tex:SetVertexColor(r,g,b,0)
+      -- Claude: dot is suppressed outside cut-out range; override the distance-based fade so the
+      -- tracking icon stays fully visible here (no invisible gap between chest-icon and cut-out phases)
+      frame.pic:SetAlpha(1)
     else
       frame.tex:SetTexture(pfQuestConfig.path.."\\img\\node")
       frame.tex:SetVertexColor(r,g,b,1)
