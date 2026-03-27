@@ -337,8 +337,10 @@ function BW:CreateUI()
 
     -- Scroll frame (content area)
     local scrollFrame = CreateFrame("ScrollFrame", "BWScrollFrame", sf)
+    -- Claude: no scrollbar widget — avoid UIPanelScrollBarTemplate OnValueChanged crash;
+    -- use full width and mousewheel-only scrolling instead
     scrollFrame:SetPoint("TOPLEFT",     sf, "TOPLEFT",     6, -32)
-    scrollFrame:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -26, 6)
+    scrollFrame:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -8, 6)
     scrollFrame:EnableMouseWheel(true)
     scrollFrame:SetScript("OnMouseWheel", function(self, delta)  -- Claude: mouse-wheel scroll
         local v   = self:GetVerticalScroll()
@@ -362,22 +364,6 @@ function BW:CreateUI()
     txt:SetJustifyH("LEFT")
     txt:SetJustifyV("TOP")
     self.textObj = txt
-
-    -- Scrollbar widget
-    local sb = CreateFrame("Slider", "BWScrollBar", sf, "UIPanelScrollBarTemplate")
-    sb:SetPoint("TOPLEFT",    scrollFrame, "TOPRIGHT",    3, -16)
-    sb:SetPoint("BOTTOMLEFT", scrollFrame, "BOTTOMRIGHT", 3,  16)
-    sb:SetMinMaxValues(0, 0)
-    sb:SetValueStep(20)
-    sb:SetValue(0)
-    sb:SetScript("OnValueChanged", function(self, v)
-        scrollFrame:SetVerticalScroll(v)
-    end)
-    scrollFrame:SetScript("OnScrollRangeChanged", function(self, _, yRange)  -- Claude: keep scrollbar in sync
-        local capped = math.max(yRange or 0, 0)
-        sb:SetMinMaxValues(0, capped)
-        if sb:GetValue() > capped then sb:SetValue(capped) end
-    end)
 
     -- ── Hover / auto-hide logic ───────────────────────────────
 
