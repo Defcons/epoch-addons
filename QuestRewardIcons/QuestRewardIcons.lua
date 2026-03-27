@@ -344,40 +344,40 @@ local function HideAll()
 end
 
 -- Claude: place and style one icon.
---   winner  = large (22px) + bright coloured bg border, icon fully opaque
---   loser   = small (16px) + dark bg, icon at 60% alpha
---   stackOffset > 0 shifts the icon left by that many pixels (used when two
---   icons sit on the same button so they don't overlap).
+--   winner = large (22px), full alpha, bright vertex-colour tint on the icon itself
+--   loser  = small (15px), 50% alpha, no tint
+--   No coloured bg border — was causing a blue/yellow square when icon texture
+--   was missing. Now bg is always a subtle dark backdrop for readability only.
+--   stackOffset > 0 shifts the icon left (used when two icons share one button).
 local function PlaceIcon(btn, kind, stackOffset, isWinner)
-    local f     = GetOrCreate(btn, kind)
-    local size  = isWinner and 22 or 16
-    local inset = isWinner and 2  or 0   -- Claude: inset creates a visible bg border on winner
+    local f    = GetOrCreate(btn, kind)
+    local size = isWinner and 22 or 15
 
     f:SetWidth(size) ; f:SetHeight(size)
     f:ClearAllPoints()
-    -- Claude: anchor inside the icon square (ICON_BOX_W px at left of button)
+    -- Claude: anchor inside the 37px icon square at the left of the quest button
     f:SetPoint("TOPLEFT", btn, "TOPLEFT", ICON_BOX_W - size - stackOffset, -1)
 
-    -- Claude: reposition tex inside bg (inset changes per winner/loser state)
+    -- Claude: icon always fills the frame — no inset, no coloured bg border
     f.tex:ClearAllPoints()
-    f.tex:SetPoint("TOPLEFT",     f, "TOPLEFT",      inset, -inset)
-    f.tex:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -inset,  inset)
+    f.tex:SetAllPoints(f)
+
+    -- Claude: subtle dark backdrop so icon is readable on any item background
+    f.bg:SetVertexColor(0, 0, 0)
+    f.bg:SetAlpha(0.45)
 
     if isWinner then
-        -- Claude: bright coloured border via SetVertexColor on WHITE8X8 (reliable in 3.3.5)
-        if kind == "gold" then
-            f.bg:SetVertexColor(1.0, 0.78, 0.0)  -- yellow
-        else
-            f.bg:SetVertexColor(0.2, 0.45, 1.0)  -- blue
-        end
-        f.bg:SetAlpha(1.0)
         f.tex:SetAlpha(1.0)
-        f.tex:SetVertexColor(1, 1, 1)
+        if kind == "gold" then
+            -- Claude: bright gold tint — makes the coin icon look like actual gold
+            f.tex:SetVertexColor(1.0, 0.88, 0.1)
+        else
+            -- Claude: soft blue-white tint for the DE icon
+            f.tex:SetVertexColor(0.75, 0.92, 1.0)
+        end
     else
-        f.bg:SetVertexColor(0, 0, 0)  -- black bg for loser
-        f.bg:SetAlpha(0.65)
-        f.tex:SetAlpha(0.65)
-        f.tex:SetVertexColor(1, 1, 1)
+        f.tex:SetAlpha(0.5)
+        f.tex:SetVertexColor(1, 1, 1)  -- no tint for losers
     end
 
     f:Show()
@@ -431,7 +431,7 @@ local function UpdateIcons()
             -- Claude: both icons on same item — stack side by side with no overlap.
             -- Gold sits at the right, DE shifts left by (goldSize + 2px gap).
             -- Sizes depend on who won overall, so compute dynamically.
-            local goldSize = goldWins and 22 or 16
+            local goldSize = goldWins and 22 or 15  -- Claude: match PlaceIcon winner/loser sizes
             PlaceIcon(btn, "gold", 0,              goldWins)
             PlaceIcon(btn, "de",   goldSize + 2,   not goldWins)
         elseif showGold then
