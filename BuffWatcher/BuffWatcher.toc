@@ -1,0 +1,9 @@
+## Interface: 30300
+## Title: BuffWatcher
+## Notes: Raid buff and consumable checker — shows who's missing world buffs or consumes
+## Author: You
+## Version: 1.0
+## SavedVariables: BuffWatcherDB
+
+BuffWatcher_Config.lua
+BuffWatcher.lua

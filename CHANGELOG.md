@@ -6,6 +6,20 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ## NEW ADDONS (Created from scratch)
 
+### BuffWatcher *(2026-03-27)*
+- **Purpose:** Raid buff and consumable checker — converted from a WeakAura to a standalone addon
+- Small draggable "BuffWatcher" button; hover (or left-click) opens the status popup
+- Status popup auto-refreshes every 5 s while visible; mousewheel scrolls long results
+- Categorises players into **MVPs** (flask + all buffs), **Greedy** (only missing flask), and **Missing** (detail view of every absent buff/consume)
+- Per-class config in `BuffWatcher_Config.lua`: separate `worldbuffs` and `consumes` lists; any listed buff name counts as "present"
+- Zandalar toggle: `/bw zan` or in-frame button excludes `zandalar = true` entries from checks
+- Right-drag button to reposition; position persisted in `BuffWatcherDB`
+- Slash: `/bw` toggle · `/bw check` force scan · `/bw zan` toggle Zandalar · `/bw help`
+- Supports all vanilla classes: Warrior, Paladin, Hunter, Rogue, Priest, Mage, Warlock, Druid, Shaman
+- Uses native 3.3.5 API: `UnitBuff()` index loop, `GetNumRaidMembers()`, `GetNumPartyMembers()`; no C_Timer
+
+---
+
 ### QuestRewardIcons *(2026-03-27)*
 - **Purpose:** Overlays small icons on quest choice reward items showing which has the best vendor or disenchant value
 - Gold-coin icon on the item with the highest vendor sell price
