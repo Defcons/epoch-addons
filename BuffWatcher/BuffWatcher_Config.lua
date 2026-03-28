@@ -16,23 +16,51 @@ local DEL_W      = 20     -- delete button
 local COL_GAP    = 5      -- gap between columns
 local ROW_H      = 24     -- height per config row
 
+-- ── Styled EditBox helper ─────────────────────────────────────────────────────
+-- Claude: avoids InputBoxTemplate entirely — that template's OnLoad script can
+-- auto-focus the first box it creates and interfere with SetText during OnShow,
+-- causing the first row to appear empty.  Plain EditBox + backdrop Frame is safe.
+
+local function MakeEB(parent, w, maxChars)
+    -- Visible wrapper frame gives the EditBox its dark border/background
+    local wrap = CreateFrame("Frame", nil, parent)
+    wrap:SetSize(w, ROW_H - 2)
+    wrap:SetBackdrop({
+        bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 4, edgeSize = 8,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    wrap:SetBackdropColor(0.06, 0.07, 0.14, 0.92)
+    wrap:SetBackdropBorderColor(0.28, 0.42, 0.65, 0.80)
+
+    -- Plain EditBox has no template side-effects
+    local eb = CreateFrame("EditBox", nil, wrap)
+    eb:SetPoint("TOPLEFT",     wrap, "TOPLEFT",      4, -2)
+    eb:SetPoint("BOTTOMRIGHT", wrap, "BOTTOMRIGHT", -4,  2)
+    eb:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
+    eb:SetTextColor(0.90, 0.90, 0.90)
+    eb:SetAutoFocus(false)
+    eb:SetMaxLetters(maxChars or 128)
+
+    return wrap, eb
+end
+
 -- ── Row pool ─────────────────────────────────────────────────────────────────
--- Each slot holds a frame containing: checkbox, two EditBoxes, delete button.
--- Pool grows on demand and is never destroyed.
 
 local rowPool     = {}
-local scrollChild = nil   -- set inside CreateConfigFrame; used by GetPoolRow
+local scrollChild = nil   -- set inside CreateConfigFrame
 
--- Claude: create a new row frame parented to scrollChild; grows pool on demand
+-- Claude: grow pool on demand; rows are parented to scrollChild permanently
 local function GetPoolRow(idx)
     if not rowPool[idx] then
-        if not scrollChild then return nil end  -- safety: not yet initialised
+        if not scrollChild then return nil end
 
         local row = CreateFrame("Frame", nil, scrollChild)
         row:SetHeight(ROW_H)
         row:SetWidth(CB_SIZE + COL_GAP * 3 + BUFF_W + LABEL_W + DEL_W)
 
-        -- Alternating row background
+        -- Alternating row tint
         local bg = row:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         if idx % 2 == 0 then
@@ -46,24 +74,18 @@ local function GetPoolRow(idx)
         cb:SetSize(CB_SIZE, CB_SIZE)
         cb:SetPoint("LEFT", row, "LEFT", 0, 0)
 
-        -- Buff name EditBox
-        local buffEB = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-        buffEB:SetSize(BUFF_W, ROW_H - 4)
-        buffEB:SetPoint("LEFT", cb, "RIGHT", COL_GAP, 0)
-        buffEB:SetAutoFocus(false)
-        buffEB:SetMaxLetters(128)
+        -- Buff name EditBox (via wrapper)
+        local buffWrap, buffEB = MakeEB(row, BUFF_W, 128)
+        buffWrap:SetPoint("LEFT", cb, "RIGHT", COL_GAP, 0)
 
-        -- Output label EditBox
-        local labelEB = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-        labelEB:SetSize(LABEL_W, ROW_H - 4)
-        labelEB:SetPoint("LEFT", buffEB, "RIGHT", COL_GAP, 0)
-        labelEB:SetAutoFocus(false)
-        labelEB:SetMaxLetters(64)
+        -- Output label EditBox (via wrapper)
+        local labelWrap, labelEB = MakeEB(row, LABEL_W, 64)
+        labelWrap:SetPoint("LEFT", buffWrap, "RIGHT", COL_GAP, 0)
 
         -- Delete button
         local delBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
         delBtn:SetSize(DEL_W, DEL_W)
-        delBtn:SetPoint("LEFT", labelEB, "RIGHT", COL_GAP, 0)
+        delBtn:SetPoint("LEFT", labelWrap, "RIGHT", COL_GAP, 0)
         delBtn:SetText("X")
 
         row.cb      = cb
@@ -81,10 +103,10 @@ end
 local function RebuildConfig()
     if not scrollChild then return end
 
-    -- Hide every pooled row and clear old scripts to prevent stale closures
+    -- Hide all rows and clear stale scripts before reassigning
     for _, row in ipairs(rowPool) do
         row:Hide()
-        -- Claude: nil all handlers before re-assigning — avoids double-fire from stale closures
+        -- Claude: clear all scripts — prevents stale closures from firing after rebuild
         row.cb:SetScript("OnClick", nil)
         row.buffEB:SetScript("OnEditFocusLost",  nil)
         row.buffEB:SetScript("OnEnterPressed",   nil)
@@ -99,17 +121,18 @@ local function RebuildConfig()
 
     for i, entry in ipairs(entries) do
         local row = GetPoolRow(i)
-        if not row then break end  -- scrollChild not ready
+        if not row then break end
 
-        row.entryIndex = i  -- Claude: runtime index; closures read row.entryIndex, not captured i
-
+        -- Claude: store index on the frame so closures can read the live value
+        row.entryIndex = i
         row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", CONTENT_X, -(i - 1) * ROW_H)
+
         row.cb:SetChecked(entry.enabled ~= false and 1 or nil)
-        row.buffEB:SetText(entry.buff  or "")
+        row.buffEB:SetText(entry.buff   or "")
         row.labelEB:SetText(entry.label or "")
 
-        -- Claude: capture the row frame object (not the loop index) into closures.
-        -- row.entryIndex is updated each RebuildConfig so closures always see the live index.
+        -- Claude: capture row frame (not loop index i) so deletes that shift indices
+        -- don't corrupt closures — closures re-read row.entryIndex at call time
         local capturedRow = row
 
         row.cb:SetScript("OnClick", function(self)
@@ -122,9 +145,7 @@ local function RebuildConfig()
             local ent = BuffWatcherDB.entries[capturedRow.entryIndex]
             if ent then ent.buff = self:GetText() end
         end)
-        row.buffEB:SetScript("OnEnterPressed", function(self)
-            self:ClearFocus()
-        end)
+        row.buffEB:SetScript("OnEnterPressed",  function(self) self:ClearFocus() end)
         row.buffEB:SetScript("OnEscapePressed", function(self)
             local ent = BuffWatcherDB.entries[capturedRow.entryIndex]
             if ent then self:SetText(ent.buff or "") end
@@ -134,12 +155,9 @@ local function RebuildConfig()
         row.labelEB:SetScript("OnEditFocusLost", function(self)
             local ent = BuffWatcherDB.entries[capturedRow.entryIndex]
             if ent then ent.label = self:GetText() end
-            -- Claude: live-refresh the status table so label changes appear immediately
             if BW.statusFrame and BW.statusFrame:IsShown() then BW:Refresh() end
         end)
-        row.labelEB:SetScript("OnEnterPressed", function(self)
-            self:ClearFocus()
-        end)
+        row.labelEB:SetScript("OnEnterPressed",  function(self) self:ClearFocus() end)
         row.labelEB:SetScript("OnEscapePressed", function(self)
             local ent = BuffWatcherDB.entries[capturedRow.entryIndex]
             if ent then self:SetText(ent.label or "") end
@@ -153,6 +171,13 @@ local function RebuildConfig()
         end)
 
         row:Show()
+    end
+
+    -- Claude: explicitly clear focus from every EditBox after populating —
+    -- prevents the first row from appearing empty due to auto-focus side effects
+    for _, row in ipairs(rowPool) do
+        row.buffEB:ClearFocus()
+        row.labelEB:ClearFocus()
     end
 
     scrollChild:SetHeight(math.max(#entries * ROW_H + 4, ROW_H))
@@ -182,12 +207,11 @@ function BW:CreateConfigFrame()
     cf:Hide()
     self.configFrame = cf
 
-    -- Title
+    -- Claude: title used |cffAAAAAAAA (8 hex chars) before — WoW reads 6 so "AA" leaked as text
     local title = cf:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOP", cf, "TOP", 0, -9)
-    title:SetText("|cff88CCFFBuffWatcher|r |cffAAAAAAAA— Config|r")
+    title:SetText("|cff88CCFFBuffWatcher|r |cffAAAAAA- Config|r")
 
-    -- Close button
     local closeBtn = CreateFrame("Button", nil, cf, "UIPanelCloseButton")
     closeBtn:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 1, 1)
     closeBtn:SetScript("OnClick", function() cf:Hide() end)
@@ -200,6 +224,8 @@ function BW:CreateConfigFrame()
     divTop:SetTexture(0.25, 0.45, 0.75, 0.35)
 
     -- Column headers
+    -- Claude: replaced UTF-8 checkmark ✓ (U+2713) with WoW inline texture —
+    -- the character is not in WoW 3.3.5's FRIZQT font and rendered as "?"
     local HDR_Y = -30
     local function MakeHdr(label, xOff, w, align)
         local fs = cf:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -208,10 +234,12 @@ function BW:CreateConfigFrame()
         fs:SetJustifyH(align or "LEFT")
         fs:SetText("|cff8899BB" .. label .. "|r")
     end
-    local xOff = 0
-    MakeHdr("✓",            xOff, CB_SIZE,  "CENTER") ; xOff = xOff + CB_SIZE  + COL_GAP
-    MakeHdr("Buff Name",     xOff, BUFF_W,   "LEFT")   ; xOff = xOff + BUFF_W   + COL_GAP
-    MakeHdr("Output Label",  xOff, LABEL_W,  "LEFT")
+    local hx = 0
+    MakeHdr("|TInterface\\Buttons\\UI-CheckBox-Check:13:13|t", hx, CB_SIZE, "CENTER")
+    hx = hx + CB_SIZE + COL_GAP
+    MakeHdr("Buff Name",    hx, BUFF_W,  "LEFT")
+    hx = hx + BUFF_W + COL_GAP
+    MakeHdr("Output Label", hx, LABEL_W, "LEFT")
 
     -- Divider below headers
     local divHdr = cf:CreateTexture(nil, "ARTWORK")
@@ -220,7 +248,7 @@ function BW:CreateConfigFrame()
     divHdr:SetPoint("TOPRIGHT", cf, "TOPRIGHT", -CONTENT_X, -44)
     divHdr:SetTexture(0.25, 0.45, 0.75, 0.25)
 
-    -- Bottom buttons: Add Row + Reset to Defaults
+    -- Bottom buttons
     local addBtn = CreateFrame("Button", nil, cf, "UIPanelButtonTemplate")
     addBtn:SetSize(80, 20)
     addBtn:SetPoint("BOTTOMLEFT", cf, "BOTTOMLEFT", CONTENT_X, 8)
@@ -228,7 +256,7 @@ function BW:CreateConfigFrame()
     addBtn:SetScript("OnClick", function()
         tinsert(BuffWatcherDB.entries, { buff = "", label = "", enabled = true })
         RebuildConfig()
-        -- Claude: scroll to bottom so user sees the freshly added empty row
+        -- Claude: scroll to bottom so the user immediately sees the new empty row
         if BW._cfgScroll then
             BW._cfgScroll:SetVerticalScroll(BW._cfgScroll:GetVerticalScrollRange())
         end
@@ -239,7 +267,7 @@ function BW:CreateConfigFrame()
     resetBtn:SetPoint("LEFT", addBtn, "RIGHT", 6, 0)
     resetBtn:SetText("Reset to Defaults")
     resetBtn:SetScript("OnClick", function()
-        -- Claude: deep-copy defaults so edits don't corrupt BW.DefaultEntries
+        -- Claude: deep-copy so in-game edits never corrupt BW.DefaultEntries
         BuffWatcherDB.entries = {}
         for _, e in ipairs(BW.DefaultEntries or {}) do
             tinsert(BuffWatcherDB.entries, { buff = e.buff, label = e.label, enabled = e.enabled })
@@ -255,7 +283,7 @@ function BW:CreateConfigFrame()
     divBot:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", -CONTENT_X, 32)
     divBot:SetTexture(0.25, 0.45, 0.75, 0.35)
 
-    -- Scroll frame (entry rows live here)
+    -- Scroll frame
     local sfm = CreateFrame("ScrollFrame", nil, cf)
     sfm:SetPoint("TOPLEFT",     cf, "TOPLEFT",     CONTENT_X, -46)
     sfm:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", -CONTENT_X, 36)
@@ -265,15 +293,14 @@ function BW:CreateConfigFrame()
         local max = self:GetVerticalScrollRange()
         self:SetVerticalScroll(math.max(0, math.min(max, v - delta * ROW_H * 3)))
     end)
-    BW._cfgScroll = sfm  -- Claude: stored so Add Row can scroll to bottom
+    BW._cfgScroll = sfm
 
     local sc = CreateFrame("Frame", nil, sfm)
     sc:SetWidth(CFG_W - CONTENT_X * 2 - 14)
     sc:SetHeight(ROW_H)
     sfm:SetScrollChild(sc)
-    scrollChild = sc  -- module-level ref used by GetPoolRow and RebuildConfig
+    scrollChild = sc
 
-    -- Claude: rebuild content each time the frame opens so edits from last session show
     cf:SetScript("OnShow", function()
         RebuildConfig()
     end)
