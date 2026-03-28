@@ -1,213 +1,51 @@
 -- BuffWatcher_Data.lua
--- Defines every possible buff/consume check per class.
--- Claude: BW must exist before BuffWatcher_Config.lua loads (it runs next in the TOC)
+-- Default check entries and class colour table.
+-- Claude: everything stored in the BW table to avoid global namespace clobbering.
+
 BW = BW or {}
 
+-- ── Default entries ───────────────────────────────────────────────────────────
+-- Seeded into BuffWatcherDB.entries on first login (or when Reset is clicked).
 --
--- Format per entry:
---   { id = "unique_key", label = "Short Name", buffs = { "Buff Name 1", ... } }
---   Any one of the listed buff names counts as "present".
---   'id' is the SavedVariables key — keep it stable across versions.
+-- Format: { buff = "WoW buff name", label = "output label", enabled = true/false }
 --
--- To add a new check: add an entry to worldbuffs or consumes.
--- To rename a display label: change 'label' only, never 'id'.
--- flask: any one of these counts as "has flask" (global, shown as a separate column).
+-- Entries that share the same label are grouped:
+--   if ANY matching buff is found on the unit, the whole label is satisfied.
+--
+-- Example: three "Battle Elixir" rows — having any one is enough.
 
--- Claude: stored in BW table to avoid global namespace clobbering by other addons
-BW.Data = {
-
-    flasks = {
-        "Flask of the Titans",
-        "Distilled Wisdom",
-        "Supreme Power",
-    },
-
-    -- ── Warrior ──────────────────────────────────────────────────────────
-    WARRIOR = {
-        worldbuffs = {
-            { id = "songflower", label = "Songflower",  buffs = { "Songflower Serenade" } },
-            { id = "ony",        label = "Ony",         buffs = { "Rallying Cry of the Dragonslayer" } },
-            { id = "zandalar",   label = "Zandalar",    buffs = { "Spirit of Zandalar" } },
-            { id = "warchief",   label = "Warchief",    buffs = { "Warchief's Blessing" } },
-            { id = "dmt_stam",   label = "DMT Stam",    buffs = { "Mol'dar's Moxie" } },
-            { id = "dmt_ap",     label = "DMT AP",      buffs = { "Fengus' Ferocity" } },
-        },
-        consumes = {
-            { id = "mongoose",  label = "Mongoose",     buffs = { "Elixir of the Mongoose" } },
-            { id = "zanza",     label = "Zanza/Blasted",buffs = {
-                "Spirit of Zanza", "Swiftness of Zanza", "Rage of Ages", "Strike of the Scorpok",
-                "Darnassus Gift Collection", "Orgrimmar Gift Collection",
-                "Ironforge Gift Collection", "Thunder Bluff Gift Collection",
-            } },
-            { id = "ap",        label = "AP",           buffs = { "Juju Might", "Winterfall Firewater" } },
-            { id = "strength",  label = "Strength",     buffs = { "Juju Power", "Elixir of the Giants" } },
-            { id = "food",      label = "Food",         buffs = { "Well Fed", "Increased Stamina", "Blessed Sunfruit", "Increased Agility" } },
-        },
-    },
-
-    -- ── Rogue ────────────────────────────────────────────────────────────
-    ROGUE = {
-        worldbuffs = {
-            { id = "songflower", label = "Songflower",  buffs = { "Songflower Serenade" } },
-            { id = "ony",        label = "Ony",         buffs = { "Rallying Cry of the Dragonslayer" } },
-            { id = "zandalar",   label = "Zandalar",    buffs = { "Spirit of Zandalar" } },
-            { id = "warchief",   label = "Warchief",    buffs = { "Warchief's Blessing" } },
-            { id = "dmt_stam",   label = "DMT Stam",    buffs = { "Mol'dar's Moxie" } },
-            { id = "dmt_ap",     label = "DMT AP",      buffs = { "Fengus' Ferocity" } },
-        },
-        consumes = {
-            { id = "mongoose",  label = "Mongoose",     buffs = { "Elixir of the Mongoose" } },
-            { id = "zanza",     label = "Zanza/Blasted",buffs = {
-                "Spirit of Zanza", "Swiftness of Zanza", "Rage of Ages", "Strike of the Scorpok",
-                "Darnassus Gift Collection", "Orgrimmar Gift Collection",
-                "Ironforge Gift Collection", "Thunder Bluff Gift Collection",
-            } },
-            { id = "ap",        label = "AP",           buffs = { "Juju Might", "Winterfall Firewater" } },
-            { id = "strength",  label = "Strength",     buffs = { "Juju Power", "Elixir of the Giants" } },
-            { id = "food",      label = "Food",         buffs = { "Well Fed", "Increased Stamina", "Blessed Sunfruit", "Increased Agility" } },
-        },
-    },
-
-    -- ── Hunter ───────────────────────────────────────────────────────────
-    HUNTER = {
-        worldbuffs = {
-            { id = "songflower", label = "Songflower",  buffs = { "Songflower Serenade" } },
-            { id = "ony",        label = "Ony",         buffs = { "Rallying Cry of the Dragonslayer" } },
-            { id = "zandalar",   label = "Zandalar",    buffs = { "Spirit of Zandalar" } },
-            { id = "dmt_stam",   label = "DMT Stam",    buffs = { "Mol'dar's Moxie" } },
-            { id = "dmt_ap",     label = "DMT AP",      buffs = { "Fengus' Ferocity" } },
-            { id = "dmt_crit",   label = "DMT Crit",    buffs = { "Slip'kik's Savvy" } },
-        },
-        consumes = {
-            { id = "mongoose",  label = "Mongoose",     buffs = { "Elixir of the Mongoose" } },
-            { id = "zanza",     label = "Zanza/Blasted",buffs = {
-                "Spirit of Zanza", "Swiftness of Zanza", "Rage of Ages", "Strike of the Scorpok",
-                "Darnassus Gift Collection", "Orgrimmar Gift Collection",
-                "Ironforge Gift Collection", "Thunder Bluff Gift Collection",
-            } },
-            { id = "food",      label = "Food",         buffs = { "Well Fed", "Increased Stamina", "Increased Agility", "Mana Regeneration" } },
-        },
-    },
-
-    -- ── Paladin ──────────────────────────────────────────────────────────
-    PALADIN = {
-        worldbuffs = {
-            { id = "songflower", label = "Songflower",  buffs = { "Songflower Serenade" } },
-            { id = "ony",        label = "Ony",         buffs = { "Rallying Cry of the Dragonslayer" } },
-            { id = "zandalar",   label = "Zandalar",    buffs = { "Spirit of Zandalar" } },
-            { id = "dmt_stam",   label = "DMT Stam",    buffs = { "Mol'dar's Moxie" } },
-            { id = "dmt_crit",   label = "DMT Crit",    buffs = { "Slip'kik's Savvy" } },
-        },
-        consumes = {
-            { id = "mageblood", label = "Mageblood",   buffs = { "Mana Regeneration" } },
-            { id = "zanza",     label = "Zanza/Blasted",buffs = {
-                "Spirit of Zanza", "Swiftness of Zanza", "Infallible Mind",
-                "Stormwind Gift Collection", "Undercity Gift Collection",
-                "Ironforge Gift Collection", "Thunder Bluff Gift Collection",
-            } },
-            { id = "food",      label = "Food",         buffs = { "Well Fed", "Increased Stamina", "Increased Intellect", "Mana Regeneration" } },
-        },
-    },
-
-    -- ── Priest ───────────────────────────────────────────────────────────
-    PRIEST = {
-        worldbuffs = {
-            { id = "songflower", label = "Songflower",  buffs = { "Songflower Serenade" } },
-            { id = "ony",        label = "Ony",         buffs = { "Rallying Cry of the Dragonslayer" } },
-            { id = "zandalar",   label = "Zandalar",    buffs = { "Spirit of Zandalar" } },
-            { id = "dmt_stam",   label = "DMT Stam",    buffs = { "Mol'dar's Moxie" } },
-            { id = "dmt_crit",   label = "DMT Crit",    buffs = { "Slip'kik's Savvy" } },
-        },
-        consumes = {
-            { id = "mageblood", label = "Mageblood",   buffs = { "Mana Regeneration" } },
-            { id = "zanza",     label = "Zanza/Blasted",buffs = {
-                "Spirit of Zanza", "Swiftness of Zanza", "Infallible Mind",
-                "Stormwind Gift Collection", "Undercity Gift Collection",
-                "Ironforge Gift Collection", "Thunder Bluff Gift Collection",
-            } },
-            { id = "food",      label = "Food",         buffs = { "Well Fed", "Increased Stamina", "Increased Intellect", "Mana Regeneration" } },
-        },
-    },
-
-    -- ── Mage ─────────────────────────────────────────────────────────────
-    MAGE = {
-        worldbuffs = {
-            { id = "songflower", label = "Songflower",  buffs = { "Songflower Serenade" } },
-            { id = "ony",        label = "Ony",         buffs = { "Rallying Cry of the Dragonslayer" } },
-            { id = "zandalar",   label = "Zandalar",    buffs = { "Spirit of Zandalar" } },
-            { id = "dmt_stam",   label = "DMT Stam",    buffs = { "Mol'dar's Moxie" } },
-            { id = "dmt_crit",   label = "DMT Crit",    buffs = { "Slip'kik's Savvy" } },
-        },
-        consumes = {
-            { id = "gap",       label = "GAP",          buffs = { "Greater Arcane Elixir" } },
-            { id = "mageblood", label = "Mageblood",   buffs = { "Mana Regeneration" } },
-            { id = "power",     label = "Power",        buffs = { "Greater Firepower", "Frost Power" } },
-            { id = "zanza",     label = "Zanza/Blasted",buffs = {
-                "Spirit of Zanza", "Swiftness of Zanza", "Infallible Mind",
-                "Stormwind Gift Collection", "Undercity Gift Collection",
-                "Ironforge Gift Collection", "Thunder Bluff Gift Collection",
-            } },
-            { id = "food",      label = "Food",         buffs = { "Well Fed", "Increased Stamina", "Increased Intellect", "Mana Regeneration" } },
-        },
-    },
-
-    -- ── Warlock ──────────────────────────────────────────────────────────
-    WARLOCK = {
-        worldbuffs = {
-            { id = "songflower", label = "Songflower",  buffs = { "Songflower Serenade" } },
-            { id = "ony",        label = "Ony",         buffs = { "Rallying Cry of the Dragonslayer" } },
-            { id = "zandalar",   label = "Zandalar",    buffs = { "Spirit of Zandalar" } },
-            { id = "dmt_stam",   label = "DMT Stam",    buffs = { "Mol'dar's Moxie" } },
-            { id = "dmt_crit",   label = "DMT Crit",    buffs = { "Slip'kik's Savvy" } },
-        },
-        consumes = {
-            { id = "gap",       label = "GAP",          buffs = { "Greater Arcane Elixir" } },
-            { id = "shadow",    label = "Shadow",       buffs = { "Shadow Power" } },
-            { id = "zanza",     label = "Zanza/Blasted",buffs = {
-                "Spirit of Zanza", "Swiftness of Zanza", "Infallible Mind",
-                "Stormwind Gift Collection", "Undercity Gift Collection",
-                "Ironforge Gift Collection", "Thunder Bluff Gift Collection",
-            } },
-            { id = "food",      label = "Food",         buffs = { "Well Fed", "Increased Stamina", "Increased Intellect", "Mana Regeneration" } },
-        },
-    },
-
-    -- ── Druid ────────────────────────────────────────────────────────────
-    DRUID = {
-        worldbuffs = {
-            { id = "songflower", label = "Songflower",  buffs = { "Songflower Serenade" } },
-            { id = "ony",        label = "Ony",         buffs = { "Rallying Cry of the Dragonslayer" } },
-            { id = "zandalar",   label = "Zandalar",    buffs = { "Spirit of Zandalar" } },
-            { id = "dmt_stam",   label = "DMT Stam",    buffs = { "Mol'dar's Moxie" } },
-            { id = "dmt_crit",   label = "DMT Crit",    buffs = { "Slip'kik's Savvy" } },
-        },
-        consumes = {
-            { id = "mageblood", label = "Mageblood",   buffs = { "Mana Regeneration" } },
-            { id = "zanza",     label = "Zanza/Blasted",buffs = {
-                "Spirit of Zanza", "Swiftness of Zanza", "Infallible Mind",
-                "Stormwind Gift Collection", "Undercity Gift Collection",
-                "Ironforge Gift Collection", "Thunder Bluff Gift Collection",
-            } },
-            { id = "food",      label = "Food",         buffs = { "Well Fed", "Increased Stamina", "Increased Intellect", "Mana Regeneration" } },
-        },
-    },
-
-    -- ── Shaman ───────────────────────────────────────────────────────────
-    SHAMAN = {
-        worldbuffs = {
-            { id = "songflower", label = "Songflower",  buffs = { "Songflower Serenade" } },
-            { id = "ony",        label = "Ony",         buffs = { "Rallying Cry of the Dragonslayer" } },
-            { id = "zandalar",   label = "Zandalar",    buffs = { "Spirit of Zandalar" } },
-            { id = "dmt_stam",   label = "DMT Stam",    buffs = { "Mol'dar's Moxie" } },
-        },
-        consumes = {
-            { id = "mageblood", label = "Mageblood",   buffs = { "Mana Regeneration" } },
-            { id = "food",      label = "Food",         buffs = { "Well Fed", "Increased Stamina" } },
-        },
-    },
+BW.DefaultEntries = {
+    -- ── World buffs ───────────────────────────────────────────────────────────
+    { buff = "Songflower Serenade",                  label = "Songflower",      enabled = true  },
+    { buff = "Rallying Cry of the Dragonslayer",      label = "Onyxia",          enabled = true  },
+    { buff = "Spirit of Zandalar",                   label = "Zandalar",        enabled = true  },
+    { buff = "Warchief's Blessing",                  label = "Warchief",        enabled = false },
+    { buff = "Mol'dar's Moxie",                      label = "DMT Stam",        enabled = true  },
+    { buff = "Fengus' Ferocity",                     label = "DMT AP",          enabled = true  },
+    { buff = "Slip'kik's Savvy",                     label = "DMT Crit",        enabled = true  },
+    -- ── TBC Flasks ────────────────────────────────────────────────────────────
+    { buff = "Flask of Chromatic Wonder",            label = "Flask",           enabled = true  },
+    { buff = "Flask of Fortification",               label = "Flask",           enabled = true  },
+    { buff = "Flask of Relentless Assault",          label = "Flask",           enabled = true  },
+    { buff = "Flask of Mighty Restoration",          label = "Flask",           enabled = true  },
+    -- ── TBC Battle Elixirs ────────────────────────────────────────────────────
+    { buff = "Elixir of Major Agility",              label = "Battle Elixir",   enabled = true  },
+    { buff = "Onslaught Elixir",                     label = "Battle Elixir",   enabled = true  },
+    { buff = "Elixir of Major Strength",             label = "Battle Elixir",   enabled = true  },
+    { buff = "Elixir of Mastery",                    label = "Battle Elixir",   enabled = true  },
+    { buff = "Elixir of Major Shadow Power",         label = "Battle Elixir",   enabled = true  },
+    { buff = "Elixir of Major Firepower",            label = "Battle Elixir",   enabled = true  },
+    { buff = "Elixir of Major Frost Power",          label = "Battle Elixir",   enabled = true  },
+    -- ── TBC Guardian Elixirs ──────────────────────────────────────────────────
+    { buff = "Elixir of Major Fortitude",            label = "Guardian Elixir", enabled = true  },
+    { buff = "Elixir of Draenic Wisdom",             label = "Guardian Elixir", enabled = true  },
+    { buff = "Elixir of Major Mageblood",            label = "Guardian Elixir", enabled = true  },
+    { buff = "Elixir of Ironskin",                   label = "Guardian Elixir", enabled = true  },
+    -- ── Well Fed ──────────────────────────────────────────────────────────────
+    { buff = "Well Fed",                             label = "Well Fed",        enabled = true  },
 }
 
--- Claude: stored in BW table — same namespace safety as BW.Data above
+-- Claude: class colours referenced at runtime in RebuildTable
 BW.ClassColors = {
     WARRIOR = "C69B6D", PALADIN = "F48CBA", HUNTER = "AAD372",
     ROGUE   = "FFF468", PRIEST  = "FFFFFF", MAGE   = "3FC7EB",

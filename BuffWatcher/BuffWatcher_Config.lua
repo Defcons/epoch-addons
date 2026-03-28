@@ -1,180 +1,161 @@
 -- BuffWatcher_Config.lua
--- Configuration frame: per-class checkboxes for every buff/consume check.
--- Opened via the "Config" button on the status frame or /bw config.
--- Loaded after BuffWatcher.lua (see TOC). Attaches BW:CreateConfigFrame / BW:OpenConfig to the existing BW table.
+-- Configuration frame: editable two-column list mapping buff names to output labels.
+-- Claude: Loaded after BuffWatcher.lua (see TOC). Attaches BW:CreateConfigFrame / BW:OpenConfig.
 
--- ── SavedVar helpers ────────────────────────────────────────────────────────
+-- ── Layout constants ──────────────────────────────────────────────────────────
 
--- Claude: returns true if the check is enabled (default when key is absent)
-local function IsEnabled(classFile, section, id)
-    local db = BuffWatcherDB
-    if not db.checks then return true end
-    local cc = db.checks[classFile]
-    if not cc then return true end
-    local sc = cc[section]
-    if not sc then return true end
-    return sc[id] ~= false  -- nil = enabled, false = disabled
-end
+local CFG_W      = 490    -- config frame outer width
+local CFG_H      = 480    -- config frame height
+local CONTENT_X  = 10     -- left padding inside the frame content area
 
--- Claude: store nil for true (matches default) to keep the DB compact
-local function SetEnabled(classFile, section, id, value)
-    local db = BuffWatcherDB
-    if not db.checks then db.checks = {} end
-    if not db.checks[classFile] then db.checks[classFile] = {} end
-    if not db.checks[classFile][section] then db.checks[classFile][section] = {} end
-    db.checks[classFile][section][id] = value and nil or false
-end
+-- Claude: entry row column widths
+local CB_SIZE    = 18     -- checkbox square
+local BUFF_W     = 220    -- "Buff Name" EditBox width
+local LABEL_W    = 130    -- "Output Label" EditBox width
+local DEL_W      = 20     -- delete button
+local COL_GAP    = 5      -- gap between columns
+local ROW_H      = 24     -- height per config row
 
--- Claude: store in BW table so BuffWatcher.lua can reach it without a loose global
-BW.IsEnabled = IsEnabled
+-- ── Row pool ─────────────────────────────────────────────────────────────────
+-- Each slot holds a frame containing: checkbox, two EditBoxes, delete button.
+-- Pool grows on demand and is never destroyed.
 
--- ── Layout constants ─────────────────────────────────────────────────────────
+local rowPool     = {}
+local scrollChild = nil   -- set inside CreateConfigFrame; used by GetPoolRow
 
-local CFG_W        = 340   -- config frame outer width
+-- Claude: create a new row frame parented to scrollChild; grows pool on demand
+local function GetPoolRow(idx)
+    if not rowPool[idx] then
+        if not scrollChild then return nil end  -- safety: not yet initialised
 
--- Claude: class labels defined locally — no cross-file global dependency
-local CLASS_LABEL = {
-    WARRIOR = "Warrior", PALADIN = "Paladin", HUNTER  = "Hunter",
-    ROGUE   = "Rogue",   PRIEST  = "Priest",  MAGE    = "Mage",
-    WARLOCK = "Warlock", DRUID   = "Druid",   SHAMAN  = "Shaman",
-}
-local TAB_ROW1     = { "WARRIOR", "ROGUE", "HUNTER", "PALADIN", "PRIEST" }
-local TAB_ROW2     = { "MAGE", "WARLOCK", "DRUID", "SHAMAN" }
-local TAB_H        = 20    -- tab button height
-local TAB_BTN_W    = 60    -- tab button width
-local TAB_BTN_GAP  = 2     -- gap between tab buttons
-local CONTENT_X    = 8     -- left padding for content
-local CB_H         = 22    -- height per checkbox row
-local HDR_H        = 18    -- height for section header text
-local SECTION_GAP  = 6     -- vertical gap between sections
+        local row = CreateFrame("Frame", nil, scrollChild)
+        row:SetHeight(ROW_H)
+        row:SetWidth(CB_SIZE + COL_GAP * 3 + BUFF_W + LABEL_W + DEL_W)
 
--- ── Checkbox pool ────────────────────────────────────────────────────────────
--- Pre-built pool of {cb, lbl} pairs — reused when switching class tabs
-local cbPool        = {}
-local sectionHdrs   = {}   -- FontString pool for section headers
-local scrollChild   = nil  -- set during CreateConfigFrame
-local currentClass  = nil  -- which class tab is currently shown
-
-local function GetPoolCB(idx, parent)  -- Claude: grow pool on demand
-    if not cbPool[idx] then
-        local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-        cb:SetSize(18, 18)
-        local lbl = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        lbl:SetPoint("LEFT", cb, "RIGHT", 3, 0)
-        lbl:SetWidth(CFG_W - CONTENT_X - 28)
-        lbl:SetJustifyH("LEFT")
-        cbPool[idx] = { cb = cb, lbl = lbl }
-    end
-    return cbPool[idx]
-end
-
-local function GetSectionHdr(idx, parent)  -- Claude: grow header pool on demand
-    if not sectionHdrs[idx] then
-        local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        fs:SetWidth(CFG_W - CONTENT_X * 2)
-        fs:SetJustifyH("LEFT")
-        sectionHdrs[idx] = fs
-    end
-    return sectionHdrs[idx]
-end
-
--- ── Content rebuild ──────────────────────────────────────────────────────────
-
-local function RebuildContent(classFile)
-    -- Claude: guard — BW.Data may be nil if the data file failed to load
-    if not BW.Data then
-        -- Claude: print only once per session so we don't spam chat on every tab click
-        if not BW._dataWarnShown then
-            BW._dataWarnShown = true
-            print("|cffFF4444BuffWatcher:|r BW.Data is nil — BuffWatcher_Data.lua may not have loaded.")
-        end
-        return
-    end
-    -- Claude: guard — scrollChild is nil if CreateConfigFrame hasn't finished yet
-    if not scrollChild then return end
-    currentClass = classFile
-
-    -- Hide everything in the pool
-    for _, pair in ipairs(cbPool) do
-        pair.cb:Hide()
-        pair.lbl:Hide()
-    end
-    for _, fs in ipairs(sectionHdrs) do
-        fs:Hide()
-    end
-
-    local classDef = BW.Data[classFile]
-    if not classDef then return end
-
-    local yOff   = 0
-    local cbIdx  = 0
-    local hdrIdx = 0
-
-    local function AddSection(title, section, entries)
-        if not entries or #entries == 0 then return end
-
-        -- Section header
-        hdrIdx = hdrIdx + 1
-        local hdr = GetSectionHdr(hdrIdx, scrollChild)
-        hdr:ClearAllPoints()
-        hdr:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", CONTENT_X, -yOff)
-        hdr:SetText("|cff88CCFF" .. title .. "|r")
-        hdr:Show()
-        yOff = yOff + HDR_H + 2
-
-        for _, entry in ipairs(entries) do
-            cbIdx = cbIdx + 1
-            local pair = GetPoolCB(cbIdx, scrollChild)
-            local cb, lbl = pair.cb, pair.lbl
-
-            cb:ClearAllPoints()
-            cb:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", CONTENT_X, -yOff)
-            lbl:ClearAllPoints()
-            lbl:SetPoint("LEFT", cb, "RIGHT", 3, 0)
-
-            lbl:SetText(entry.label)
-            cb:SetChecked(IsEnabled(classFile, section, entry.id) and 1 or nil)
-
-            -- Claude: capture loop vars into locals to avoid Lua 5.1 closure bug
-            local cf, sec, eid = classFile, section, entry.id
-            cb:SetScript("OnClick", function(self)
-                local checked = self:GetChecked() and true or false
-                SetEnabled(cf, sec, eid, checked)
-                -- Live-refresh the status table if it's open
-                if BW and BW.statusFrame and BW.statusFrame:IsShown() then
-                    BW:Refresh()
-                end
-            end)
-
-            cb:Show()
-            lbl:Show()
-            yOff = yOff + CB_H
-        end
-
-        yOff = yOff + SECTION_GAP
-    end
-
-    AddSection("World Buffs", "worldbuffs", classDef.worldbuffs)
-    AddSection("Consumes",    "consumes",   classDef.consumes)
-
-    -- Resize scroll child to exact content height
-    scrollChild:SetHeight(math.max(yOff + 4, CB_H))
-end
-
--- ── Tab button highlight ─────────────────────────────────────────────────────
-
-local tabBtns = {}
-
-local function SelectTab(classFile)
-    -- Update highlight state on all tab buttons
-    for cf, btn in pairs(tabBtns) do
-        if cf == classFile then
-            btn:LockHighlight()
+        -- Alternating row background
+        local bg = row:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        if idx % 2 == 0 then
+            bg:SetTexture(0.10, 0.12, 0.20, 0.40)
         else
-            btn:UnlockHighlight()
+            bg:SetTexture(0.05, 0.06, 0.10, 0.20)
         end
+
+        -- Enabled checkbox
+        local cb = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+        cb:SetSize(CB_SIZE, CB_SIZE)
+        cb:SetPoint("LEFT", row, "LEFT", 0, 0)
+
+        -- Buff name EditBox
+        local buffEB = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+        buffEB:SetSize(BUFF_W, ROW_H - 4)
+        buffEB:SetPoint("LEFT", cb, "RIGHT", COL_GAP, 0)
+        buffEB:SetAutoFocus(false)
+        buffEB:SetMaxLetters(128)
+
+        -- Output label EditBox
+        local labelEB = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+        labelEB:SetSize(LABEL_W, ROW_H - 4)
+        labelEB:SetPoint("LEFT", buffEB, "RIGHT", COL_GAP, 0)
+        labelEB:SetAutoFocus(false)
+        labelEB:SetMaxLetters(64)
+
+        -- Delete button
+        local delBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        delBtn:SetSize(DEL_W, DEL_W)
+        delBtn:SetPoint("LEFT", labelEB, "RIGHT", COL_GAP, 0)
+        delBtn:SetText("X")
+
+        row.cb      = cb
+        row.buffEB  = buffEB
+        row.labelEB = labelEB
+        row.delBtn  = delBtn
+
+        rowPool[idx] = row
     end
-    RebuildContent(classFile)
+    return rowPool[idx]
+end
+
+-- ── Config rebuild ────────────────────────────────────────────────────────────
+
+local function RebuildConfig()
+    if not scrollChild then return end
+
+    -- Hide every pooled row and clear old scripts to prevent stale closures
+    for _, row in ipairs(rowPool) do
+        row:Hide()
+        -- Claude: nil all handlers before re-assigning — avoids double-fire from stale closures
+        row.cb:SetScript("OnClick", nil)
+        row.buffEB:SetScript("OnEditFocusLost",  nil)
+        row.buffEB:SetScript("OnEnterPressed",   nil)
+        row.buffEB:SetScript("OnEscapePressed",  nil)
+        row.labelEB:SetScript("OnEditFocusLost", nil)
+        row.labelEB:SetScript("OnEnterPressed",  nil)
+        row.labelEB:SetScript("OnEscapePressed", nil)
+        row.delBtn:SetScript("OnClick", nil)
+    end
+
+    local entries = BuffWatcherDB.entries or {}
+
+    for i, entry in ipairs(entries) do
+        local row = GetPoolRow(i)
+        if not row then break end  -- scrollChild not ready
+
+        row.entryIndex = i  -- Claude: runtime index; closures read row.entryIndex, not captured i
+
+        row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", CONTENT_X, -(i - 1) * ROW_H)
+        row.cb:SetChecked(entry.enabled ~= false and 1 or nil)
+        row.buffEB:SetText(entry.buff  or "")
+        row.labelEB:SetText(entry.label or "")
+
+        -- Claude: capture the row frame object (not the loop index) into closures.
+        -- row.entryIndex is updated each RebuildConfig so closures always see the live index.
+        local capturedRow = row
+
+        row.cb:SetScript("OnClick", function(self)
+            local ent = BuffWatcherDB.entries[capturedRow.entryIndex]
+            if ent then ent.enabled = (self:GetChecked() and true or false) end
+            if BW.statusFrame and BW.statusFrame:IsShown() then BW:Refresh() end
+        end)
+
+        row.buffEB:SetScript("OnEditFocusLost", function(self)
+            local ent = BuffWatcherDB.entries[capturedRow.entryIndex]
+            if ent then ent.buff = self:GetText() end
+        end)
+        row.buffEB:SetScript("OnEnterPressed", function(self)
+            self:ClearFocus()
+        end)
+        row.buffEB:SetScript("OnEscapePressed", function(self)
+            local ent = BuffWatcherDB.entries[capturedRow.entryIndex]
+            if ent then self:SetText(ent.buff or "") end
+            self:ClearFocus()
+        end)
+
+        row.labelEB:SetScript("OnEditFocusLost", function(self)
+            local ent = BuffWatcherDB.entries[capturedRow.entryIndex]
+            if ent then ent.label = self:GetText() end
+            -- Claude: live-refresh the status table so label changes appear immediately
+            if BW.statusFrame and BW.statusFrame:IsShown() then BW:Refresh() end
+        end)
+        row.labelEB:SetScript("OnEnterPressed", function(self)
+            self:ClearFocus()
+        end)
+        row.labelEB:SetScript("OnEscapePressed", function(self)
+            local ent = BuffWatcherDB.entries[capturedRow.entryIndex]
+            if ent then self:SetText(ent.label or "") end
+            self:ClearFocus()
+        end)
+
+        row.delBtn:SetScript("OnClick", function()
+            table.remove(BuffWatcherDB.entries, capturedRow.entryIndex)
+            RebuildConfig()
+            if BW.statusFrame and BW.statusFrame:IsShown() then BW:Refresh() end
+        end)
+
+        row:Show()
+    end
+
+    scrollChild:SetHeight(math.max(#entries * ROW_H + 4, ROW_H))
 end
 
 -- ── Config frame creation ─────────────────────────────────────────────────────
@@ -182,7 +163,7 @@ end
 function BW:CreateConfigFrame()
     local cf = CreateFrame("Frame", "BWConfigFrame", UIParent)
     cf:SetWidth(CFG_W)
-    cf:SetHeight(500)  -- will resize after first tab click
+    cf:SetHeight(CFG_H)
     cf:SetFrameStrata("DIALOG")
     cf:SetBackdrop({
         bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -211,93 +192,90 @@ function BW:CreateConfigFrame()
     closeBtn:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 1, 1)
     closeBtn:SetScript("OnClick", function() cf:Hide() end)
 
-    -- Flask checkbox (global toggle, not per-class)
-    local flaskCB = CreateFrame("CheckButton", nil, cf, "UICheckButtonTemplate")
-    flaskCB:SetSize(18, 18)
-    flaskCB:SetPoint("TOPLEFT", cf, "TOPLEFT", CONTENT_X, -28)
-    flaskCB:SetChecked(BuffWatcherDB.checkFlask ~= false and 1 or nil)
-    flaskCB:SetScript("OnClick", function(self)
-        BuffWatcherDB.checkFlask = self:GetChecked() and true or false
-        if BW and BW.statusFrame and BW.statusFrame:IsShown() then BW:Refresh() end
+    -- Divider below title
+    local divTop = cf:CreateTexture(nil, "ARTWORK")
+    divTop:SetHeight(1)
+    divTop:SetPoint("TOPLEFT",  cf, "TOPLEFT",  CONTENT_X, -26)
+    divTop:SetPoint("TOPRIGHT", cf, "TOPRIGHT", -CONTENT_X, -26)
+    divTop:SetTexture(0.25, 0.45, 0.75, 0.35)
+
+    -- Column headers
+    local HDR_Y = -30
+    local function MakeHdr(label, xOff, w, align)
+        local fs = cf:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetPoint("TOPLEFT", cf, "TOPLEFT", CONTENT_X + xOff, HDR_Y)
+        fs:SetWidth(w)
+        fs:SetJustifyH(align or "LEFT")
+        fs:SetText("|cff8899BB" .. label .. "|r")
+    end
+    local xOff = 0
+    MakeHdr("✓",            xOff, CB_SIZE,  "CENTER") ; xOff = xOff + CB_SIZE  + COL_GAP
+    MakeHdr("Buff Name",     xOff, BUFF_W,   "LEFT")   ; xOff = xOff + BUFF_W   + COL_GAP
+    MakeHdr("Output Label",  xOff, LABEL_W,  "LEFT")
+
+    -- Divider below headers
+    local divHdr = cf:CreateTexture(nil, "ARTWORK")
+    divHdr:SetHeight(1)
+    divHdr:SetPoint("TOPLEFT",  cf, "TOPLEFT",  CONTENT_X, -44)
+    divHdr:SetPoint("TOPRIGHT", cf, "TOPRIGHT", -CONTENT_X, -44)
+    divHdr:SetTexture(0.25, 0.45, 0.75, 0.25)
+
+    -- Bottom buttons: Add Row + Reset to Defaults
+    local addBtn = CreateFrame("Button", nil, cf, "UIPanelButtonTemplate")
+    addBtn:SetSize(80, 20)
+    addBtn:SetPoint("BOTTOMLEFT", cf, "BOTTOMLEFT", CONTENT_X, 8)
+    addBtn:SetText("Add Row")
+    addBtn:SetScript("OnClick", function()
+        tinsert(BuffWatcherDB.entries, { buff = "", label = "", enabled = true })
+        RebuildConfig()
+        -- Claude: scroll to bottom so user sees the freshly added empty row
+        if BW._cfgScroll then
+            BW._cfgScroll:SetVerticalScroll(BW._cfgScroll:GetVerticalScrollRange())
+        end
     end)
-    local flaskLbl = cf:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    flaskLbl:SetPoint("LEFT", flaskCB, "RIGHT", 3, 0)
-    flaskLbl:SetText("|cffFFD700Require Flask|r")
-    self.flaskCB = flaskCB  -- Claude: stored so init can sync it after DB load
 
-    -- Thin divider below flask toggle
-    local div1 = cf:CreateTexture(nil, "ARTWORK")
-    div1:SetHeight(1)
-    div1:SetPoint("TOPLEFT",  cf, "TOPLEFT",  CONTENT_X, -50)
-    div1:SetPoint("TOPRIGHT", cf, "TOPRIGHT", -CONTENT_X, -50)
-    div1:SetTexture(0.25, 0.45, 0.75, 0.35)
+    local resetBtn = CreateFrame("Button", nil, cf, "UIPanelButtonTemplate")
+    resetBtn:SetSize(130, 20)
+    resetBtn:SetPoint("LEFT", addBtn, "RIGHT", 6, 0)
+    resetBtn:SetText("Reset to Defaults")
+    resetBtn:SetScript("OnClick", function()
+        -- Claude: deep-copy defaults so edits don't corrupt BW.DefaultEntries
+        BuffWatcherDB.entries = {}
+        for _, e in ipairs(BW.DefaultEntries or {}) do
+            tinsert(BuffWatcherDB.entries, { buff = e.buff, label = e.label, enabled = e.enabled })
+        end
+        RebuildConfig()
+        if BW.statusFrame and BW.statusFrame:IsShown() then BW:Refresh() end
+    end)
 
-    -- Tab row 1
-    local row1Y = -55
-    for i, classFile in ipairs(TAB_ROW1) do
-        local btn = CreateFrame("Button", nil, cf, "UIPanelButtonTemplate")
-        btn:SetSize(TAB_BTN_W, TAB_H)
-        btn:SetPoint("TOPLEFT", cf, "TOPLEFT",
-            CONTENT_X + (i - 1) * (TAB_BTN_W + TAB_BTN_GAP), row1Y)
-        btn:SetText(CLASS_LABEL[classFile] or classFile)
-        -- Claude: capture classFile into local for correct closure
-        local cf_local = classFile
-        btn:SetScript("OnClick", function() SelectTab(cf_local) end)
-        tabBtns[classFile] = btn
-    end
+    -- Divider above bottom buttons
+    local divBot = cf:CreateTexture(nil, "ARTWORK")
+    divBot:SetHeight(1)
+    divBot:SetPoint("BOTTOMLEFT",  cf, "BOTTOMLEFT",  CONTENT_X,  32)
+    divBot:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", -CONTENT_X, 32)
+    divBot:SetTexture(0.25, 0.45, 0.75, 0.35)
 
-    -- Tab row 2
-    local row2Y = row1Y - TAB_H - TAB_BTN_GAP
-    for i, classFile in ipairs(TAB_ROW2) do
-        local btn = CreateFrame("Button", nil, cf, "UIPanelButtonTemplate")
-        btn:SetSize(TAB_BTN_W, TAB_H)
-        btn:SetPoint("TOPLEFT", cf, "TOPLEFT",
-            CONTENT_X + (i - 1) * (TAB_BTN_W + TAB_BTN_GAP), row2Y)
-        btn:SetText(CLASS_LABEL[classFile] or classFile)
-        local cf_local = classFile
-        btn:SetScript("OnClick", function() SelectTab(cf_local) end)
-        tabBtns[classFile] = btn
-    end
-
-    -- Thin divider below tabs
-    local tabsBottom = row2Y - TAB_H - 4
-    local div2 = cf:CreateTexture(nil, "ARTWORK")
-    div2:SetHeight(1)
-    div2:SetPoint("TOPLEFT",  cf, "TOPLEFT",  CONTENT_X, tabsBottom)
-    div2:SetPoint("TOPRIGHT", cf, "TOPRIGHT", -CONTENT_X, tabsBottom)
-    div2:SetTexture(0.25, 0.45, 0.75, 0.35)
-
-    -- Scroll frame (content area for checkboxes)
-    local contentTopY  = tabsBottom - 4   -- a bit of breathing room
+    -- Scroll frame (entry rows live here)
     local sfm = CreateFrame("ScrollFrame", nil, cf)
-    sfm:SetPoint("TOPLEFT",     cf, "TOPLEFT",     CONTENT_X, contentTopY)
-    sfm:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", -CONTENT_X, 8)
+    sfm:SetPoint("TOPLEFT",     cf, "TOPLEFT",     CONTENT_X, -46)
+    sfm:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", -CONTENT_X, 36)
     sfm:EnableMouseWheel(true)
     sfm:SetScript("OnMouseWheel", function(self, delta)
         local v   = self:GetVerticalScroll()
         local max = self:GetVerticalScrollRange()
-        self:SetVerticalScroll(math.max(0, math.min(max, v - delta * CB_H * 2)))
+        self:SetVerticalScroll(math.max(0, math.min(max, v - delta * ROW_H * 3)))
     end)
+    BW._cfgScroll = sfm  -- Claude: stored so Add Row can scroll to bottom
 
-    -- Scroll child (grows to fit content)
     local sc = CreateFrame("Frame", nil, sfm)
-    sc:SetWidth(CFG_W - CONTENT_X * 2)
-    sc:SetHeight(CB_H)
+    sc:SetWidth(CFG_W - CONTENT_X * 2 - 14)
+    sc:SetHeight(ROW_H)
     sfm:SetScrollChild(sc)
-    scrollChild = sc  -- module-level ref for RebuildContent
+    scrollChild = sc  -- module-level ref used by GetPoolRow and RebuildConfig
 
-    -- Claude: auto-resize the config frame when content changes height
-    -- We resize it to fit, capped at 500px, so the user doesn't need to scroll for small classes
-    cf:SetScript("OnShow", function(self)
-        -- Re-sync the flask checkbox visual state on every open
-        if BW and BW.flaskCB then
-            BW.flaskCB:SetChecked(BuffWatcherDB.checkFlask ~= false and 1 or nil)
-        end
-        -- Claude: lazy-init content on first open rather than at CreateConfigFrame time.
-        -- Avoids a crash if BW.Data is not yet available during PLAYER_LOGIN.
-        if not currentClass then
-            SelectTab("WARRIOR")
-        end
+    -- Claude: rebuild content each time the frame opens so edits from last session show
+    cf:SetScript("OnShow", function()
+        RebuildConfig()
     end)
 end
 

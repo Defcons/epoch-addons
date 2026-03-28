@@ -1,42 +1,25 @@
 -- BuffWatcher.lua
 -- Core: scan logic, status table frame, button, slash commands, init.
 -- Load order: BuffWatcher_Data.lua → BuffWatcher.lua → BuffWatcher_Config.lua
--- BW must exist before Config.lua runs so it can attach CreateConfigFrame/OpenConfig.
 
 BW = BW or {}
 
--- Claude: resolved at runtime from BW table — safe even if Data.lua had a load error
-local function GetClassColors() return BW.ClassColors or {} end
-
 -- ── Layout constants ─────────────────────────────────────────────────────────
-local STATUS_W   = 500    -- status frame outer width
-local STATUS_H   = 340    -- status frame outer height
-local ROW_H      = 20     -- height per player row in the table
-local MAX_ROWS   = 40     -- pre-build pool up to full raid size
+local STATUS_W   = 500
+local STATUS_H   = 340
+local ROW_H      = 20
 
--- Column widths (must total STATUS_W - 16px border = 484)
-local COL_NAME   = 140
-local COL_WB     = 170
-local COL_CONS   = 130
-local COL_FLASK  = 44
+-- Claude: two-column layout — Player name + wide Missing Buffs
+local COL_NAME    = 140
+local COL_MISSING = 344   -- STATUS_W - 16px borders - COL_NAME
 
 -- ── Helpers ──────────────────────────────────────────────────────────────────
 
-local function C(text, hex)  -- Claude: colour helper
+local function C(text, hex)  -- Claude: inline colour helper
     return "|cff" .. hex .. text .. "|r"
 end
 
--- Claude: loop UnitBuff by index — 3.3.5 has no name-based lookup
-local function UnitHasBuff(unit, buffName)
-    for i = 1, 40 do
-        local name = UnitBuff(unit, i)
-        if not name then break end
-        if name == buffName then return true end
-    end
-    return false
-end
-
--- Claude: build list of group unit IDs (raid → party → solo)
+-- Claude: build group unit list: raid → party → solo
 local function GetGroupUnits()
     local units = {}
     local nr = GetNumRaidMembers()
@@ -50,89 +33,82 @@ local function GetGroupUnits()
     return units
 end
 
--- Claude: scan a single unit; returns a row-data table or nil if fully buffed
-local function ScanUnit(unit)
+-- Claude: build label→buffs map from currently enabled entries in the DB.
+-- Also returns an ordered label list so output order matches entry order.
+local function BuildCheckMap()
+    local map   = {}   -- label → { buff1, buff2, ... }
+    local order = {}   -- labels in first-seen insertion order
+    local seen  = {}
+    for _, e in ipairs(BuffWatcherDB.entries or {}) do
+        if e.enabled ~= false then
+            local lbl = e.label or ""
+            local buf = e.buff  or ""
+            if lbl ~= "" and buf ~= "" then
+                if not seen[lbl] then
+                    tinsert(order, lbl)
+                    seen[lbl] = true
+                    map[lbl]  = {}
+                end
+                tinsert(map[lbl], buf)
+            end
+        end
+    end
+    return map, order
+end
+
+-- Claude: scan one unit; returns a row-data table or nil when fully buffed
+local function ScanUnit(unit, checkMap, labelOrder)
     if not UnitExists(unit) then return nil end
-    if not BW.Data     then return nil end  -- Claude: guard — Data.lua may not have loaded
-    if not BW.IsEnabled then return nil end -- Claude: guard — Config.lua may not have loaded
 
-    local name = UnitName(unit)
-    local _, classFile = UnitClass(unit)  -- Claude: 3.3.5 returns only 2 values
-    local classDef = classFile and BW.Data[classFile]
-    if not classDef then return nil end
-
-    local db         = BuffWatcherDB
-    local missWB     = {}
-    local missCons   = {}
-
-    -- Flask (always scanned regardless of checkFlask; column just dims when not required)
-    local hasFlask = false
-    for _, fn in ipairs(BW.Data.flasks) do
-        if UnitHasBuff(unit, fn) then hasFlask = true; break end
+    -- Snapshot all active buff names for this unit into a lookup set
+    local unitBuffs = {}
+    for i = 1, 40 do
+        local bname = UnitBuff(unit, i)
+        if not bname then break end
+        unitBuffs[bname] = true
     end
 
-    -- World buff checks — skip if disabled in config
-    for _, entry in ipairs(classDef.worldbuffs or {}) do
-        if BW.IsEnabled(classFile, "worldbuffs", entry.id) then
-            local found = false
-            for _, bn in ipairs(entry.buffs) do
-                if UnitHasBuff(unit, bn) then found = true; break end
-            end
-            if not found then tinsert(missWB, entry.label) end
+    local missing = {}
+    for _, lbl in ipairs(labelOrder) do
+        local found = false
+        for _, bn in ipairs(checkMap[lbl]) do
+            if unitBuffs[bn] then found = true; break end
         end
+        if not found then tinsert(missing, lbl) end
     end
 
-    -- Consume checks — skip if disabled in config
-    for _, entry in ipairs(classDef.consumes or {}) do
-        if BW.IsEnabled(classFile, "consumes", entry.id) then
-            local found = false
-            for _, bn in ipairs(entry.buffs) do
-                if UnitHasBuff(unit, bn) then found = true; break end
-            end
-            if not found then tinsert(missCons, entry.label) end
-        end
-    end
-
-    -- Only include in the table if something is wrong
-    local flaskRequired = (db.checkFlask ~= false)
-    local flaskIssue    = flaskRequired and not hasFlask
-    if #missWB == 0 and #missCons == 0 and not flaskIssue then return nil end
+    if #missing == 0 then return nil end
 
     return {
-        name      = name,
-        classFile = classFile,
-        missWB    = missWB,
-        missCons  = missCons,
-        hasFlask  = hasFlask,
+        name      = UnitName(unit),
+        classFile = select(2, UnitClass(unit)),  -- Claude: 3.3.5 UnitClass returns 2 values
+        missing   = missing,
     }
 end
 
 -- ── Scan ──────────────────────────────────────────────────────────────────────
 
-function BW:Refresh()  -- Claude: iterate group, collect problem rows, rebuild table
-    if not BW.Data then return end  -- Claude: guard — Data.lua may not have loaded
+function BW:Refresh()
+    local checkMap, labelOrder = BuildCheckMap()
     local results = {}
     local total, ok = 0, 0
 
     for _, unit in ipairs(GetGroupUnits()) do
         if UnitExists(unit) then
-            local _, classFile = UnitClass(unit)
-            if classFile and BW.Data[classFile] then
-                total = total + 1
-                local row = ScanUnit(unit)
-                if row then
-                    tinsert(results, row)
-                else
-                    ok = ok + 1
-                end
+            total = total + 1
+            local row = ScanUnit(unit, checkMap, labelOrder)
+            if row then
+                tinsert(results, row)
+            else
+                ok = ok + 1
             end
         end
     end
 
-    self.scanResults  = results
-    self.scanTotal    = total
-    self.scanOK       = ok
-    self.lastRefresh  = GetTime()
+    self.scanResults = results
+    self.scanTotal   = total
+    self.scanOK      = ok
+    self.lastRefresh = GetTime()
     self:RebuildTable()
 end
 
@@ -140,12 +116,12 @@ end
 
 local rowPool = {}  -- Claude: pre-built row frames, reused on every Refresh
 
-local function MakeRow(parent, idx)  -- Claude: build one reusable table row
+local function MakeRow(parent, idx)
     local row = CreateFrame("Frame", nil, parent)
     row:SetHeight(ROW_H)
-    row:SetWidth(COL_NAME + COL_WB + COL_CONS + COL_FLASK)
+    row:SetWidth(COL_NAME + COL_MISSING)
 
-    -- Alternating background texture
+    -- Alternating background
     local bg = row:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     if idx % 2 == 0 then
@@ -153,9 +129,8 @@ local function MakeRow(parent, idx)  -- Claude: build one reusable table row
     else
         bg:SetTexture(0.06, 0.07, 0.12, 0.35)
     end
-    row.bg = bg
 
-    -- Thin top-border line for visual separation
+    -- Thin top-border separator
     local line = row:CreateTexture(nil, "ARTWORK")
     line:SetHeight(1)
     line:SetPoint("TOPLEFT",  row, "TOPLEFT",  0, 0)
@@ -166,16 +141,14 @@ local function MakeRow(parent, idx)  -- Claude: build one reusable table row
         local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         fs:SetPoint("LEFT", row, "LEFT", xOff + 3, 0)
         fs:SetWidth(w - 6)
-        fs:SetJustifyH(align or "LEFT")
         fs:SetHeight(ROW_H)
+        fs:SetJustifyH(align or "LEFT")
         fs:SetJustifyV("MIDDLE")
         return fs
     end
 
-    row.nameFStr  = MakeFS(0,                              COL_NAME,  "LEFT")
-    row.wbFStr    = MakeFS(COL_NAME,                       COL_WB,    "LEFT")
-    row.consFStr  = MakeFS(COL_NAME + COL_WB,              COL_CONS,  "LEFT")
-    row.flaskFStr = MakeFS(COL_NAME + COL_WB + COL_CONS,  COL_FLASK, "CENTER")
+    row.nameFStr = MakeFS(0,        COL_NAME,    "LEFT")
+    row.missFStr = MakeFS(COL_NAME, COL_MISSING, "LEFT")
 
     row:Hide()
     return row
@@ -183,24 +156,18 @@ end
 
 -- ── Table rebuild ─────────────────────────────────────────────────────────────
 
-function BW:RebuildTable()  -- Claude: populate row pool from latest scan results
+function BW:RebuildTable()
     if not self.scrollChild then return end
 
     local results = self.scanResults or {}
-    local db      = BuffWatcherDB
-    local flaskRequired = (db.checkFlask ~= false)
-
-    -- Update summary line
-    local ago = self.lastRefresh and math.floor(GetTime() - self.lastRefresh) or 0
-    local okStr = C(tostring(self.scanOK or 0) .. " OK", "44CC66")
-    local badStr = C(tostring(#results) .. " issues", #results > 0 and "FF5555" or "44CC66")
-    local agoStr = C("  (" .. ago .. "s ago)", "445566")
+    local ago     = self.lastRefresh and math.floor(GetTime() - self.lastRefresh) or 0
+    local okStr   = C(tostring(self.scanOK or 0) .. " OK", "44CC66")
+    local badStr  = C(tostring(#results) .. " issues", #results > 0 and "FF5555" or "44CC66")
+    local agoStr  = C("  (" .. ago .. "s ago)", "445566")
     self.summaryText:SetText(okStr .. "  " .. badStr .. agoStr)
 
-    -- Hide all pooled rows
     for _, row in ipairs(rowPool) do row:Hide() end
 
-    -- Empty state
     if #results == 0 then
         self.emptyLabel:Show()
         self.scrollChild:SetHeight(ROW_H)
@@ -208,7 +175,9 @@ function BW:RebuildTable()  -- Claude: populate row pool from latest scan result
     end
     self.emptyLabel:Hide()
 
-    -- Populate and show rows
+    -- Claude: resolved at runtime so Data.lua load failures degrade gracefully
+    local colors = BW.ClassColors or {}
+
     for i, data in ipairs(results) do
         local row = rowPool[i]
         if not row then
@@ -218,35 +187,11 @@ function BW:RebuildTable()  -- Claude: populate row pool from latest scan result
         end
         row:Show()
 
-        -- Name (class-coloured)
-        local hex = GetClassColors()[data.classFile] or "FFFFFF"  -- Claude: resolved at runtime via BW.ClassColors
-        row.nameFStr:SetText(C(data.name, hex))
-
-        -- Missing world buffs: red list, or green "(ok)"
-        if #data.missWB > 0 then
-            row.wbFStr:SetText(C(table.concat(data.missWB, ", "), "FF6655"))
-        else
-            row.wbFStr:SetText(C("ok", "44AA55"))
-        end
-
-        -- Missing consumes: red list, or green "(ok)"
-        if #data.missCons > 0 then
-            row.consFStr:SetText(C(table.concat(data.missCons, ", "), "FF6655"))
-        else
-            row.consFStr:SetText(C("ok", "44AA55"))
-        end
-
-        -- Flask column: green + / red X / grey - (when not required)
-        if data.hasFlask then
-            row.flaskFStr:SetText(C("+", "44CC44"))
-        elseif flaskRequired then
-            row.flaskFStr:SetText(C("X", "FF4444"))
-        else
-            row.flaskFStr:SetText(C("-", "666666"))
-        end
+        local hex = colors[data.classFile] or "FFFFFF"
+        row.nameFStr:SetText(C(data.name or "?", hex))
+        row.missFStr:SetText(C(table.concat(data.missing, ", "), "FF6655"))
     end
 
-    -- Resize scroll child
     self.scrollChild:SetHeight(#results * ROW_H + 2)
 end
 
@@ -269,41 +214,36 @@ function BW:CreateStatusFrame()
     sf:Hide()
     self.statusFrame = sf
 
-    -- Close button
     local closeBtn = CreateFrame("Button", nil, sf, "UIPanelCloseButton")
     closeBtn:SetPoint("TOPRIGHT", sf, "TOPRIGHT", 1, 1)
     closeBtn:SetScript("OnClick", function() sf:Hide() end)
 
-    -- Refresh button
     local refBtn = CreateFrame("Button", nil, sf, "UIPanelButtonTemplate")
     refBtn:SetSize(70, 20)
     refBtn:SetPoint("TOPLEFT", sf, "TOPLEFT", 7, -6)
     refBtn:SetText("Refresh")
     refBtn:SetScript("OnClick", function() BW:Refresh() end)
 
-    -- Config button
     local cfgBtn = CreateFrame("Button", nil, sf, "UIPanelButtonTemplate")
     cfgBtn:SetSize(60, 20)
     cfgBtn:SetPoint("LEFT", refBtn, "RIGHT", 4, 0)
     cfgBtn:SetText("Config")
     cfgBtn:SetScript("OnClick", function() BW:OpenConfig() end)
 
-    -- Summary text (right of buttons, left of close)
     local sumText = sf:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sumText:SetPoint("LEFT",  cfgBtn,   "RIGHT",    8, 0)
-    sumText:SetPoint("RIGHT", closeBtn, "LEFT",    -4, 0)
+    sumText:SetPoint("LEFT",  cfgBtn,   "RIGHT",  8, 0)
+    sumText:SetPoint("RIGHT", closeBtn, "LEFT",  -4, 0)
     sumText:SetJustifyH("RIGHT")
     sumText:SetText(C("0 OK", "44CC66") .. "  " .. C("0 issues", "44CC66"))
     self.summaryText = sumText
 
-    -- Divider below top bar
     local div1 = sf:CreateTexture(nil, "ARTWORK")
     div1:SetHeight(1)
-    div1:SetPoint("TOPLEFT",  sf, "TOPLEFT",  7, -30)
+    div1:SetPoint("TOPLEFT",  sf, "TOPLEFT",   7, -30)
     div1:SetPoint("TOPRIGHT", sf, "TOPRIGHT", -28, -30)
     div1:SetTexture(0.25, 0.45, 0.75, 0.35)
 
-    -- Column header row
+    -- Column headers
     local hdrFrame = CreateFrame("Frame", nil, sf)
     hdrFrame:SetPoint("TOPLEFT",  sf, "TOPLEFT",  8, -32)
     hdrFrame:SetPoint("TOPRIGHT", sf, "TOPRIGHT", -8, -32)
@@ -316,22 +256,18 @@ function BW:CreateStatusFrame()
         fs:SetJustifyH("LEFT")
         fs:SetText(C(label, "8899BB"))
     end
-    MakeHdr("Player",      0,                            COL_NAME)
-    MakeHdr("World Buffs", COL_NAME,                     COL_WB)
-    MakeHdr("Consumes",    COL_NAME + COL_WB,            COL_CONS)
-    MakeHdr("Flsk",        COL_NAME + COL_WB + COL_CONS, COL_FLASK)
+    MakeHdr("Player",        0,        COL_NAME)
+    MakeHdr("Missing Buffs", COL_NAME, COL_MISSING)
 
-    -- Thin column-header divider
     local div2 = sf:CreateTexture(nil, "ARTWORK")
     div2:SetHeight(1)
     div2:SetPoint("TOPLEFT",  sf, "TOPLEFT",  7, -49)
     div2:SetPoint("TOPRIGHT", sf, "TOPRIGHT", -7, -49)
     div2:SetTexture(0.25, 0.45, 0.75, 0.25)
 
-    -- Scroll frame (player rows)
     local sfm = CreateFrame("ScrollFrame", nil, sf)
-    sfm:SetPoint("TOPLEFT",     sf, "TOPLEFT",     7, -51)
-    sfm:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -7, 7)
+    sfm:SetPoint("TOPLEFT",     sf, "TOPLEFT",      7, -51)
+    sfm:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -7,   7)
     sfm:EnableMouseWheel(true)
     sfm:SetScript("OnMouseWheel", function(self, delta)
         local v   = self:GetVerticalScroll()
@@ -339,14 +275,12 @@ function BW:CreateStatusFrame()
         self:SetVerticalScroll(math.max(0, math.min(max, v - delta * ROW_H * 3)))
     end)
 
-    -- Scroll child
     local sc = CreateFrame("Frame", nil, sfm)
     sc:SetWidth(STATUS_W - 14)
     sc:SetHeight(ROW_H)
     sfm:SetScrollChild(sc)
     self.scrollChild = sc
 
-    -- Empty state label
     local empty = sc:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     empty:SetPoint("TOP", sc, "TOP", 0, -12)
     empty:SetText(C("Everyone is fully buffed!", "44CC44"))
@@ -362,9 +296,8 @@ function BW:CreateButton()
     btn:SetFrameStrata("HIGH")
     btn:SetMovable(true)
     btn:EnableMouse(true)
-    btn:RegisterForDrag("RightButton")  -- Claude: right-drag to move
+    btn:RegisterForDrag("RightButton")  -- Claude: right-drag to reposition
 
-    -- Restore saved position or use default
     local pos = BuffWatcherDB.buttonPos
     if pos then
         btn:SetPoint(pos[1], UIParent, pos[3], pos[4], pos[5])
@@ -395,7 +328,6 @@ function BW:CreateButton()
 
     local sf = self.statusFrame
 
-    -- Hover: open popup and scan
     btn:SetScript("OnEnter", function()
         BW:Refresh()
         sf:ClearAllPoints()
@@ -405,11 +337,9 @@ function BW:CreateButton()
     end)
     btn:SetScript("OnLeave", function() BW.hideDelay = 0.4 end)
 
-    -- Keep frame open while mouse is inside it
     sf:SetScript("OnEnter", function() BW.hideDelay = nil end)
     sf:SetScript("OnLeave", function() BW.hideDelay = 0.4 end)
 
-    -- Left-click: toggle
     btn:SetScript("OnClick", function(self, button)
         if button == "LeftButton" then
             if sf:IsShown() then
@@ -423,7 +353,7 @@ function BW:CreateButton()
         end
     end)
 
-    -- Claude: OnUpdate ticker — hide delay + 5s auto-refresh (no C_Timer in 3.3.5)
+    -- Claude: OnUpdate ticker — hide-delay + 5s auto-refresh (no C_Timer in 3.3.5)
     local ticker = CreateFrame("Frame")
     ticker:SetScript("OnUpdate", function(self, elapsed)
         if BW.hideDelay then
@@ -450,8 +380,13 @@ end
 local function InitDB()
     if not BuffWatcherDB then BuffWatcherDB = {} end
     local db = BuffWatcherDB
-    if type(db.checks) ~= "table" then db.checks     = {} end
-    if db.checkFlask   == nil     then db.checkFlask  = true end
+    -- Claude: seed default entries on first login or when the table is missing/empty
+    if type(db.entries) ~= "table" or #db.entries == 0 then
+        db.entries = {}
+        for _, e in ipairs(BW.DefaultEntries or {}) do
+            tinsert(db.entries, { buff = e.buff, label = e.label, enabled = e.enabled })
+        end
+    end
     -- buttonPos: left nil until first drag
 end
 
@@ -460,7 +395,6 @@ eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:SetScript("OnEvent", function()
     InitDB()
 
-    -- Seed result state so RebuildTable() never errors before first scan
     BW.scanResults = {}
     BW.scanTotal   = 0
     BW.scanOK      = 0
@@ -469,12 +403,6 @@ eventFrame:SetScript("OnEvent", function()
     BW:CreateConfigFrame()
     BW:CreateButton()
 
-    -- Sync flask checkbox with loaded DB value
-    if BW.flaskCB then
-        BW.flaskCB:SetChecked(BuffWatcherDB.checkFlask ~= false and 1 or nil)
-    end
-
-    -- Slash commands
     SLASH_BUFFWATCHER1 = "/buffwatcher"
     SLASH_BUFFWATCHER2 = "/bw"
     SlashCmdList["BUFFWATCHER"] = function(msg)
