@@ -6,6 +6,21 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ## NEW ADDONS (Created from scratch)
 
+### BuffWatcher2 *(2026-03-29)*
+- **Purpose:** Complete rewrite of BuffWatcher — configurable raid buff/consumable checker with Excel export
+- Flat entry list: each entry maps a WoW buff name to an output label; entries sharing a label are grouped (any one match = requirement met)
+- Two-column editable config frame: Buff Name | Output Label, with enable/disable checkbox and delete button per row
+- TBC-focused defaults: Battle Elixir (7 elixirs), Guardian Elixir (4), Flask (4), Well Fed, plus world buffs
+- **Export frame** (`/bw2 export`): produces tab-separated values (TSV) with one column per requirement label, pasteable into Excel via Ctrl+A, Ctrl+C
+- Export includes ALL group members (OK/MISSING per label), sorted by most-missing-first
+- Multi-line EditBox with "read-only" guard (OnTextChanged reverts edits) and Select All button
+- Status frame: Player | Missing Buffs quick-glance view (only shows players missing something)
+- Reset to Defaults button with StaticPopup confirmation dialog
+- Draggable button with saved position, hover-to-open status, 5s auto-refresh
+- Slash: `/bw2`, `/bw2 config`, `/bw2 check`, `/bw2 export`, `/bw2 help`
+- Plain EditBox + backdrop Frame wrappers (avoids InputBoxTemplate auto-focus bugs from v1/v2)
+- All state on `BW2` table, SavedVariables: `BuffWatcher2DB`
+
 ### BuffWatcher *(2026-03-27, updated 2026-03-27)*
 - **Purpose:** Raid buff and consumable checker — converted from a WeakAura to a standalone addon
 - Small draggable "BuffWatcher" button; hover (or left-click) opens the status popup
