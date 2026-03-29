@@ -90,11 +90,32 @@ local function HasPoorQualityMat(spellID)
 	return false
 end
 
+-- Claude: Leather item IDs that should never be auto-crafted as intermediates.
+-- When a queued recipe needs leather, treat it as a raw material (buy/gather)
+-- rather than crafting it via Ruined Leather Scraps conversion or similar recipes.
+local LEATHER_BLOCKLIST = {
+	[2318]  = true, -- Light Leather
+	[2319]  = true, -- Medium Leather
+	[4234]  = true, -- Heavy Leather
+	[8170]  = true, -- Thick Leather
+	[8368]  = true, -- Rugged Leather
+	[21887] = true, -- Knothide Leather
+	[33568] = true, -- Borean Leather
+}
+
+local function IsLeatherItem(itemString) -- Claude: returns true if itemString is a blocked leather type
+	if not itemString then return false end
+	local itemID = tonumber(itemString:match("item:(%d+)"))
+	return itemID and LEATHER_BLOCKLIST[itemID]
+end
+
 -- Returns a spellID to use when crafting itemString as an intermediate.
 -- Prefers the cheapest cost-calculated spell; falls back to any known craftable
 -- spell (non-cooldown preferred) when pricing data is unavailable.
 -- Never returns a spell whose mats include poor-quality (gray) items.
+-- Never returns a spell that produces a leather item (buy/gather leather instead).
 local function FindIntermediateSpellID(itemString)
+	if IsLeatherItem(itemString) then return nil end -- Claude: never craft leather; treat as raw mat
 	-- Cost-based path: respects CD exclusions and picks cheapest option.
 	local spellID = TSM.Cost:GetLowestCraftPrices(itemString, true)
 	if spellID and not HasPoorQualityMat(spellID) then return spellID end

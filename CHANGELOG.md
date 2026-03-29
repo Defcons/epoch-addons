@@ -4,6 +4,11 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## TradeSkillMaster_Crafting *(2026-03-29)*
+- **Leather intermediate-craft block:** Leatherworking queue no longer auto-crafts leather types (Light/Medium/Heavy/Thick/Rugged/Knothide/Borean Leather) as intermediate steps — they are treated as raw materials to buy/gather instead. Fixes Ruined Leather Scraps scrap-conversion recipe being incorrectly queued (`Queue.lua`: `LEATHER_BLOCKLIST`, `IsLeatherItem`, guard in `FindIntermediateSpellID`)
+
+---
+
 ## NEW ADDONS (Created from scratch)
 
 ### BuffWatcher2 *(2026-03-29)*
