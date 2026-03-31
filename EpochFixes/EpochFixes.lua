@@ -9,7 +9,6 @@
 
 local EFDebug = {
     enabled = false,
-    selectionHooked = false,
 }
 
 -- Print a timestamped debug line to the chat frame.
@@ -32,45 +31,8 @@ local function QuestDesc(index)
     return '"' .. title .. '"@' .. index
 end
 
--- Hook SelectQuestLogEntry so we can see every caller that shifts the
--- quest selection. Works by replacing the global with a wrapper that
--- logs caller info (via debug.traceback when available) then calls through.
-local function InstallSelectionHook()
-    if EFDebug.selectionHooked then return end
-    EFDebug.selectionHooked = true
-
-    local _orig_SelectQuestLogEntry = SelectQuestLogEntry
-    SelectQuestLogEntry = function(index, ...)
-        if EFDebug.enabled then
-            local before = GetQuestLogSelection()
-            -- Grab 2-level traceback: skip this wrapper (level 1), show the caller (level 2+)
-            -- Claude: use WoW's debugstack() instead of debug.traceback (unavailable in 3.3.5 sandbox)
-            local tb = ""
-            if debugstack then
-                -- debugstack(level, topCount, tailCount): skip 1 = this wrapper, show 4 frames
-                local raw = debugstack(2, 4, 0) or ""
-                -- Collapse to one line for readability
-                raw = raw:gsub("\n", " | "):gsub("%s+", " ")
-                tb = raw
-            end
-            DBG(string.format(
-                "SelectQuestLogEntry(%s)  before=%s  caller=%s",
-                tostring(index), QuestDesc(before), tb
-            ))
-        end
-        return _orig_SelectQuestLogEntry(index, ...)
-    end
-end
-
--- Watch QUEST_LOG_UPDATE events so we know when and how often the log
--- refreshes (each refresh can trigger addons to call SelectQuestLogEntry).
--- Claude: separate frames so PLAYER_LOGIN and QUEST_LOG_UPDATE don't clobber each other
-local debugLoginFrame = CreateFrame("Frame")
-debugLoginFrame:RegisterEvent("PLAYER_LOGIN")
-debugLoginFrame:SetScript("OnEvent", function()
-    InstallSelectionHook()
-end)
-
+-- Watch QUEST_LOG_UPDATE events for debug logging.
+-- The SelectQuestLogEntry guard is now installed at file scope (Solution A+C above).
 local debugQuestFrame = CreateFrame("Frame")
 debugQuestFrame:RegisterEvent("QUEST_LOG_UPDATE")
 debugQuestFrame:SetScript("OnEvent", function(self, event)
@@ -108,32 +70,34 @@ f:SetScript("OnEvent", function()
     end
 end)
 
--- Fix 2: Quest log abandon bugs.
+-- Fix 2: Quest log selection drift and wrong-quest-abandoned bugs.
 --
--- "Wrong quest abandoned":
---   Blizzard's AbandonQuest() uses the currently-selected quest log entry
---   (GetQuestLogSelection()) to determine which quest to abandon. The
---   confirmation popup (StaticPopupDialogs["ABANDON_QUEST"]) is shown when
---   the player clicks the Abandon button, but AbandonQuest() is only called
---   later when the player clicks OK. If another addon fires QUEST_LOG_UPDATE
---   between those two moments and calls SelectQuestLogEntry() (e.g. Leatrix
---   Plus's auto-quest scan), the selection can shift to a different quest.
---   The result: the wrong quest gets abandoned.
+-- ROOT CAUSE:
+--   Leatrix Plus's QUEST_LOG_UPDATE handler iterates every quest log entry
+--   calling SelectQuestLogEntry(i) to check completion status. This fires on
+--   every QUEST_LOG_UPDATE event — including while the quest log is open and
+--   while the "Abandon Quest" confirmation popup is visible. This causes:
 --
--- "Abandon button unclickable":
---   pfQuest-wotlk raw-replaced QuestLog_Update() (the function that shows/
---   hides QuestLogAbandonButton) with a non-secure wrapper. On 3.3.5, this
---   can cause subtle taint propagation that prevents the abandon button from
---   responding. Fixed in pfQuest-wotlk/quest.lua (changed to hooksecurefunc).
+--   a) "Wrong quest opened": selection shifts mid-frame while browsing
+--   b) "Wrong quest abandoned": SetAbandonQuest() captures the correct quest
+--      at button-click time, but if a QUEST_LOG_UPDATE fires between click
+--      and confirm AND something re-calls SetAbandonQuest(), the internal
+--      state drifts. More commonly, the visual selection drifts so the user
+--      thinks they're abandoning quest A but the UI shows quest B.
 --
--- Fix: Capture the quest log index when the player first clicks the Abandon
--- button (before the popup appears). Then wrap the popup's OnAccept so it
--- re-selects that exact index before AbandonQuest() is called, regardless of
--- what other addons did to the selection while the popup was open.
+-- THREE-LAYER FIX:
+--   A) Guard SelectQuestLogEntry: block addon-driven calls (from Leatrix's
+--      QUEST_LOG_UPDATE scan) when QuestLogFrame is visible. This prevents
+--      "opening wrong quest" entirely.
+--   B) On abandon confirm: re-select the correct quest by title, then re-call
+--      SetAbandonQuest() so the internal C++ state matches before AbandonQuest().
+--   C) While ABANDON_QUEST popup is open, block ALL SelectQuestLogEntry calls
+--      from other addons to prevent any drift during confirmation.
 
 -- Claude: save both title and index for robust abandon targeting
 local savedAbandonTitle = nil
 local savedAbandonIndex = nil
+local abandonPopupOpen = false -- Claude: Solution C flag
 
 -- Claude: find a quest in the log by title; returns its index or nil
 local function FindQuestIndexByTitle(title)
@@ -149,6 +113,66 @@ end
 local function ClearAbandonState()
     savedAbandonTitle = nil
     savedAbandonIndex = nil
+    abandonPopupOpen = false -- Claude: clear popup flag
+end
+
+-- Claude: Solution A + C — Guard SelectQuestLogEntry against addon-driven calls
+-- This replaces the debug-only hook above with a functional guard.
+-- We must install this early (PLAYER_LOGIN) so it wraps before other addons hook.
+local _real_SelectQuestLogEntry = SelectQuestLogEntry -- Claude: save the real function
+local efBypassGuard = false -- Claude: internal flag to let our own calls through
+
+SelectQuestLogEntry = function(index, ...) -- Claude: Solution A+C wrapper
+    -- Always allow our own calls (when we set efBypassGuard = true)
+    if efBypassGuard then
+        return _real_SelectQuestLogEntry(index, ...)
+    end
+
+    -- Solution C: Block ALL external SelectQuestLogEntry calls while abandon popup is open
+    if abandonPopupOpen then
+        DBG("BLOCKED SelectQuestLogEntry(" .. tostring(index) .. ") — abandon popup open")
+        return
+    end
+
+    -- Solution A: Block addon-driven calls when QuestLogFrame is visible.
+    -- Known offenders that iterate SelectQuestLogEntry in a loop:
+    --   - Leatrix_Plus: QUEST_LOG_UPDATE handler scans all entries for completion
+    --   - pfQuest-epoch/pfQuest-nameplates.lua: ScanQuestObjectives() on multiple events
+    -- We block calls originating from addon event handlers while the quest log is open.
+    -- Blizzard's own QuestLog_SetSelection (from user clicks) is allowed through.
+    if QuestLogFrame and QuestLogFrame:IsVisible() then
+        if debugstack then
+            local stack = debugstack(2, 8, 0) or ""
+            -- Claude: Block if call comes from known addon scan patterns:
+            -- 1. Any QUEST_LOG_UPDATE event handler (Leatrix, pfQuest, etc.)
+            -- 2. pfQuest-nameplates ScanQuestObjectives (fires on ZONE_CHANGED too)
+            -- 3. Any Leatrix_Plus event handler
+            if stack:find("QUEST_LOG_UPDATE")
+                or stack:find("pfQuest%-nameplates")
+                or stack:find("pfQuest%-epoch")
+                or stack:find("Leatrix_Plus") then
+                DBG("BLOCKED SelectQuestLogEntry(" .. tostring(index) .. ") — addon scan while quest log open")
+                return
+            end
+        end
+    end
+
+    -- Debug logging (replaces the old debug-only hook)
+    if EFDebug.enabled then
+        local before = GetQuestLogSelection()
+        local tb = ""
+        if debugstack then
+            local raw = debugstack(2, 4, 0) or ""
+            raw = raw:gsub("\n", " | "):gsub("%s+", " ")
+            tb = raw
+        end
+        DBG(string.format(
+            "SelectQuestLogEntry(%s)  before=%s  caller=%s",
+            tostring(index), QuestDesc(before), tb
+        ))
+    end
+
+    return _real_SelectQuestLogEntry(index, ...)
 end
 
 local fixFrame = CreateFrame("Frame")
@@ -156,14 +180,12 @@ fixFrame:RegisterEvent("PLAYER_LOGIN")
 fixFrame:SetScript("OnEvent", function()
 
     -- Step 1: Capture quest title + index when the player clicks Abandon.
-    -- Title is the robust identifier: immune to index drift if quests are
-    -- added/removed while the confirmation popup is open.
-    -- Index is kept as a fallback only.
+    -- Also set abandonPopupOpen flag (Solution C) to block external selection changes.
     if QuestLogAbandonButton then
         QuestLogAbandonButton:HookScript("OnClick", function()
             savedAbandonIndex = GetQuestLogSelection()
             savedAbandonTitle = savedAbandonIndex and GetQuestLogTitle(savedAbandonIndex) or nil
-            -- Claude: debug
+            abandonPopupOpen = true -- Claude: Solution C — block external calls
             DBG("AbandonButton clicked  idx=" .. tostring(savedAbandonIndex)
                 .. "  title=" .. tostring(savedAbandonTitle))
         end)
@@ -172,10 +194,10 @@ fixFrame:SetScript("OnEvent", function()
     local popup = StaticPopupDialogs and StaticPopupDialogs["ABANDON_QUEST"]
     if not popup then return end
 
-    -- Step 2: On confirm — find the quest by title (robust) or fall back to
-    -- saved index, then force-select it immediately before AbandonQuest() runs.
-    -- This corrects any selection drift from addons (e.g. Leatrix's
-    -- QUEST_LOG_UPDATE scanner) that ran while the popup was open.
+    -- Step 2 (Solution B): On confirm — find the quest by title, force-select it,
+    -- then re-call SetAbandonQuest() so the C++ internal state matches.
+    -- AbandonQuest() reads from SetAbandonQuest()'s internal state, NOT from
+    -- GetQuestLogSelection(), so we MUST call SetAbandonQuest() again.
     if popup.OnAccept then
         local originalAccept = popup.OnAccept
         popup.OnAccept = function(self, ...)
@@ -183,15 +205,12 @@ fixFrame:SetScript("OnEvent", function()
             local targetIndex = nil
 
             if savedAbandonTitle then
-                -- Primary: find by title — works even if indices shifted
                 targetIndex = FindQuestIndexByTitle(savedAbandonTitle)
             end
             if not targetIndex then
-                -- Fallback: use the saved numeric index
                 targetIndex = savedAbandonIndex
             end
 
-            -- Claude: debug
             DBG("ABANDON_QUEST OnAccept  title=" .. tostring(savedAbandonTitle)
                 .. "  savedIdx=" .. tostring(savedAbandonIndex)
                 .. "  resolvedIdx=" .. tostring(targetIndex)
@@ -199,22 +218,37 @@ fixFrame:SetScript("OnEvent", function()
                 .. "  drift=" .. tostring(targetIndex ~= currentSel))
 
             if targetIndex then
-                SelectQuestLogEntry(targetIndex)
+                -- Claude: Use bypass flag so our call goes through the guard
+                efBypassGuard = true
+                _real_SelectQuestLogEntry(targetIndex) -- Claude: select the correct quest
+                efBypassGuard = false
+                -- Claude: Solution B — re-call SetAbandonQuest() to update C++ internal state
+                -- This is the critical fix: AbandonQuest() uses SetAbandonQuest()'s state,
+                -- not GetQuestLogSelection(). Without this, the wrong quest gets abandoned.
+                SetAbandonQuest()
+                DBG("Re-called SetAbandonQuest() after selecting index " .. tostring(targetIndex)
+                    .. "  confirmTitle=" .. tostring(GetAbandonQuestName()))
             end
+
             ClearAbandonState()
             originalAccept(self, ...)
         end
     end
 
     -- Step 3: Clean up saved state if the player cancels or closes the popup.
-    -- Without this, a stale savedAbandonTitle from a cancelled attempt could
-    -- interfere with the next abandon.
     local originalCancel = popup.OnCancel
     popup.OnCancel = function(self, ...)
-        -- Claude: debug
         DBG("ABANDON_QUEST OnCancel — clearing saved state")
         ClearAbandonState()
         if originalCancel then originalCancel(self, ...) end
+    end
+
+    -- Claude: Also handle popup hiding without explicit cancel (e.g. escape key, timeout)
+    local originalHide = popup.OnHide
+    popup.OnHide = function(self, ...)
+        DBG("ABANDON_QUEST OnHide — clearing saved state")
+        ClearAbandonState()
+        if originalHide then originalHide(self, ...) end
     end
 
 end)

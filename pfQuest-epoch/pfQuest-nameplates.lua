@@ -20,6 +20,10 @@ local function ScanQuestObjectives()
         return
     end
 
+    -- Claude: Save and restore quest log selection to prevent shifting the
+    -- selected quest while the player is browsing the quest log or abandoning.
+    local savedSelection = GetQuestLogSelection() -- Claude: save selection
+
     local activeQuests = {}
     for qid = 1, GetNumQuestLogEntries() do
         local questTitle, _, _, _, _, _, complete = GetQuestLogTitle(qid)
@@ -43,6 +47,11 @@ local function ScanQuestObjectives()
                 end
             end
         end
+    end
+
+    -- Claude: Restore the original selection so we don't shift the quest log UI
+    if savedSelection and savedSelection > 0 then
+        SelectQuestLogEntry(savedSelection)
     end
 
     for questId, localizedData in pairs(pfDB["quests"]["enUS"]) do
