@@ -4072,9 +4072,10 @@ function ArkInventory.Frame_Main_Draw( frame )
 	if ArkInventory.Global.Location[loc_id].changed then
 
 		ArkInventory.Frame_Main_DrawStatus( loc_id, ArkInventory.Const.Window.Draw.Refresh )
-	
-		ArkInventory.ItemCategoryClear( nil, loc_id )
-	
+
+		-- Claude: removed bulk ItemCategoryClear — ScanBag already clears i.cat per changed item (line 1344);
+		-- Claude: wiping ALL items here forced expensive tooltip+PT re-categorization of the entire inventory
+
 		-- instant sort
 		if ArkInventory.LocationOptionGet( loc_id, { "sort", "instant" } ) then
 			ArkInventory.Frame_Main_DrawStatus( loc_id, ArkInventory.Const.Window.Draw.Recalculate )

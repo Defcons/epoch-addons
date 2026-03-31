@@ -4,6 +4,14 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## ArkInventory — Fix Bag Open/Drag Freeze *(2026-03-31)*
+- **Removed redundant bulk category wipe** in `Frame_Main_Draw` that cleared `i.cat` on ALL items whenever any bag data changed
+- `ScanBag` already clears `i.cat` per-item for changed items (line 1344); the bulk wipe in the draw path forced expensive tooltip scanning + PeriodicTable lookups for the entire inventory (~150-200 items) even when only 1 item changed
+- This caused multi-second freezes on first bag open after login and on subsequent bag updates (BAG_UPDATE events from mail, AH, quest items, etc.)
+- Full category wipe still occurs on rule/profile changes via `ItemCacheClear()` where it's actually needed
+
+---
+
 ## BuffWatcher v1.0 — Per-Role Redesign *(2026-03-31)*
 - **Complete rewrite:** BuffWatcher2 renamed to BuffWatcher; old BuffWatcher and BuffWatcher2 both deleted
 - **Per-role buff configs:** 4 roles (Tank, Healer, Melee, Ranged) each with independent buff/consume entry lists
