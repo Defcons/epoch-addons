@@ -2,7 +2,7 @@
 ## Title: |cff00ff00TradeSkillMaster_Crafting|r
 ## Notes: Provides a rich profession interface complete with a powerful crafting queue.
 ## Author: Sapu94, Bart39
-## Version: v2.5.2
+## Version: v2.5.3
 ## SavedVariables: TradeSkillMaster_CraftingDB
 ## Dependency: TradeSkillMaster, TradeSkillMaster_ItemTracker
 

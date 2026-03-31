@@ -1,5 +1,22 @@
 # TradeSkillMaster_Crafting — Changelog
 
+## v2.5.3 — Bug fixes
+
+### Bug fix — Crafting queue no longer disappears after profession scan (`Util.lua`)
+- Profession scans could delete craft DB entries (and their queued counts) when a recipe temporarily failed validation (e.g. reagent data not yet cached)
+- Craft entries with items in the queue are now preserved instead of deleted
+- New craft data from scans now inherits queued counts from existing entries to prevent silent resets
+- Fix applied to both `ScanCurrentProfession` and `ScanSyncedProfessionThread`
+
+### Bug fix — Recipe search no longer resets while typing (`CraftingGUI.lua`)
+- Opening a profession triggers a background scan that clears and later restores filters; `RestoreFilters()` would overwrite whatever the user was actively typing in the search bar
+- Added `userEditedSearch` flag: set when the search bar gains focus, cleared when a new scan starts
+- `RestoreFilters()` now skips overwriting the search text and clearing filters when the user has interacted with the search bar since the scan began
+
+### Bug fix — Removed spellcast debug spam (`CraftingGUI.lua`)
+- `UNIT_SPELLCAST_SUCCEEDED/FAILED/INTERRUPTED` handlers printed "Could not find spellID for ..." for every non-craft spell (mounts, abilities, etc.)
+- Removed the debug `Printf` calls (one was duplicated); the handler already correctly ignores non-craft spells on the next line
+
 ## v2.5.2 — Ascension/Epoch Modifications
 
 ### New feature — Vellum support for enchanting crafts

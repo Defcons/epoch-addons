@@ -252,11 +252,6 @@ function GUI:EventHandler(event, ...)
 			-- local unit, _, _, _, spellID = ... -- parameter ... doesn't provide spellID in 3.3.5a
 			local unit, spellName = ...
 			local spellID = TSM.SpellName2ID(spellName)
-
-			if spellID == nil then
-				TSM:Printf("Could not find spellID for %s", spellName)
-			end
-
 			local craft = spellID and TSM.db.factionrealm.crafts[spellID]
 			if unit ~= "player" or not craft then return end
 
@@ -275,15 +270,6 @@ function GUI:EventHandler(event, ...)
 			-- local unit, _, _, _, spellID = ... -- parameter ... doesn't provide spellID in 3.3.5a
 			local unit, spellName = ...
 			local spellID = TSM.SpellName2ID(spellName)
-
-			if spellID == nil then
-				TSM:Printf("Could not find spellID for %s", spellName)
-			end
-
-			if spellID == nil then
-				TSM:Printf("Could not find spellID for %s", spellName)
-			end
-
 			if unit ~= "player" then return end
 			if GUI.isCrafting and spellID == GUI.isCrafting.spellID then
 				GUI.isCrafting.quantity = 0
@@ -397,6 +383,7 @@ function GUI:UpdateTradeSkills()
 end
 
 function GUI:SaveFilters()
+	private.userEditedSearch = nil
 	local filters = {}
 	filters.search = GetTradeSkillItemNameFilter()
 	filters.headers = {}
@@ -418,8 +405,13 @@ end
 
 function GUI:RestoreFilters()
 	if not private.professionFilters then return end
-	GUI:ClearFilters()
-	SetTradeSkillItemNameFilter(private.professionFilters.search)
+	-- skip restoring search if user has started typing since the scan began
+	local skipSearch = private.userEditedSearch
+	private.userEditedSearch = nil
+	if not skipSearch then
+		GUI:ClearFilters()
+		SetTradeSkillItemNameFilter(private.professionFilters.search)
+	end
 	if private.professionFilters.headers then
 		for i = 1, GetNumTradeSkills() do
 			local name, t, _, e = GetTradeSkillInfo(i)
@@ -434,14 +426,16 @@ function GUI:RestoreFilters()
 			end
 		end
 	end
-	if private.professionFilters.search then
-		GUI.frame.content.professionsTab.searchBar:SetTextColor(1, 1, 1, 1)
-		GUI.frame.content.professionsTab.searchBar:SetText(private.professionFilters.search)
-	else
-		GUI.frame.content.professionsTab.searchBar:SetTextColor(1, 1, 1, 0.5)
-		GUI.frame.content.professionsTab.searchBar:SetText(SEARCH)
+	if not skipSearch then
+		if private.professionFilters.search then
+			GUI.frame.content.professionsTab.searchBar:SetTextColor(1, 1, 1, 1)
+			GUI.frame.content.professionsTab.searchBar:SetText(private.professionFilters.search)
+		else
+			GUI.frame.content.professionsTab.searchBar:SetTextColor(1, 1, 1, 0.5)
+			GUI.frame.content.professionsTab.searchBar:SetText(SEARCH)
+		end
+		GUI.frame.content.professionsTab.searchBar:ClearFocus()
 	end
-	GUI.frame.content.professionsTab.searchBar:ClearFocus()
 end
 
 function GUI:ClearFilters()
@@ -1085,6 +1079,7 @@ function GUI:CreateProfessionsTab(parent)
 		if self:GetText() == SEARCH then
 			self:SetText("")
 		end
+		private.userEditedSearch = true
 	end)
 	searchBar:SetScript("OnEditFocusLost", function(self)
 		if self:GetText() == "" or self:GetText() == SEARCH then

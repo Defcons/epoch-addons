@@ -191,15 +191,25 @@ function Util:ScanCurrentProfession()
 					break
 				end
 			end
-			
+
 			if not hasCrafters then
-				TSM.db.factionrealm.crafts[spellID] = nil
+				-- preserve entry if it has queued items to prevent queue loss
+				if data.queued and data.queued > 0 then
+					data.players[playerName] = nil
+				else
+					TSM.db.factionrealm.crafts[spellID] = nil
+				end
 			end
 		end
 	end
-	
-	-- save the new craft info
+
+	-- save the new craft info, preserving queued counts from existing entries
 	for spellID, data in pairs(newCrafts) do
+		local existing = TSM.db.factionrealm.crafts[spellID]
+		if existing and existing.queued and existing.queued > 0 and (not data.queued or data.queued == 0) then
+			data.queued = existing.queued
+			data.intermediateQueued = existing.intermediateQueued
+		end
 		TSM.db.factionrealm.crafts[spellID] = data
 	end
 	TSM.CraftingGUI:PromptPresetGroups(currentTradeSkill, presetGroupInfo) --Bugged, asks after every login. Not saving prompt result between sessions. Either saving or loading bug (works fine on /reload though).
@@ -332,15 +342,25 @@ function Util.ScanSyncedProfessionThread(self)
 					break
 				end
 			end
-			
+
 			if not hasCrafters then
-				TSM.db.factionrealm.crafts[spellID] = nil
+				-- preserve entry if it has queued items to prevent queue loss
+				if data.queued and data.queued > 0 then
+					data.players[playerName] = nil
+				else
+					TSM.db.factionrealm.crafts[spellID] = nil
+				end
 			end
 		end
 	end
-	
-	-- save the new craft info
+
+	-- save the new craft info, preserving queued counts from existing entries
 	for spellID, data in pairs(newCrafts) do
+		local existing = TSM.db.factionrealm.crafts[spellID]
+		if existing and existing.queued and existing.queued > 0 and (not data.queued or data.queued == 0) then
+			data.queued = existing.queued
+			data.intermediateQueued = existing.intermediateQueued
+		end
 		TSM.db.factionrealm.crafts[spellID] = data
 	end
 	local playerName = select(2, IsTradeSkillLinked())
