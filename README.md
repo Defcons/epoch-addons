@@ -24,7 +24,7 @@ All addons are installed by extracting the zip into your `Interface/Addons/` fol
 | Addon | Description | Download |
 |---|---|---|
 | **[Aux-addon](../../releases/tag/Aux-addon-v1.0)** | Auction house — history decay, % Hist. Value column, Post tab QoL, buyout fix | [Aux-addon-v1.0](../../releases/tag/Aux-addon-v1.0) |
-| **[ArkInventory](../../releases/tag/ArkInventory-v1.0)** | Inventory manager — auto-sell by category, Aux/TSM price rules, Ace3 fix | [ArkInventory-v1.0](../../releases/tag/ArkInventory-v1.0) |
+| **[ArkInventory](../../releases/tag/ArkInventory-v1.1)** | Inventory manager — auto-sell by category, bag freeze fix, Ace3 fix | [ArkInventory-v1.1](../../releases/tag/ArkInventory-v1.1) |
 | **[TitanGoldTracker](../../releases/tag/TitanGoldTracker-v1.0)** | Gold tracker — item wealth, AH tracking, cross-faction display | [TitanGoldTracker-v1.0](../../releases/tag/TitanGoldTracker-v1.0) |
 | **[pfQuest-epoch](../../releases/tag/pfQuest-epoch-v1.0)** | Quest tracker — Epoch database overlay, Rares/Chests toggles (includes pfQuest-wotlk) | [pfQuest-epoch-v1.0](../../releases/tag/pfQuest-epoch-v1.0) |
 | **[ItemRack](../../releases/tag/ItemRack-v1.0)** | Equipment sets — BG/Arena disable, trinket queue fix (includes ItemRackOptions) | [ItemRack-v1.0](../../releases/tag/ItemRack-v1.0) |
