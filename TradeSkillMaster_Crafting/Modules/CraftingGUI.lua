@@ -697,6 +697,8 @@ function GUI:CreateQueueFrame(parent)
 			name = color .. inventory .. "/" .. need .. "|r " .. name
 			GameTooltip:AddLine(name, 1, 1, 1)
 		end
+		GameTooltip:AddLine(" ")
+		GameTooltip:AddLine("|cff808080Shift+Right-Click to remove from queue|r") -- Claude: hint for per-item queue removal
 		GameTooltip:Show()
 	end
 
@@ -705,7 +707,15 @@ function GUI:CreateQueueFrame(parent)
 	end
 
 	local function OnCraftRowClicked(_, data, _, button)
-		if button == "RightButton" and data.index then
+		if button == "RightButton" and IsShiftKeyDown() and data.spellID and not data.isTitle then -- Claude: Shift+Right-Click removes single item from queue
+			local craft = TSM.db.factionrealm.crafts[data.spellID]
+			if craft then
+				craft.queued = 0
+				craft.intermediateQueued = nil
+			end
+			GUI:UpdateQueue()
+			return
+		elseif button == "RightButton" and data.index then
 			if data.profession == GetTradeSkillLine() then
 				TradeSkillFrame_SetSelection(data.index)
 				TradeSkillFrame_Update()

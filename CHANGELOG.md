@@ -13,6 +13,13 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 - **Sortable columns:** Click column headers (Addon Name, Memory, Growth) to sort ascending/descending
 - **Auto-refresh:** Updates every 5 seconds while the monitor frame is open
 
+---
+
+## TradeSkillMaster_Crafting v2.5.4 — Per-Item Queue Removal *(2026-03-31)*
+- **Shift+Right-Click** on any craft in the queue panel removes that single item from the queue
+- Tooltip hint added to queue rows showing the keybind
+- Clears both `queued` and `intermediateQueued` state for the removed craft
+
 ## EpochFixes v1.1 — Quest Log Selection Drift Fix *(2026-03-31)*
 - **Root cause found:** `pfQuest-epoch/pfQuest-nameplates.lua` `ScanQuestObjectives()` called `SelectQuestLogEntry()` on every quest in a loop without saving/restoring the selection, shifting the selected quest while the quest log was open
 - **Three-layer fix in EpochFixes:**
