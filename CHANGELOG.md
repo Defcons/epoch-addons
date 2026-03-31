@@ -4,6 +4,15 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## TitanPerformance v1.0 — Memory Monitor Integration *(2026-03-31)*
+- **Memory monitor frame:** Left-clicking the Performance button now opens a full addon memory monitor instead of running garbage collection
+- **Per-addon breakdown:** Scrollable, sortable list of all loaded addons showing current memory usage and growth since login
+- **Leak detection:** Color-coded growth tracking (green < 2MB, yellow < 5MB, orange < 10MB, red > 10MB) with percentage growth in tooltips
+- **Force GC button:** Garbage collection moved to a button inside the monitor frame
+- **Reset Baseline button:** Restart growth tracking from current values at any time
+- **Sortable columns:** Click column headers (Addon Name, Memory, Growth) to sort ascending/descending
+- **Auto-refresh:** Updates every 5 seconds while the monitor frame is open
+
 ## EpochFixes v1.1 — Quest Log Selection Drift Fix *(2026-03-31)*
 - **Root cause found:** `pfQuest-epoch/pfQuest-nameplates.lua` `ScanQuestObjectives()` called `SelectQuestLogEntry()` on every quest in a loop without saving/restoring the selection, shifting the selected quest while the quest log was open
 - **Three-layer fix in EpochFixes:**
