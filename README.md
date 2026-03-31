@@ -29,10 +29,11 @@ All addons are installed by extracting the zip into your `Interface/Addons/` fol
 | **[pfQuest-epoch](../../releases/tag/pfQuest-epoch-v1.1)** | Quest tracker — Epoch database overlay, Rares/Chests toggles, nameplate icons (includes pfQuest-wotlk) | [pfQuest-epoch-v1.1](../../releases/tag/pfQuest-epoch-v1.1) |
 | **[ItemRack](../../releases/tag/ItemRack-v1.0)** | Equipment sets — BG/Arena disable, trinket queue fix (includes ItemRackOptions) | [ItemRack-v1.0](../../releases/tag/ItemRack-v1.0) |
 | **[unitscan](../../releases/tag/unitscan-v1.0)** | Rare scanner — dead cooldowns, pfQuest integration, combat-safe UI | [unitscan-v1.0](../../releases/tag/unitscan-v1.0) |
-| **[TSM Crafting](../../releases/tag/TSM-Crafting-v1.0)** | Crafting queue — vellum support, intermediate flattening (includes TSM_AuctionDB) | [TSM-Crafting-v1.0](../../releases/tag/TSM-Crafting-v1.0) |
+| **[TSM Crafting](../../releases/tag/TSM-Crafting-v1.1)** | Crafting queue — vellum support, queue fixes, Shift+RClick removal (includes TSM_AuctionDB) | [TSM-Crafting-v1.1](../../releases/tag/TSM-Crafting-v1.1) |
 | **[FavoriteContacts](../../releases/tag/FavoriteContacts-v1.0)** | Mailbox contacts — full port from retail 12.0 to 3.3.5 | [FavoriteContacts-v1.0](../../releases/tag/FavoriteContacts-v1.0) |
 | **[Magnify-WotLK](../../releases/tag/Magnify-WotLK-v1.0)** | World map zoom — zone navigation fix, persistent zoom | [Magnify-WotLK-v1.0](../../releases/tag/Magnify-WotLK-v1.0) |
 | **[NotPlater-3.3.5](../../releases/tag/NotPlater-v1.0)** | Nameplates — threat display fixes, solo pet threat support | [NotPlater-v1.0](../../releases/tag/NotPlater-v1.0) |
+| **[TitanPerformance](../../releases/tag/TitanPerformance-v1.0)** | Titan Panel plugin — memory monitor with per-addon breakdown and leak detection | [TitanPerformance-v1.0](../../releases/tag/TitanPerformance-v1.0) |
 | **[Whats-Training-Epoch](../../releases/tag/Whats-Training-Epoch-v1.0)** | Trainer spell list — suppressed level 60 cap messages | [Whats-Training-Epoch-v1.0](../../releases/tag/Whats-Training-Epoch-v1.0) |
 
 ---
