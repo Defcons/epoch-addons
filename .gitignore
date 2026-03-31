@@ -3,6 +3,7 @@
 
 # Only track addons we've modified or created
 !.gitignore
+!README.md
 !CHANGELOG.md
 !ItemRack/
 !ItemRackOptions/
