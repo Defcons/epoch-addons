@@ -64,11 +64,13 @@ local _G = getfenv(0);
 
 -- ================================ Item Wealth Tracking ================================
 -- Session-only caches (NEVER stored in GoldArray / SavedVariables)
-local GT_PriceCache   = {}  -- [item_key]   = copper value (0 = no price found)
-local GT_QualCache    = {}  -- [item_link]  = quality integer (0-6)
-local GT_ItemValCache = {}  -- [charIndex]  = bags+bank total in copper
-local GT_AHValCache   = {}  -- [charIndex]  = AH listings total in copper
-local GT_BagScanTimer = nil -- AceTimer handle; debounces BAG_UPDATE floods
+local GT_PriceCache      = {}  -- [item_key]  = copper value (0 = no price found)
+local GT_QualCache       = {}  -- [item_link] = quality integer (0-6)
+local GT_TradeableCache  = {}  -- [itemID]    = true/false; false = BoP or quest item
+local GT_ItemValCache    = {}  -- [charIndex] = bags+bank total in copper
+local GT_AHValCache      = {}  -- [charIndex] = AH listings total in copper
+local GT_BagScanTimer    = nil -- AceTimer handle; debounces BAG_UPDATE floods
+local GT_ScanTooltip     = nil -- hidden tooltip frame used for BoP detection (lazy-created)
 
 -- Session-relative AH wealth tracking
 local GT_SessAHBase    = nil  -- (currentBags+currentAH) at session start; nil = lazy init on first tooltip
@@ -78,7 +80,7 @@ local GT_SessBagAtMail = nil  -- bags value snapshot taken when mailbox opens
 -- Forward declarations so event handlers and tooltip defined above can call these.
 local GT_ScanBagsNow, GT_ScanBankNow, GT_ScanAHNow
 local GT_GetCharItemValue, GT_GetCharAHValue
-local GT_GetItemPrice, GT_GetItemQuality, GT_ItemKeyFromLink
+local GT_GetItemPrice, GT_GetItemQuality, GT_ItemKeyFromLink, GT_IsTradeable
 
 -- ******************************** Functions *******************************
 
@@ -970,6 +972,47 @@ GT_GetItemQuality = function(link)
      return q;
 end
 
+-- Returns true if the item can be listed on the AH (not BoP, not a quest item).
+-- Result cached by item ID for the session; vendor sell price is used for non-tradeable items.
+GT_IsTradeable = function(itemLink)
+     if not itemLink then return false; end
+     local itemID = itemLink:match("item:(%d+):");
+     if not itemID then return false; end
+     if GT_TradeableCache[itemID] ~= nil then return GT_TradeableCache[itemID]; end
+
+     -- Quest item check: GetItemInfo returns the localized item class string.
+     local _, _, _, _, _, itemType = GetItemInfo(itemLink);
+     if ITEM_CLASS_QUESTITEM and itemType == ITEM_CLASS_QUESTITEM then
+          GT_TradeableCache[itemID] = false;
+          return false;
+     end
+
+     -- BoP check via a hidden scan tooltip (lazy-created).
+     -- We look for ITEM_BIND_ON_PICKUP ("Binds when picked up") in the first 5 lines.
+     if not GT_ScanTooltip then
+          GT_ScanTooltip = CreateFrame("GameTooltip", "GT_ScanTooltip", UIParent, "GameTooltipTemplate");
+          GT_ScanTooltip:SetOwner(UIParent, "ANCHOR_NONE");
+     end
+     local tradeable = true;
+     local ok = pcall(function()
+          GT_ScanTooltip:ClearLines();
+          GT_ScanTooltip:SetHyperlink(itemLink);
+     end);
+     if ok then
+          for i = 1, math.min(5, GT_ScanTooltip:NumLines()) do
+               local left = _G["GT_ScanTooltipTextLeft"..i];
+               local txt  = left and left:GetText() or "";
+               if txt == ITEM_BIND_ON_PICKUP
+               or (ITEM_CLASS_QUESTITEM and txt == ITEM_CLASS_QUESTITEM) then
+                    tradeable = false;
+                    break;
+               end
+          end
+     end
+     GT_TradeableCache[itemID] = tradeable;
+     return tradeable;
+end
+
 -- ---- Generic value calculator for a stored item table --------------------
 
 local function GT_CalcStoreValue(store)
@@ -983,11 +1026,21 @@ local function GT_CalcStoreValue(store)
                q = GT_GetItemQuality(info.link);
                if q ~= nil then info.quality = q; end
           end
-          -- nil quality = unknown → include it so nothing is accidentally hidden.
-          if q == nil or q >= minQ then
-               local price = GT_GetItemPrice(ik);
-               if price then total = total + price * info.count; end
+
+          -- Vendor sell price is always the fallback.
+          local vendorPrice = 0;
+          if info.link then
+               local vp = select(11, GetItemInfo(info.link));
+               vendorPrice = vp or 0;
           end
+
+          -- Only use AH price for tradeable (not BoP / quest) items at or above the
+          -- configured quality threshold.  Everything else falls back to vendor price.
+          local price;
+          if info.link and (q == nil or q >= minQ) and GT_IsTradeable(info.link) then
+               price = GT_GetItemPrice(ik);
+          end
+          total = total + ((price or vendorPrice) * info.count);
      end
      return total;
 end

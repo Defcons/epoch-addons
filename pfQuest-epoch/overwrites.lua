@@ -1437,4 +1437,35 @@ do -- Objects
 
   -- Remove Silithus Wanted Poster: Deathclasp
   pfDB["objects"]["data-epoch"][180448] = { }
+
+  -- Claude: Remove non-treasure entries from chest tracking list.
+  -- Keep only actual world chests (Battered/Solid/Large Solid/Darkwood/etc.)
+  -- that commonly contain green-quality loot.
+  pfDB["meta"]["chests"][-3660]  = nil -- Armor Crate
+  pfDB["meta"]["chests"][-3661]  = nil -- Weapon Crate
+  pfDB["meta"]["chests"][-3689]  = nil -- Weapon Crate
+  pfDB["meta"]["chests"][-3702]  = nil -- Armor Crate
+  pfDB["meta"]["chests"][-3703]  = nil -- Armor Crate
+  pfDB["meta"]["chests"][-3704]  = nil -- Weapon Crate
+  pfDB["meta"]["chests"][-3715]  = nil -- Alliance Chest (PvP supply)
+  pfDB["meta"]["chests"][-4096]  = nil -- Alliance Chest (PvP supply)
+  pfDB["meta"]["chests"][-13359] = nil -- Cat Figurine (quest object)
+  pfDB["meta"]["chests"][-17155] = nil -- Defias Gunpowder (quest object)
+  pfDB["meta"]["chests"][-19017] = nil -- Giant Clam
+  pfDB["meta"]["chests"][-19018] = nil -- Giant Clam
+  pfDB["meta"]["chests"][-19019] = nil -- Box of Assorted Parts
+  pfDB["meta"]["chests"][-19020] = nil -- Box of Assorted Parts
+  pfDB["meta"]["chests"][-105578] = nil -- Horde Chest (PvP supply)
+  pfDB["meta"]["chests"][-105579] = nil -- Alliance Chest (PvP supply)
+  pfDB["meta"]["chests"][-105581] = nil -- Alliance Chest (PvP supply)
+  pfDB["meta"]["chests"][-111095] = nil -- Alliance Chest (PvP supply)
+  pfDB["meta"]["chests"][-142191] = nil -- Horde Supply Crate
+  pfDB["meta"]["chests"][-143980] = nil -- Gordunni Scroll
+  pfDB["meta"]["chests"][-176188] = nil -- Ritual Candle
+  pfDB["meta"]["chests"][-176224] = nil -- Supply Crate
+  pfDB["meta"]["chests"][-179528] = nil -- Warpwood Pod
+  pfDB["meta"]["chests"][-180228] = nil -- Jinxed Hoodoo Pile
+  pfDB["meta"]["chests"][-180229] = nil -- Jinxed Hoodoo Pile
+  pfDB["meta"]["chests"][-180392] = nil -- Full Jug
+  pfDB["meta"]["chests"][-181074] = nil -- Arena Spoils
 end

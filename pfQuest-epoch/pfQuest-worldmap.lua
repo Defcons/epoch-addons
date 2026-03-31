@@ -460,6 +460,23 @@ function pfMap:UpdateNodes()
         (mapName == "Kalimdor" and zone == 0) or (mapName == "Azeroth" and zone == 0) or
         (mapName == nil and continent == 0 and zone == 0)
 
+    -- Claude: DEBUG - print continent map state when on continent view (zone==0)
+    if zone == 0 and pfQuest_config["epochDebugContinent"] == "1" then
+        local commCount = 0
+        for addon, addonData in pairs(pfMap.nodes) do
+            for zID, zoneNodes in pairs(addonData) do
+                for coords, node in pairs(zoneNodes) do
+                    for title, data in pairs(node) do
+                        if string.find(title, "Commission for") then
+                            commCount = commCount + 1
+                        end
+                    end
+                end
+            end
+        end
+        DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpfQ-Epoch Debug|r: continent="..tostring(continent).." zone="..tostring(zone).." mapName="..tostring(mapName).." commNodes="..commCount)
+    end
+
     -- Function to calculate gray level (no XP level) based on WoW's system
     local function GetGrayLevel(charLevel)
         if charLevel <= 5 then
@@ -628,8 +645,11 @@ function pfMap:UpdateNodes()
                                         if pfQuest_config["showlowlevel"] == "0" then
                                             if questLevel > 0 and questLevel <= GetGrayLevel(playerLevel) then
                                                 if not (data.texture and string.find(data.texture, "complete")) then
-                                                    skipNode = true
-                                                    break
+                                                    -- Claude: commission quests always bypass the level filter on the continent map
+                                                    if not string.find(title, "Commission for") then
+                                                        skipNode = true
+                                                        break
+                                                    end
                                                 end
                                             end
                                         end
@@ -650,8 +670,11 @@ function pfMap:UpdateNodes()
                                         if pfQuest_config["showlowlevel"] == "0" then
                                             if minLevel <= 1 and questLevel <= GetGrayLevel(playerLevel) then
                                                 if not (data.texture and string.find(data.texture, "complete")) then
-                                                    skipNode = true
-                                                    break
+                                                    -- Claude: commission quests always bypass the low-minlevel filter on the continent map
+                                                    if not string.find(title, "Commission for") then
+                                                        skipNode = true
+                                                        break
+                                                    end
                                                 end
                                             end
                                         end
@@ -893,8 +916,11 @@ function pfMap:UpdateNodes()
                                 if pfQuest_config["showlowlevel"] == "0" then
                                     if questLevel > 0 and questLevel <= GetGrayLevel(playerLevel) then
                                         if not (data.texture and string.find(data.texture, "complete")) then
-                                            skipNode = true
-                                            break
+                                            -- Claude: commission quests always bypass the level filter on the continent map
+                                            if not string.find(title, "Commission for") then
+                                                skipNode = true
+                                                break
+                                            end
                                         end
                                     end
                                 end
@@ -915,8 +941,11 @@ function pfMap:UpdateNodes()
                                 if pfQuest_config["showlowlevel"] == "0" then
                                     if minLevel <= 1 and questLevel <= GetGrayLevel(playerLevel) then
                                         if not (data.texture and string.find(data.texture, "complete")) then
-                                            skipNode = true
-                                            break
+                                            -- Claude: commission quests always bypass the low-minlevel filter on the continent map
+                                            if not string.find(title, "Commission for") then
+                                                skipNode = true
+                                                break
+                                            end
                                         end
                                     end
                                 end
@@ -1096,6 +1125,7 @@ local function ExtendPfQuestConfig()
             config = "epochHideCommissionQuests"
         }
     )
+
     table.insert(
         pfQuest_defconfig,
         {
@@ -1133,6 +1163,7 @@ local function ExtendPfQuestConfig()
     pfQuest_config["epochHideFelwoodFlowers"] = pfQuest_config["epochHideFelwoodFlowers"] or "1"
     pfQuest_config["epochHidePvPQuests"] = pfQuest_config["epochHidePvPQuests"] or "1"
     pfQuest_config["epochHideCommissionQuests"] = pfQuest_config["epochHideCommissionQuests"] or "0"
+
     pfQuest_config["epochHideDonationQuests"] = pfQuest_config["epochHideDonationQuests"] or "0"
     pfQuest_config["epochHideItemDrops"] = pfQuest_config["epochHideItemDrops"] or "0"
 end

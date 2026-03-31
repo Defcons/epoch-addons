@@ -615,8 +615,7 @@ local methods = {
         local row = this:GetParent().row
         if row.record then
 	        GameTooltip:SetOwner(this, 'ANCHOR_RIGHT')
-            info.load_tooltip(GameTooltip, row.record.tooltip)
-	        tooltip.extend_tooltip(GameTooltip, row.record.link, row.record.aux_quantity)
+            GameTooltip:SetHyperlink(row.record.link) -- Claude: use SetHyperlink so TSM/LibExtraTip hooks fire
             info.set_shopping_tooltip(row.record.slot)
         end
     end,
