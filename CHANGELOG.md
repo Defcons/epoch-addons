@@ -4,6 +4,13 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## Repo Cleanup *(2026-03-31)*
+- **BuffWatcher:** Deleted entirely — superseded by BuffWatcher2
+- **BuffWatcher2:** Marked as WIP (title shows `[WIP]` in-game)
+- **EpochFixes:** Known issues may be server-side rather than client-side; needs further investigation
+
+---
+
 ## ArkInventory — Auto-Sell by Category *(2026-03-31)*
 - **Auto-sell at vendor:** Items in categories flagged as "autosell" are automatically sold when opening a merchant window. Works with any item quality (grey, white, green, etc.)
 - Per-category `autosell` flag stored in global SavedVariables (persists across characters)
