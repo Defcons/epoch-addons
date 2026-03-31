@@ -1213,6 +1213,7 @@ ArkInventory.Const.DatabaseDefaults.global = {
 					["*"] = {  -- [number] = { data }
 						["used"] = false,
 						["name"] = "",
+						["autosell"] = false, -- Claude: auto-sell items in this category at vendors
 					},
 				},
 				["next"] = 0,
@@ -8555,7 +8556,65 @@ function ArkInventory.StartupChecks( )
 		if string.sub( k, 1, 9 ) == "WOW_SKILL" then
 			ArkInventory.Output( k, " = ", v )
 		end
-		
+
+	end
+
+end
+
+
+-- Claude: Auto-sell items in categories flagged with autosell when at a merchant
+function ArkInventory.AutoSellCategories( )
+
+	if not MerchantFrame or not MerchantFrame:IsVisible() then return end -- Claude: guard no merchant
+
+	local cp = ArkInventory.Global.Me
+	if not cp then return end
+
+	local loc_id = ArkInventory.Const.Location.Bag
+	local loc_data = cp.location[loc_id]
+	if not loc_data then return end
+
+	local sold_count = 0 -- Claude: track items sold
+	local sold_total = 0 -- Claude: track total copper earned
+
+	for bag_id, bag in pairs( loc_data.bag ) do
+
+		if bag and bag.slot then
+
+			local bliz_id = ArkInventory.BagID_Blizzard( loc_id, bag_id ) -- Claude: convert to Blizzard bag ID
+			if bliz_id then
+
+				for slot_id, i in pairs( bag.slot ) do
+
+					if i.h then
+
+						local cat_id = ArkInventory.ItemCategoryGet( i ) -- Claude: get item's assigned category
+						if cat_id then
+							local cat_type, cat_code = ArkInventory.CategoryCodeSplit( cat_id )
+							if cat_type and cat_code then
+								local cat_data = ArkInventory.db.global.option.category[cat_type] -- Claude: look up category data
+								if cat_data and cat_data.data[cat_code] and cat_data.data[cat_code].autosell then
+									local _, _, _, _, _, _, _, _, _, _, sell_price = GetItemInfo( i.h ) -- Claude: get vendor sell price
+									local stack_count = i.count or 1
+									UseContainerItem( bliz_id, slot_id ) -- Claude: sell the item at vendor
+									sold_count = sold_count + 1
+									sold_total = sold_total + ( ( sell_price or 0 ) * stack_count )
+								end
+							end
+						end
+
+					end
+
+				end
+
+			end
+
+		end
+
+	end
+
+	if sold_count > 0 then -- Claude: print summary of auto-sold items
+		ArkInventory.Output( "Auto-sold ", sold_count, " item(s) for ", GetCoinTextureString( sold_total ) )
 	end
 
 end

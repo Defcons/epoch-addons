@@ -4,6 +4,16 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## ArkInventory — Auto-Sell by Category *(2026-03-31)*
+- **Auto-sell at vendor:** Items in categories flagged as "autosell" are automatically sold when opening a merchant window. Works with any item quality (grey, white, green, etc.)
+- Per-category `autosell` flag stored in global SavedVariables (persists across characters)
+- Checkbox added to custom category config panel (ArkInventory settings → Categories → Custom → [category] → "Auto-Sell at Vendor")
+- Slash commands: `/arkinv autosell <name>` toggles auto-sell for a category, `/arkinv autosell list` shows enabled categories
+- Chat summary printed after selling (e.g., "Auto-sold 5 item(s) for 1g 23s 45c")
+- Files modified: `ArkInventory.lua` (DB defaults + AutoSellCategories function), `ArkInventoryStorage.lua` (MERCHANT_SHOW hook), `ArkInventoryConfig.lua` (UI checkbox + slash commands)
+
+---
+
 ## TradeSkillMaster_Crafting *(2026-03-29)*
 - **Leather intermediate-craft block:** Leatherworking queue no longer auto-crafts leather types (Light/Medium/Heavy/Thick/Rugged/Knothide/Borean Leather) as intermediate steps — they are treated as raw materials to buy/gather instead. Fixes Ruined Leather Scraps scrap-conversion recipe being incorrectly queued (`Queue.lua`: `LEATHER_BLOCKLIST`, `IsLeatherItem`, guard in `FindIntermediateSpellID`)
 

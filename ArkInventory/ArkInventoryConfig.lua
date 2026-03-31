@@ -178,9 +178,69 @@ function ArkInventory.ConfigBlizzard( )
 			},
 		},
 ]]--
-		
+
+		-- Claude: slash command /arkinv autosell <name|list>
+		autosell = {
+			guiHidden = true,
+			order = 9000,
+			name = "Auto-Sell",
+			desc = "Toggle auto-sell for a custom category, or list enabled categories.",
+			type = "input",
+			set = function( info, v )
+
+				if not v or v == "" then -- Claude: no args — show help
+					ArkInventory.Output( "Usage: /arkinv autosell <category name> - toggle auto-sell" )
+					ArkInventory.Output( "       /arkinv autosell list - show enabled categories" )
+					return
+				end
+
+				local input = strtrim( v )
+
+				if string.lower( input ) == "list" then -- Claude: list all autosell-enabled categories
+					local found = false
+					for k, cat in pairs( ArkInventory.db.global.option.category[ArkInventory.Const.Category.Type.Custom].data ) do
+						if cat.used and cat.autosell then
+							ArkInventory.Output( "  Auto-sell ON: ", cat.name, " [", k, "]" )
+							found = true
+						end
+					end
+					if not found then
+						ArkInventory.Output( "No categories have auto-sell enabled." )
+					end
+					return
+				end
+
+				-- Claude: find custom category by name (case-insensitive)
+				local input_lower = string.lower( input )
+				local match_id, match_cat = nil, nil
+				for k, cat in pairs( ArkInventory.db.global.option.category[ArkInventory.Const.Category.Type.Custom].data ) do
+					if cat.used and string.lower( cat.name ) == input_lower then
+						match_id = k
+						match_cat = cat
+						break
+					end
+				end
+
+				if not match_cat then
+					ArkInventory.Output( "Custom category '", input, "' not found." )
+					return
+				end
+
+				match_cat.autosell = not match_cat.autosell -- Claude: toggle the autosell flag
+				if match_cat.autosell then
+					ArkInventory.Output( "Auto-sell ENABLED for category: ", match_cat.name )
+				else
+					ArkInventory.Output( "Auto-sell DISABLED for category: ", match_cat.name )
+				end
+
+			end,
+			get = function( info )
+				return ""
+			end,
+		},
+
 	}
-	
+
 end
 
 function ArkInventory.ConfigInternal( )
@@ -3162,7 +3222,7 @@ function ArkInventory.ConfigInternalCategoryCustom( path )
 				ArkInventory.ConfigInternalCategory( )
 			end,
 		},
-		del = { 
+		del = {
 			order = 200,
 			name = ArkInventory.Localise["DELETE"],
 			desc = ArkInventory.Localise["CONFIG_CATEGORY_DELETE_TEXT"],
@@ -3171,6 +3231,26 @@ function ArkInventory.ConfigInternalCategoryCustom( path )
 				local id = ConfigGetNodeArg( info, #info - 1 )
 				ArkInventory.CategoryCustomDelete( id, "DELETE" )
 				ArkInventory.ConfigInternalCategory( )
+			end,
+		},
+		autosell = { -- Claude: auto-sell toggle for custom categories
+			order = 150,
+			name = "Auto-Sell at Vendor",
+			desc = "Automatically sell all items in this category when visiting a merchant.",
+			type = "toggle",
+			get = function( info )
+				local id = ConfigGetNodeArg( info, #info - 1 )
+				return ArkInventory.db.global.option.category[ArkInventory.Const.Category.Type.Custom].data[id].autosell
+			end,
+			set = function( info, v )
+				local id = ConfigGetNodeArg( info, #info - 1 )
+				ArkInventory.db.global.option.category[ArkInventory.Const.Category.Type.Custom].data[id].autosell = v -- Claude: persist autosell flag
+				local name = ArkInventory.db.global.option.category[ArkInventory.Const.Category.Type.Custom].data[id].name
+				if v then
+					ArkInventory.Output( "Auto-sell enabled for category: ", name )
+				else
+					ArkInventory.Output( "Auto-sell disabled for category: ", name )
+				end
 			end,
 		},
 	}

@@ -835,7 +835,9 @@ function ArkInventory:LISTEN_MERCHANT_ENTER( event, ... )
 			ArkInventory.Frame_Main_Hide( ArkInventory.Const.Location.Bag )
 		end
 	end
-	
+
+	ArkInventory.AutoSellCategories( ) -- Claude: auto-sell items in flagged categories
+
 end
 
 function ArkInventory:LISTEN_MERCHANT_LEAVE( )
