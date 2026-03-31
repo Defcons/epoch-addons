@@ -4,6 +4,30 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpochFixes v1.1 — Quest Log Selection Drift Fix *(2026-03-31)*
+- **Root cause found:** `pfQuest-epoch/pfQuest-nameplates.lua` `ScanQuestObjectives()` called `SelectQuestLogEntry()` on every quest in a loop without saving/restoring the selection, shifting the selected quest while the quest log was open
+- **Three-layer fix in EpochFixes:**
+  - (A) Guard `SelectQuestLogEntry`: blocks addon-driven calls (from Leatrix, pfQuest-epoch) when `QuestLogFrame` is visible
+  - (B) Re-call `SetAbandonQuest()` in popup `OnAccept` to fix C++ internal state — `AbandonQuest()` reads from `SetAbandonQuest()`, not `GetQuestLogSelection()`
+  - (C) Block ALL `SelectQuestLogEntry` calls while the abandon confirmation popup is open
+- Added `OnHide` handler for popup dismissed via Escape key
+
+## pfQuest-epoch v1.1 — Nameplate Scanner + Commission Quests + Chest Cleanup *(2026-03-31)*
+- **Nameplate scanner fix:** `ScanQuestObjectives()` now saves/restores quest log selection around its iteration loop, preventing quest log drift
+- **Commission quest visibility:** "Commission for..." quests now bypass the low-level quest filter on zone maps, minimap, and world map
+- **Chest list cleanup:** Removed non-treasure entries from chest tracking (PvP supply crates, quest objects like Cat Figurine/Defias Gunpowder, Giant Clams, etc.)
+- **Continent debug mode:** Added `epochDebugContinent` config option for debugging world map node rendering
+
+## Aux-addon v1.1 — Auction Tooltip Fix *(2026-03-31)*
+- **Tooltip hook fix:** Auction listing tooltips now use `SetHyperlink` instead of `load_tooltip`/`extend_tooltip`, so TSM and LibExtraTip price hooks fire correctly
+
+## TitanGoldTracker v1.1 — BoP Item Detection *(2026-03-31)*
+- **BoP/quest item detection:** New `GT_IsTradeable()` function checks items via hidden scan tooltip for "Binds when picked up" and quest item type
+- **Accurate wealth tracking:** Untradeable items (BoP, quest items) now use vendor sell price instead of AH price for bag/bank value calculations
+- New session caches: `GT_TradeableCache`, `GT_ScanTooltip`
+
+---
+
 ## ArkInventory — Fix Bag Open/Drag Freeze *(2026-03-31)*
 - **Removed redundant bulk category wipe** in `Frame_Main_Draw` that cleared `i.cat` on ALL items whenever any bag data changed
 - `ScanBag` already clears `i.cat` per-item for changed items (line 1344); the bulk wipe in the draw path forced expensive tooltip scanning + PeriodicTable lookups for the entire inventory (~150-200 items) even when only 1 item changed
