@@ -4,6 +4,16 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## FishingBuddy — Bug Fixes & Code Quality *(2026-03-31)*
+- **Crash fix (`FishingSchools.lua`):** `for i in pairs(1,c)` → `for i=1,c do`; `pairs()` takes a table, not two numbers — this would crash on any call to `CollapseHoles()`
+- **Nil guard (`FishingWatcher.lua`):** Wrapped `GetTime() - started` in `if started then` to prevent arithmetic-on-nil crash if `FISHING_DISABLED_EVT` fires out of order
+- **Nil guard (`FishingBuddy.lua`):** Added `id and FishingBuddy_Info["Fishies"][id]` check before accessing nested table at `AddFishie()` line 755
+- **Global leaks (`FishingInit.lua`):** `schools` and `temp` in `CopyFishSchools` / `RegisterFunctionTraps` declared `local`
+- **Deprecated API (`*.lua`):** All `table.getn()` calls replaced with `#` operator (22 occurrences across 6 files)
+- **Deprecated API (`*.lua`):** All `getglobal()` / `setglobal()` calls replaced with `_G[]` (30+ occurrences across 9 files); Libs folder untouched
+
+---
+
 ## TitanPerformance v1.0 — Memory Monitor Integration *(2026-03-31)*
 - **Memory monitor frame:** Left-clicking the Performance button now opens a full addon memory monitor instead of running garbage collection
 - **Per-addon breakdown:** Scrollable, sortable list of all loaded addons showing current memory usage and growth since login
