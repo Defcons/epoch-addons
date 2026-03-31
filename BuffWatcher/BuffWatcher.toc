@@ -1,0 +1,10 @@
+## Interface: 30300
+## Title: BuffWatcher
+## Notes: Raid buff and consumable checker with per-role configs and talent-based spec detection
+## Author: Defcon
+## Version: 1.0
+## SavedVariables: BuffWatcherDB
+
+BuffWatcher_Data.lua
+BuffWatcher.lua
+BuffWatcher_Config.lua

@@ -4,9 +4,21 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## BuffWatcher v1.0 — Per-Role Redesign *(2026-03-31)*
+- **Complete rewrite:** BuffWatcher2 renamed to BuffWatcher; old BuffWatcher and BuffWatcher2 both deleted
+- **Per-role buff configs:** 4 roles (Tank, Healer, Melee, Ranged) each with independent buff/consume entry lists
+- **Talent-based spec detection:** Player's spec detected from talent tab point distribution; raid members inspected via `NotifyInspect()` queue (one at a time, 3s timeout, class-default fallback)
+- **Spec → Role mapping:** Hardcoded defaults for all vanilla classes with TBC talents; user can override any spec's role in the Config panel (e.g. change Feral Druid from Melee to Tank)
+- **Config UI:** UIDropDownMenu role selector at top; editing entries applies to the selected role only; "Spec Overrides" button opens side panel with click-to-cycle role buttons per class/spec
+- **Status frame:** New Role column showing each player's detected role (colour-coded)
+- **Export:** TSV now includes Role column; labels not applicable to a player's role show "-" instead of OK/MISSING
+- **Migration:** Automatically imports old `BuffWatcher2DB` entries into all roles if present
+- **Slash commands:** `/bw`, `/bw config`, `/bw check`, `/bw export`, `/bw inspect`, `/bw help`
+- **Group events:** Re-inspects on `PARTY_MEMBERS_CHANGED` and `RAID_ROSTER_UPDATE`
+
+---
+
 ## Repo Cleanup *(2026-03-31)*
-- **BuffWatcher:** Deleted entirely — superseded by BuffWatcher2
-- **BuffWatcher2:** Marked as WIP (title shows `[WIP]` in-game)
 - **EpochFixes:** Known issues may be server-side rather than client-side; needs further investigation
 
 ---

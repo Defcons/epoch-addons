@@ -291,6 +291,32 @@ Four targeted client bug patches:
 
 ---
 
+### BuffWatcher
+
+- Per-role buff/consume checker with talent-based spec detection
+- 4 roles: Tank, Healer, Melee, Ranged — each with independent buff entry lists
+- Spec detection: `GetTalentTabInfo()` for player, `NotifyInspect()` queue for raid members
+- Inspect queue: one-at-a-time with 3s timeout, fallback to `CLASS_DEFAULT_ROLE`
+- `BW.SPEC_ROLE_MAP[classFile][tabIndex]` maps talent tab → role
+- `BuffWatcherDB.specRoles[classFile][tabIndex]` stores user overrides
+- Config UI: UIDropDownMenu role selector, per-role entry editor, spec override panel
+- Status frame shows Role column; Export TSV includes Role + per-role label applicability
+- Slash: `/bw`, `/bw config`, `/bw check`, `/bw export`, `/bw inspect`, `/bw help`
+- Migration: reads old `BuffWatcher2DB` if present
+
+**TOC load order:** `BuffWatcher_Data.lua` → `BuffWatcher.lua` → `BuffWatcher_Config.lua`
+
+**Cross-file contracts:**
+- `BW` table defined in Data.lua; extended in BuffWatcher.lua and Config.lua
+- `BW.ROLES`, `BW.SPEC_ROLE_MAP`, `BW.DefaultRoleEntries`, `BW.ClassColors`, `BW.RoleColors` — all in Data.lua
+- `BW.inspectResults[guid]` — cached `{ classFile, role }` per inspected player
+- `BuffWatcherDB.roles[role].entries` — per-role buff entry arrays
+- `BuffWatcherDB.specRoles` — optional override table
+
+**SavedVariables:** `BuffWatcherDB` → `{ roles = { Tank = { entries = {...} }, ... }, specRoles = {}, buttonPos = {} }`
+
+---
+
 ### DeleteItems
 
 - Three named deletion lists (itemID-keyed, account-wide)
