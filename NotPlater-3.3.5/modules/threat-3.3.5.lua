@@ -108,7 +108,7 @@ function NotPlater:OnNameplateMatch(healthFrame, group, ThreatLib)
 	-- threat values when not in a party/raid, making highestThreat == playerThreat
 	-- even when the pet actually holds aggro. Use the player's own status (0/1 =
 	-- not tanking, 2/3 = tanking) to detect this and correct highestThreat.
-	if not UnitInParty("party1") and not UnitInRaid("player") then
+	if not UnitInParty("party1") and not UnitInRaid("player") and unit and UnitExists(unit) then -- Claude: guard nil/invalid unit during loading
 		local _, status = UnitDetailedThreatSituation("player", unit)
 		if status ~= nil and status < 2 and playerThreat and playerThreat > 0 then
 			highestThreat = playerThreat + 1

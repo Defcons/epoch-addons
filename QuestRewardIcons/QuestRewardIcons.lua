@@ -362,9 +362,9 @@ local function PlaceIcon(btn, kind, stackOffset, isWinner)
     f.tex:ClearAllPoints()
     f.tex:SetAllPoints(f)
 
-    -- Claude: subtle dark backdrop so icon is readable on any item background
+    -- Claude: solid dark backdrop so icon is readable on any item background
     f.bg:SetVertexColor(0, 0, 0)
-    f.bg:SetAlpha(0.45)
+    f.bg:SetAlpha(0.7) -- Claude: raised from 0.45 — was too faint on dark quest frame
 
     if isWinner then
         f.tex:SetAlpha(1.0)
@@ -376,7 +376,7 @@ local function PlaceIcon(btn, kind, stackOffset, isWinner)
             f.tex:SetVertexColor(0.75, 0.92, 1.0)
         end
     else
-        f.tex:SetAlpha(0.5)
+        f.tex:SetAlpha(0.75) -- Claude: raised from 0.5 — was too transparent on dark backgrounds
         f.tex:SetVertexColor(1, 1, 1)  -- no tint for losers
     end
 
@@ -399,13 +399,20 @@ end
 
 local function UpdateIcons()
     HideAll()  -- Claude: always clear first — removes stale icons from previous quest
+    -- Claude: detect context — NPC turn-in uses GetNumQuestChoices/GetQuestItemLink,
+    --         quest log browsing uses GetNumQuestLogChoices/GetQuestLogItemLink
     local numChoices = GetNumQuestChoices()
+    local getLink    = GetQuestItemLink
+    if numChoices == 0 then -- Claude: not at NPC, try quest log APIs instead
+        numChoices = GetNumQuestLogChoices()
+        getLink    = GetQuestLogItemLink
+    end
     -- Claude: no comparison possible with 0 or 1 items — show nothing
     if numChoices < 2 then return end
 
     local sellVals, deVals = {}, {}
     for i = 1, numChoices do
-        local link  = GetQuestItemLink("choice", i)
+        local link  = getLink("choice", i) -- Claude: uses whichever API matched the context
         sellVals[i] = GetSellValue(link)
         deVals[i]   = GetDEValue(link)
     end
@@ -569,6 +576,8 @@ end
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("QUEST_COMPLETE")
 eventFrame:RegisterEvent("QUEST_GREETING")
+eventFrame:RegisterEvent("QUEST_DETAIL")      -- Claude: NPC quest accept screen (also shows choice rewards)
+eventFrame:RegisterEvent("QUEST_LOG_UPDATE")   -- Claude: quest log selection changed — refresh icons
 eventFrame:SetScript("OnEvent", UpdateAfterTick)
 
 hooksecurefunc("QuestInfo_Display", UpdateIcons)

@@ -4,6 +4,18 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## NotPlater — Threat Module Loading Fix *(2026-04-01)*
+- **Nil unit guard (`threat-3.3.5.lua`):** Added `unit and UnitExists(unit)` check before `UnitDetailedThreatSituation` call to prevent crash when nameplates exist but units aren't valid yet (during/after loading screen)
+
+---
+
+## QuestRewardIcons — Quest Log Support *(2026-04-01)*
+- **Quest log icons:** Gold/DE overlay icons now appear when browsing quests in the quest log, not just at NPC turn-in
+- **Context detection:** Automatically uses `GetQuestLogItemLink`/`GetNumQuestLogChoices` for quest log, `GetQuestItemLink`/`GetNumQuestChoices` for NPC screens
+- **New events:** Added `QUEST_DETAIL` (NPC accept screen) and `QUEST_LOG_UPDATE` (quest log selection) triggers
+
+---
+
 ## FishingBuddy — Bug Fixes & Code Quality *(2026-03-31)*
 - **Crash fix (`FishingSchools.lua`):** `for i in pairs(1,c)` → `for i=1,c do`; `pairs()` takes a table, not two numbers — this would crash on any call to `CollapseHoles()`
 - **Nil guard (`FishingWatcher.lua`):** Wrapped `GetTime() - started` in `if started then` to prevent arithmetic-on-nil crash if `FISHING_DISABLED_EVT` fires out of order
