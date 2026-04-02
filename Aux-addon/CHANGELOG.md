@@ -2,6 +2,20 @@
 
 > Originally by shirsig. Heavily modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
 
+## v1.2
+
+### Bug fix — Auctions tab scroll and selection lost after repeated cancels
+- **Scroll position preserved:** scroll offset saved before rescan wipe and restored (clamped) after completion
+- **Selection persistence:** `RemoveAuctionRecord` no longer calls `SetDatabase()` when the record was already removed by rescan, preventing stale callbacks from wiping the restored selection
+- **State machine fix:** undefined `cancel_in_progress` variable corrected to `get_cancel_in_progress()` so the state machine waits for cancel to finish before re-scanning
+
+### New feature — letter-key navigation in Auctions tab
+- Press a letter key to jump to and select the first item starting with that letter
+- Type multiple letters quickly (within 1s) to narrow the search (e.g. "WI" → "Wintersbite")
+- Pressing the same letter repeatedly cycles through all matching items
+
+---
+
 ## v1.0 — Ascension/Epoch Modifications
 
 ### Bug fix — tooltip crash "Invalid quest item in SetQuestLogItem" (`core/tooltip.lua`)

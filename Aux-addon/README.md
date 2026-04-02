@@ -1,4 +1,4 @@
-# Aux-addon (v1.0)
+# Aux-addon (v1.2)
 
 Originally by shirsig. Heavily modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
@@ -10,6 +10,7 @@ Originally by shirsig. Heavily modified for **WoW 3.3.5a (Ascension/Epoch)** by 
 - **Inflated Unit Starting Price** — removed `bid_selection` auto-selection; both start and buyout price now derive from `buyout_selection`, so `unit_start_price ≤ unit_buyout_price` is always satisfied
 - **price_update running one frame too early** — reordered `on_update()` so `update_auction_listings()` runs before `price_update()`
 - **Auctions tab selection reset after cancelling** — selection is saved before the wipe and restored after rescan with a three-tier fallback (same item → next alphabetically → first remaining)
+- **Auctions tab scroll/selection lost on repeated cancels** — scroll offset preserved across rescans; stale `RemoveAuctionRecord` callbacks no longer wipe restored selection; state machine `cancel_in_progress` reference fixed
 - **Deposit showing 1 silver** — deposit rate corrected to 15%/75%; duration enum mapped to actual hours; `GetItemInfo` used as primary vendor price source
 - **Default stack count now half of total quantity** — stack count defaults to `floor(total / 2)` (minimum 1) instead of 1
 
@@ -19,6 +20,7 @@ Originally by shirsig. Heavily modified for **WoW 3.3.5a (Ascension/Epoch)** by 
 - **Auto-advance after posting** — after clicking Post, automatically selects the next item alphabetically
 - **Next button** — new toolbar button to advance to the next item in the inventory list (wraps around)
 - **Buyout auto-select lowest price** — after a scan, the cheapest real auction row is automatically selected (skipped when `user_price_override` is true)
+- **Letter-key navigation in Auctions tab** — press a letter to jump to matching items; type quickly to narrow (e.g. "WI" → "Wintersbite"); repeat same letter to cycle through matches
 
 ## Compatibility
 
