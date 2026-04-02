@@ -4,6 +4,13 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## Aux-addon — Auctions Tab Cancel Fixes *(2026-04-02)*
+- **Scroll position preserved:** Canceling an auction no longer jumps the list back to the top; scroll offset is saved before rescan and restored after
+- **Selection persistence fix:** `RemoveAuctionRecord` no longer calls `SetDatabase()` when the record was already removed by rescan, preventing the restored selection from being wiped by a stale callback
+- **State machine bug fix:** Fixed undefined `cancel_in_progress` variable in `on_update` — now correctly calls `get_cancel_in_progress()` so the state machine waits for cancel to complete before re-scanning
+
+---
+
 ## NotPlater — Threat Module Loading Fix *(2026-04-01)*
 - **Nil unit guard (`threat-3.3.5.lua`):** Added `unit and UnitExists(unit)` check before `UnitDetailedThreatSituation` call to prevent crash when nameplates exist but units aren't valid yet (during/after loading screen)
 

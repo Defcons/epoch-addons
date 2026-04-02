@@ -893,8 +893,8 @@ local methods = {
         local index = key(self.records, record)
         if index then
             tremove(self.records, index)
+            self:SetDatabase() -- Claude: only rebuild UI if record was actually removed
         end
-        self:SetDatabase()
     end,
 
     ContainsRecord = function(self, record)

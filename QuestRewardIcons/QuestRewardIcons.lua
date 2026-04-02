@@ -344,14 +344,11 @@ local function HideAll()
 end
 
 -- Claude: place and style one icon.
---   winner = large (22px), full alpha, bright vertex-colour tint on the icon itself
---   loser  = small (15px), 50% alpha, no tint
---   No coloured bg border — was causing a blue/yellow square when icon texture
---   was missing. Now bg is always a subtle dark backdrop for readability only.
+--   Claude: all icons same size (14px), full alpha, winner gets a vertex-colour tint.
 --   stackOffset > 0 shifts the icon left (used when two icons share one button).
 local function PlaceIcon(btn, kind, stackOffset, isWinner)
     local f    = GetOrCreate(btn, kind)
-    local size = isWinner and 22 or 15
+    local size = 14 -- Claude: uniform small size for all icons
 
     f:SetWidth(size) ; f:SetHeight(size)
     f:ClearAllPoints()
@@ -366,18 +363,15 @@ local function PlaceIcon(btn, kind, stackOffset, isWinner)
     f.bg:SetVertexColor(0, 0, 0)
     f.bg:SetAlpha(0.7) -- Claude: raised from 0.45 — was too faint on dark quest frame
 
+    f.tex:SetAlpha(1.0) -- Claude: always full alpha
     if isWinner then
-        f.tex:SetAlpha(1.0)
         if kind == "gold" then
-            -- Claude: bright gold tint — makes the coin icon look like actual gold
-            f.tex:SetVertexColor(1.0, 0.88, 0.1)
+            f.tex:SetVertexColor(1.0, 0.88, 0.1) -- Claude: bright gold tint
         else
-            -- Claude: soft blue-white tint for the DE icon
-            f.tex:SetVertexColor(0.75, 0.92, 1.0)
+            f.tex:SetVertexColor(0.75, 0.92, 1.0) -- Claude: soft blue-white tint for DE
         end
     else
-        f.tex:SetAlpha(0.75) -- Claude: raised from 0.5 — was too transparent on dark backgrounds
-        f.tex:SetVertexColor(1, 1, 1)  -- no tint for losers
+        f.tex:SetVertexColor(1, 1, 1) -- Claude: no tint for non-winner
     end
 
     f:Show()
@@ -436,12 +430,9 @@ local function UpdateIcons()
         local showDE   = (i == bestDEIdx)   and (bestDEVal   > 0)
 
         if showGold and showDE then
-            -- Claude: both icons on same item — stack side by side with no overlap.
-            -- Gold sits at the right, DE shifts left by (goldSize + 2px gap).
-            -- Sizes depend on who won overall, so compute dynamically.
-            local goldSize = goldWins and 22 or 15  -- Claude: match PlaceIcon winner/loser sizes
-            PlaceIcon(btn, "gold", 0,              goldWins)
-            PlaceIcon(btn, "de",   goldSize + 2,   not goldWins)
+            -- Claude: both icons on same item — stack side by side (14px each + 2px gap)
+            PlaceIcon(btn, "gold", 0,          goldWins)
+            PlaceIcon(btn, "de",   14 + 2,     not goldWins)
         elseif showGold then
             PlaceIcon(btn, "gold", 0, goldWins)
         elseif showDE then

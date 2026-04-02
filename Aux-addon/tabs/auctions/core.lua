@@ -34,6 +34,7 @@ function M.scan_auctions()
     -- and destroys the selection through wipe(). We recover it here.
     local prev_item_key = listing.selected and listing.selected.item_key
     local prev_name    = listing.selected and listing.selected.name
+    local prev_scroll_offset = FauxScrollFrame_GetOffset(listing.scrollFrame) -- Claude: save scroll position before wipe
 
     status_bar:update_status(0, 0)
     status_bar:set_text('Scanning auctions...')
@@ -49,6 +50,11 @@ function M.scan_auctions()
             status_bar:update_status(1, 1)
             status_bar:set_text('Scan complete')
             update_listing()
+
+            -- Claude: restore scroll position, clamped to valid range
+            local maxOffset = max(listing.rowInfo.numDisplayRows - getn(listing.rows), 0)
+            FauxScrollFrame_SetOffset(listing.scrollFrame, min(prev_scroll_offset, maxOffset))
+            listing:UpdateRows()
 
             if prev_item_key then
                 local restore = nil
@@ -129,7 +135,7 @@ do
             find_auction(selection.record)
         elseif state == FOUND and not scan_util.test(selection.record, found_index) then
             cancel_button:Disable()
-            if not cancel_in_progress then state = IDLE end
+            if not get_cancel_in_progress() then state = IDLE end -- Claude: fix undefined variable
         end
     end
 end
