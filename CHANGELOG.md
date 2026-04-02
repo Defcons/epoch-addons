@@ -4,6 +4,13 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## Aux-addon — Auctions Tab Letter-Key Navigation *(2026-04-02)*
+- **Jump to item by letter:** Press a letter key in the Auctions tab to scroll to and select the first item starting with that letter
+- **Multi-letter search:** Type quickly (within 1s) to narrow results (e.g., "WI" jumps to "Wintersbite")
+- **Cycle on repeat:** Pressing the same letter again advances to the next matching item, wrapping around at the end
+
+---
+
 ## Aux-addon — Auctions Tab Cancel Fixes *(2026-04-02)*
 - **Scroll position preserved:** Canceling an auction no longer jumps the list back to the top; scroll offset is saved before rescan and restored after
 - **Selection persistence fix:** `RemoveAuctionRecord` no longer calls `SetDatabase()` when the record was already removed by rescan, preventing the restored selection from being wiped by a stale callback

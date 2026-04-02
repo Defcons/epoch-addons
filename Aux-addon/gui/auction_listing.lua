@@ -936,6 +936,55 @@ local methods = {
         end
         return selectedData
     end,
+
+    -- Claude: jump to first item matching search text; cycleNext advances to next match
+    JumpToLetter = function(self, searchText, cycleNext)
+        searchText = strlower(searchText)
+        local len = strlen(searchText)
+        local displayIndex = 0
+        local firstMatch, firstMatchIndex
+        local foundCurrent = false
+        local nextMatch, nextMatchIndex
+
+        for _, v in ipairs(self.rowInfo) do
+            local record = v.children[1].record
+            local name = strlower(record.name or '')
+            if strsub(name, 1, len) == searchText then
+                if not firstMatch then
+                    firstMatch = record
+                    firstMatchIndex = displayIndex
+                end
+                if cycleNext and foundCurrent and not nextMatch then
+                    nextMatch = record
+                    nextMatchIndex = displayIndex
+                end
+                if self.selected and record.search_signature == self.selected.search_signature then
+                    foundCurrent = true
+                end
+            end
+            if self.expanded[v.expandKey] then
+                displayIndex = displayIndex + getn(v.children)
+            else
+                displayIndex = displayIndex + 1
+            end
+        end
+
+        local target, targetIndex
+        if cycleNext and nextMatch then
+            target, targetIndex = nextMatch, nextMatchIndex
+        elseif cycleNext and firstMatch then
+            target, targetIndex = firstMatch, firstMatchIndex -- Claude: wrap around
+        elseif firstMatch then
+            target, targetIndex = firstMatch, firstMatchIndex
+        end
+
+        if target then
+            self:SetSelectedRecord(target)
+            local maxOffset = max(self.rowInfo.numDisplayRows - getn(self.rows), 0)
+            FauxScrollFrame_SetOffset(self.scrollFrame, min(targetIndex, maxOffset))
+            self:UpdateRows()
+        end
+    end,
 }
 
 function M.new(parent, rows, columns)

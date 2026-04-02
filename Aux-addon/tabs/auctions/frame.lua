@@ -6,7 +6,37 @@ local auction_listing = require 'aux.gui.auction_listing'
 frame = CreateFrame('Frame', nil, AuxFrame)
 frame:SetAllPoints()
 frame:SetScript('OnUpdate', on_update)
+frame:EnableKeyboard(true) -- Claude: letter-key navigation
 frame:Hide()
+
+do -- Claude: type a letter to jump to matching item; repeat to cycle
+    local search_text = ''
+    local last_key_time = 0
+    local RESET_DELAY = 1
+
+    frame:SetScript('OnKeyDown', function()
+        if GetCurrentKeyBoardFocus() then return end
+        local key = arg1
+        if not key or strlen(key) ~= 1 then return end
+        local letter = strlower(key)
+        if letter < 'a' or letter > 'z' then return end
+
+        local now = GetTime()
+        if now - last_key_time > RESET_DELAY then
+            search_text = ''
+        end
+        last_key_time = now
+
+        local cycleNext = false
+        if search_text == letter then
+            cycleNext = true -- Claude: same letter again, advance to next match
+        else
+            search_text = search_text .. letter
+        end
+
+        listing:JumpToLetter(search_text, cycleNext)
+    end)
+end
 
 frame.listing = gui.panel(frame)
 frame.listing:SetPoint('TOP', frame, 'TOP', 0, -8)
