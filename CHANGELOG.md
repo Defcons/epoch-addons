@@ -4,6 +4,14 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## Aux-addon — Full AH Scan for Price History *(2026-04-02)*
+- **Full Scan feature:** New "Full Scan" button in Search tab and `/aux scan` slash command — iterates through all AH pages to populate the price history database in one pass
+- **History-only scan:** Scans all auctions without filling the results table; `process_auction` in the scan engine automatically updates daily min buyout prices
+- **Progress tracking:** Status bar shows current page / total pages during scan; chat message summarizes total auctions processed on completion
+- **Pause support:** Existing Pause button works to stop a full scan mid-progress
+
+---
+
 ## Aux-addon — Auctions Tab Cancel Fixes *(2026-04-02)*
 - **Scroll position preserved:** Canceling an auction no longer jumps the list back to the top; scroll offset is saved before rescan and restored after
 - **Selection persistence fix:** `RemoveAuctionRecord` no longer calls `SetDatabase()` when the record was already removed by rescan, preventing the restored selection from being wiped by a stale callback
