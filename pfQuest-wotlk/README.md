@@ -1,8 +1,8 @@
-# pfQuest-wotlk
+# pfQuest-wotlk (v1.0)
 
-A quest tracker and database addon with multi-client compatibility, modified for **WoW 3.3.5a (Ascension/Epoch)**.
+Originally by Shagu. Modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
-## Changes from the original
+## Changes
 
 ### Multi-client compatibility layer (`compat/client.lua`)
 - Detects build version and maps API differences between Vanilla/TBC/WotLK clients

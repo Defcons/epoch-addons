@@ -6,14 +6,14 @@
 
 ## Title: ArkInventory
 ## Title-zhCN: [背包]ArkInventory 整合背包银行
-## Author: Arkayenro
+## Author: Arkayenro (original), Defcon (Epoch modifications)
 ## Email: arkayenro at gmail dot com
-## Version: 3.02
+## Version: 1.0
 ## DefaultState: Enabled
 ## LoadOnDemand: 0
 ## SavedVariables: ARKINVDB
 
-## Notes: Allows viewing of your (and your alts) Bags, Keyring, Bank, Guild Bank, Inventory and Mail items when ever and where ever you want.
+## Notes: Allows viewing of your (and your alts) Bags, Keyring, Bank, Guild Bank, Inventory and Mail items when ever and where ever you want. Modified for Ascension/Epoch by Defcon — uses independent version history.
 ## Notes-deDE: Ermöglicht das Anzeigen der Taschen, des Bankfachs, des Schlüsselbundes und des Gildentresors aller Charaktere zu jedem beliebigen Zeitpunkt.
 ## Notes-zhCN: 整合并分类显示你的背包、钥匙链、银行、工会银行，支持离线查看
 ## Notes-zhTW: 以分類方式顯示你的背包。

@@ -1,8 +1,8 @@
-# NotPlater-3.3.5
+# NotPlater-3.3.5 (v1.0)
 
-A feature-rich nameplate addon with threat coloring, ported and bug-fixed for **WoW 3.3.5a (Ascension/Epoch)**.
+Originally by RichSteini. Modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
-## Changes from the original
+## Changes
 
 ### Bug fixes
 - **"Usage: UnitDetailedThreatSituation" error** — added `UnitExists()` guards before all `UnitDetailedThreatSituation` calls; compound unit tokens like `"pet-target"` and stale units no longer cause hard Lua errors in combat

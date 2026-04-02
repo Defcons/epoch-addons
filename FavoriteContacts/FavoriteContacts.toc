@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: Favorite Contacts
-## Notes: Adds buttons to mailbox for easy access to your favorite contacts
-## Author: lqpbgjuc, eXochron
-## Version: 2.0
+## Notes: Adds buttons to mailbox for easy access to your favorite contacts. Ported to 3.3.5a for Ascension/Epoch by Defcon — uses independent version history.
+## Author: lqpbgjuc, eXochron (original), Defcon (Epoch port)
+## Version: 1.0
 ## SavedVariables: FavoriteContactsSettings
 
 Libs\LibStub\LibStub.lua

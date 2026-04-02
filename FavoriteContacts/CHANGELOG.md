@@ -1,6 +1,8 @@
 # FavoriteContacts — Changelog
 
-## v2.13.1 — Ported from Retail 12.0 to WoW 3.3.5a
+> Originally by lqpbgjuc & eXochron. Ported from retail 12.0 to 3.3.5a for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ported from Retail 12.0 to WoW 3.3.5a
 
 ### API compatibility fixes
 - Replaced `C_AddOns.GetAddOnMetadata` → `GetAddOnMetadata`

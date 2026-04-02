@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: |cff00ff00TradeSkillMaster_AuctionDB|r
-## Notes: Stores auction house data and calculates market prices.
-## Author: Sapu94, Bart39
-## Version: v2.3.10
+## Notes: Stores auction house data and calculates market prices. Modified for Ascension/Epoch by Defcon — uses independent version history.
+## Author: Sapu94, Bart39 (original), Defcon (Epoch modifications)
+## Version: 1.0
 ## SavedVariables: TradeSkillMaster_AuctionDBDB
 ## Dependency: TradeSkillMaster
 ## X-Curse-Packaged-Version: v2.3.10

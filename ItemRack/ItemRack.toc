@@ -1,6 +1,8 @@
 ## Interface: 30000
 ## Title: ItemRack
-## Author: Gello
+## Author: Gello (original), Defcon (Epoch modifications)
+## Notes: Equipment set manager. Modified for Ascension/Epoch by Defcon — uses independent version history.
+## Version: 1.0
 ## SavedVariables: ItemRackSettings, ItemRackItems, ItemRackEvents
 ## SavedVariablesPerCharacter: ItemRackUser
 ItemRack.lua

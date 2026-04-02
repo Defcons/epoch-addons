@@ -5,10 +5,10 @@
 ## X-GitHub-Project-Issues: https://github.com/Sattva-108/unitscan-TBC-2.4.3-WoTLK-3.3.5/issues
 ## X-GitHub-Project-Download: https://github.com/Sattva-108/unitscan-TBC-2.4.3-WoTLK-3.3.5/archive/refs/heads/main.zip
 
-## Author: shirsig, tablegrapes, backport by Sattva
+## Author: shirsig, tablegrapes, Sattva (original), Defcon (Epoch modifications)
 ## Title: unitscan
-## Version: 3.3.5
-## Notes: Unit scanner with flashy alert 
+## Version: 1.0
+## Notes: Unit scanner with flashy alert. Modified for Ascension/Epoch by Defcon — uses independent version history.
 ## SavedVariables: unitscanDB, unitscan_defaults, unitscan_targets, unitscan_ignored, unitscan_dead
 
 

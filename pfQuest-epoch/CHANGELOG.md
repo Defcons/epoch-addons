@@ -1,6 +1,8 @@
 # pfQuest-epoch — Changelog
 
-## Ascension/Epoch Modifications
+> Originally by Bennylavaa & Cuddlehorn. Modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ascension/Epoch Modifications
 
 ### New feature — Rares/Chests toggle buttons on the WorldMap (`pfQuest-worldmap.lua`)
 - Two small toggle buttons (76×16 px, custom backdrop) anchored inside `WorldMapPositioningGuide` top-right, below the close/arrow buttons, with no gap between them

@@ -1,7 +1,8 @@
 ## Interface: 30300
 ## Title: NotPlater
-## Notes: Feature rich nameplate addon (Design inspired by Plater)
-## Author: RichSteini
+## Notes: Feature rich nameplate addon (Design inspired by Plater). Modified for Ascension/Epoch by Defcon — uses independent version history.
+## Author: RichSteini (original), Defcon (Epoch modifications)
+## Version: 1.0
 ## SavedVariables: NotPlaterDB
 ## OptionalDeps: LibStub, CallbackHandler, LibSharedMedia, Ace3
 

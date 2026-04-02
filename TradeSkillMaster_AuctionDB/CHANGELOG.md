@@ -1,6 +1,8 @@
 # TradeSkillMaster_AuctionDB — Changelog
 
-## v2.3.10 — Ascension/Epoch Modifications
+> Originally by Sapu94 & Bart39. Heavily modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ascension/Epoch Modifications
 
 ### Bug fixes — data encoding guards
 - Added nil and empty-string guards in `decodeScans()` to prevent corruption when day or market value data fails to decode

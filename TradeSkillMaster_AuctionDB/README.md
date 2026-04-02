@@ -1,8 +1,8 @@
-# TradeSkillMaster_AuctionDB (v2.3.10)
+# TradeSkillMaster_AuctionDB (v1.0)
 
-The TSM AuctionDB module, modified for **WoW 3.3.5a (Ascension/Epoch)** with data integrity fixes and AuxTSMBridge compatibility.
+Originally by Sapu94 & Bart39. Heavily modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
-## Changes from v2.3.10
+## Changes
 
 ### Bug fixes — data encoding guards
 - Nil and empty-string guards in `decodeScans()` to prevent corruption when day or market value data fails to decode

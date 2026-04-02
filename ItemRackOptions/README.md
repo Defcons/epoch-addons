@@ -1,8 +1,8 @@
-# ItemRackOptions (v2.243)
+# ItemRackOptions (v1.0)
 
-The options UI for **ItemRack**, modified for **WoW 3.3.5a (Ascension/Epoch)**.
+Originally by Gello. Modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
-## Changes from v2.243
+## Changes
 
 ### New feature — "Disable in BG/Arena" checkbox in Sets panel
 - New checkbox in the Sets panel to flag a set as PvP-safe (will not auto-equip in BG/Arena)

@@ -1,8 +1,8 @@
-# ItemRack (v2.243)
+# ItemRack (v1.0)
 
-An equipment set manager for **WoW 3.3.5a (Ascension/Epoch)**, modified with new features and bug fixes.
+Originally by Gello. Modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
-## Changes from v2.243
+## Changes
 
 ### New feature — "Disable in BG/Arena" per-set option
 - Each equipment set can be flagged to never auto-equip while inside a battleground or arena

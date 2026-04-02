@@ -1,6 +1,8 @@
 # unitscan — Changelog
 
-## Ascension/Epoch Modifications
+> Originally by shirsig, tablegrapes & Sattva. Modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ascension/Epoch Modifications
 
 ### Core compatibility
 - Uses `GetBuildInfo()` build detection (`isWOTLK = build == 30300`) for version-specific UI code

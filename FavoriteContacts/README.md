@@ -1,8 +1,8 @@
-# FavoriteContacts (v2.13.1)
+# FavoriteContacts (v1.0)
 
-A mailbox contacts addon ported from **retail WoW 12.0** to **WoW 3.3.5a (Ascension/Epoch)**. Adds a persistent favourite contacts bar to the mailbox so you can address mail with a single click.
+Originally by lqpbgjuc & eXochron. Ported from **retail WoW 12.0** to **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
-## Changes / Porting Notes
+## Changes
 
 ### API compatibility
 - Replaced `C_AddOns.GetAddOnMetadata` → `GetAddOnMetadata`

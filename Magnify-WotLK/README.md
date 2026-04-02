@@ -1,8 +1,8 @@
-# Magnify-WotLK
+# Magnify-WotLK (v1.0)
 
-A world map zoom addon ported and bug-fixed for **WoW 3.3.5a (Ascension/Epoch)**.
+Originally by rissole. Modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
-## Changes from the original
+## Changes
 
 ### API compatibility
 - Settings panel uses `InterfaceOptions_AddCategory` / `InterfaceOptionsFrame_OpenToCategory`

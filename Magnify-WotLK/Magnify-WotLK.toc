@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: Magnify |cff1784d1(WotLK)|r
-## Notes: World Map Zoom Addon for 3.3.5a
-## Version: 1.4.1
-## Author: rissole
+## Notes: World Map Zoom Addon for 3.3.5a. Modified for Ascension/Epoch by Defcon — uses independent version history.
+## Version: 1.0
+## Author: rissole (original), Defcon (Epoch modifications)
 ## SavedVariables: MagnifyOptions
 
 Frames.xml

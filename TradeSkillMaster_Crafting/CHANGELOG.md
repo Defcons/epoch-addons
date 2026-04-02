@@ -1,6 +1,8 @@
 # TradeSkillMaster_Crafting — Changelog
 
-## v2.5.3 — Bug fixes
+> Originally based on TSM_Crafting by Sapu94 & Bart39. Heavily modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.1 — Bug fixes
 
 ### Bug fix — Crafting queue no longer disappears after profession scan (`Util.lua`)
 - Profession scans could delete craft DB entries (and their queued counts) when a recipe temporarily failed validation (e.g. reagent data not yet cached)
@@ -17,7 +19,7 @@
 - `UNIT_SPELLCAST_SUCCEEDED/FAILED/INTERRUPTED` handlers printed "Could not find spellID for ..." for every non-craft spell (mounts, abilities, etc.)
 - Removed the debug `Printf` calls (one was duplicated); the handler already correctly ignores non-craft spells on the next line
 
-## v2.5.2 — Ascension/Epoch Modifications
+## v1.0 — Ascension/Epoch Modifications
 
 ### New feature — Vellum support for enchanting crafts
 - Added `VellumInfo.lua`: lookup table mapping enchanting spell IDs to the correct vellum item IDs (38682, 37602, 39349, 39350, 43145, 43146)

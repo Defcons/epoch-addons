@@ -1,6 +1,6 @@
-# TitanGoldTracker
+# TitanGoldTracker (v1.0)
 
-A **Titan Panel** plugin for **WoW 3.3.5a (Ascension/Epoch)** that tracks gold across all your characters on the same realm, including both factions.
+Originally by Poena & Titan Development Team. Heavily modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
 ## Features
 

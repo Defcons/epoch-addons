@@ -1,8 +1,8 @@
-# ArkInventory
+# ArkInventory (v1.0)
 
-A comprehensive inventory management addon, modified for **WoW 3.3.5a (Ascension/Epoch)** with Lua 5.1 compatibility fixes, login warning suppressions, and custom price rules.
+Originally by Arkayenro. Heavily modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
-## Changes from the original
+## Changes
 
 ### Ace3 library xpcall fix (Lua 5.1 / 3.3.5 compatibility)
 - All embedded Ace3 libraries use the `CreateDispatcher(argCount)` pattern — generates closures via `loadstring` that capture arguments before calling `xpcall(call, errorhandler)` with no extra args

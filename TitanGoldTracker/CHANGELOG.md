@@ -1,6 +1,8 @@
 # TitanGoldTracker — Changelog
 
-## v1.0 — Initial Release
+> Originally by Poena & Titan Development Team. Heavily modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ascension/Epoch Modifications
 
 - Uses `UIDropDownMenu_AddButton()` for context menus (not modern `MenuUtil`)
 - Uses Ace3 timer wrappers (`ScheduleRepeatingTimer`, `CancelTimer`) — no `C_Timer` dependency

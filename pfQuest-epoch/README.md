@@ -1,6 +1,6 @@
-# pfQuest-epoch
+# pfQuest-epoch (v1.0)
 
-An Epoch-specific quest and NPC database overlay for **pfQuest-wotlk**, designed for **WoW 3.3.5a (Ascension/Epoch)**.
+Originally by Bennylavaa & Cuddlehorn. Modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
 ## Features
 

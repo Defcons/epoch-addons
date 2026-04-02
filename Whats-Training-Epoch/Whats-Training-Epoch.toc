@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: What's Training? Epoch
-## Notes: Server-agnostic What's Training? (identical UI/UX) that learns only from trainers
-## Author: ZythDr
-## Version: 1.0.2
+## Notes: Server-agnostic What's Training? (identical UI/UX) that learns only from trainers. Modified for Ascension/Epoch by Defcon — uses independent version history.
+## Author: ZythDr (original), Defcon (Epoch modifications)
+## Version: 1.0
 ## SavedVariablesPerCharacter: WT_EpochCharDB
 
 # Load order matters

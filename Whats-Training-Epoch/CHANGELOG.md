@@ -1,6 +1,8 @@
 # Whats-Training-Epoch — Changelog
 
-## Ascension/Epoch Modifications
+> Originally by ZythDr. Modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ascension/Epoch Modifications
 
 ### Bug fix — "Now available at trainer" messages shown at level 60 (`Announce.lua`)
 - Login announcement and level-up announcement both fire at level 60 even though there are no more trainable levels beyond cap

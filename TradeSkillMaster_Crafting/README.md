@@ -1,8 +1,8 @@
-# TradeSkillMaster_Crafting (v2.5.2)
+# TradeSkillMaster_Crafting (v1.1)
 
-The TSM crafting module, modified for **WoW 3.3.5a (Ascension/Epoch)** with vellum support and crafting queue improvements.
+Originally based on TSM_Crafting by Sapu94 & Bart39. Heavily modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
-## Changes from v2.5.2
+## Changes
 
 ### New feature — Vellum support for enchanting crafts
 - Automatically adds the correct vellum cost to enchanting crafts

@@ -1,6 +1,8 @@
 ## Interface: 30000
 ## Title: ItemRackOptions
-## Notes: Load-On-Demand modules for ItemRack
+## Author: Gello (original), Defcon (Epoch modifications)
+## Notes: Load-On-Demand modules for ItemRack. Modified for Ascension/Epoch by Defcon — uses independent version history.
+## Version: 1.0
 ## Dependencies: ItemRack
 ## LoadOnDemand: 1
 ItemRackOptions.lua

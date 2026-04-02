@@ -1,8 +1,8 @@
-# Whats-Training-Epoch
+# Whats-Training-Epoch (v1.0)
 
-A trainer availability notification addon, patched for **WoW 3.3.5a (Ascension/Epoch)** to suppress false announcements at level 60.
+Originally by ZythDr. Modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
-## Changes from the original
+## Changes
 
 ### Bug fix — "Now available at trainer" messages shown at level 60
 - Both the login announcement and the level-up announcement were firing at level 60, even though there are no further trainable levels at the cap

@@ -1,6 +1,6 @@
-# unitscan
+# unitscan (v1.0)
 
-A rare mob scanner for **WoW 3.3.5a (Ascension/Epoch)** with dead mob cooldown tracking, pfQuest map integration, and combat-safe UI.
+Originally by shirsig, tablegrapes & Sattva. Modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
 ## Features
 

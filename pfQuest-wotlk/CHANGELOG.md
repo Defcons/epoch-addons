@@ -1,6 +1,8 @@
 # pfQuest-wotlk — Changelog
 
-## Ascension/Epoch Modifications
+> Originally by Shagu. Modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ascension/Epoch Modifications
 
 ### Configuration
 - Added `"Show Update Notifications"` checkbox to `pfQuest_defconfig` (config key `updatenotify`, default `"0"` / off); controls whether pfQuest-epoch version-available messages appear in chat

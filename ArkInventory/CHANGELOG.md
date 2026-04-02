@@ -1,6 +1,8 @@
 # ArkInventory — Changelog
 
-## Ascension/Epoch Modifications
+> Originally by Arkayenro. Heavily modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ascension/Epoch Modifications
 
 ### Ace3 library xpcall fix (Lua 5.1 / 3.3.5 compatibility)
 - All embedded Ace3 libraries (AceGUI-3.0, AceAddon-3.0, AceTimer-3.0, AceConfigDialog-3.0, AceBucket-3.0, CallbackHandler-1.0) use the `CreateDispatcher(argCount)` pattern — generates closures via `loadstring` that capture arguments before calling `xpcall(call, errorhandler)` with no extra args, working around the 3.3.5 limitation where `xpcall(f, h, ...)` silently drops variadic arguments

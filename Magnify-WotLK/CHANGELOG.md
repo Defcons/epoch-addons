@@ -1,6 +1,8 @@
 # Magnify-WotLK — Changelog
 
-## Ascension/Epoch Port
+> Originally by rissole. Modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ascension/Epoch Port
 
 ### 3.3.5 API compatibility
 - Settings panel uses `InterfaceOptions_AddCategory` / `InterfaceOptionsFrame_OpenToCategory`

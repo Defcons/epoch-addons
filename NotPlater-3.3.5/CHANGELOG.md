@@ -1,6 +1,8 @@
 # NotPlater-3.3.5 — Changelog
 
-## Ascension/Epoch Port
+> Originally by RichSteini. Modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ascension/Epoch Port
 
 ### Bug fix — "Usage: UnitDetailedThreatSituation" error (`modules/threat-3.3.5.lua`)
 - `GetThreat` and `GetMaxThreatOnTarget` called `UnitDetailedThreatSituation` unconditionally; compound unit tokens like `"pet-target"` and stale/non-existent units cause the API to throw a hard Lua error in combat

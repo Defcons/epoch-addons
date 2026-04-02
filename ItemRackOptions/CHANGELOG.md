@@ -1,6 +1,8 @@
 # ItemRackOptions — Changelog
 
-## v2.243 — Ascension/Epoch Modifications
+> Originally by Gello. Modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ascension/Epoch Modifications
 
 ### New feature — "Disable in BG/Arena" checkbox in Sets panel
 - Added `"Disable in BG/Arena"` label string to `ItemRack.CheckButtonLabels`

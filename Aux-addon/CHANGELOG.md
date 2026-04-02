@@ -1,6 +1,8 @@
 # Aux-addon — Changelog
 
-## Ascension/Epoch Modifications
+> Originally by shirsig. Heavily modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
+
+## v1.0 — Ascension/Epoch Modifications
 
 ### Bug fix — tooltip crash "Invalid quest item in SetQuestLogItem" (`core/tooltip.lua`)
 - Hook wrapper called the original `SetQuestLogItem` (and all other hooked tooltip methods) unconditionally; when `LibExtraTip` called it with a stale/invalid quest item, the WoW API threw before returning

@@ -1,8 +1,8 @@
 ﻿## Interface: 30300
 ## Title: |cff00ff00TradeSkillMaster_Crafting|r
-## Notes: Provides a rich profession interface complete with a powerful crafting queue.
-## Author: Sapu94, Bart39
-## Version: v2.5.4
+## Notes: Provides a rich profession interface complete with a powerful crafting queue. Modified for Ascension/Epoch by Defcon — uses independent version history.
+## Author: Sapu94, Bart39 (original), Defcon (Epoch modifications)
+## Version: 1.1
 ## SavedVariables: TradeSkillMaster_CraftingDB
 ## Dependency: TradeSkillMaster, TradeSkillMaster_ItemTracker
 

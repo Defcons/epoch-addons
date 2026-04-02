@@ -1,8 +1,8 @@
-# Aux-addon
+# Aux-addon (v1.0)
 
-A full-featured Auction House addon for **WoW 3.3.5a (Ascension/Epoch)**, with numerous bug fixes and new quality-of-life features added to the Post and Auctions tabs.
+Originally by shirsig. Heavily modified for **WoW 3.3.5a (Ascension/Epoch)** by Defcon — uses independent version history.
 
-## Changes from the original
+## Changes
 
 ### Bug fixes
 - **Tooltip crash** (`core/tooltip.lua`) — `SetQuestLogItem` and other hooked tooltip methods now wrapped in `pcall`; stale/invalid quest items no longer crash the tooltip chain
