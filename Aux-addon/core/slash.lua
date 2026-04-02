@@ -58,9 +58,6 @@ function SlashCmdList.AUX(command)
             print('Usage: /aux history decay <0.01–0.99>  -- lower = faster, higher = slower')
             print('Examples: 0.99=very slow  0.75=fast(default)  0.50=very aggressive')
         end
-    elseif arguments[1] == 'scan' then -- Claude: full AH scan for price history
-        local search = require 'aux.tabs.search'
-        search.scan_all()
     elseif arguments[1] == 'clear' and arguments[2] == 'item' and arguments[3] == 'cache' then
 	    _G.aux_items = {}
 	    _G.aux_item_ids = {}
@@ -80,7 +77,6 @@ function SlashCmdList.AUX(command)
 		print('- tooltip disenchant value [' .. status(tooltip_settings.disenchant_value) .. ']')
 		print('- tooltip disenchant distribution [' .. status(tooltip_settings.disenchant_distribution) .. ']')
 		print('- history decay [' .. color.blue(require('aux.core.history').get_decay()) .. ']  (0.01-0.99, lower=faster)')
-		print('- scan (full AH scan for price history)')
 		print('- clear item cache')
 		print('- populate wdb')
     end

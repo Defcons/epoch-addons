@@ -243,20 +243,6 @@ do
 			btn:Disable()
 		end
 	end)
-    remove_button = btn
-end
-do -- Claude: Full Scan button — scans all AH pages for price history
-    local btn = gui.button(frame.results)
-    btn:SetPoint('TOPLEFT', remove_button, 'TOPRIGHT', 5, 0)
-    btn:SetText('Full Scan')
-    btn:SetScript('OnClick', scan_all)
-    btn:SetScript('OnUpdate', function()
-        if current_search.active then
-            btn:Disable()
-        else
-            btn:Enable()
-        end
-    end)
 end
 do
     local btn = gui.button(frame.saved)
