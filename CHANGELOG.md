@@ -4,6 +4,12 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## Postal — Faster Open All Stuck Recovery *(2026-04-03)*
+- **Reduced stuck detection timer:** from 5s to 1s — stuck mail items are now skipped after just 1 second instead of 5
+- **Reduced refresh fallback timeout:** from 8s to 1s — if `MAIL_INBOX_UPDATE` never arrives, retry happens after 1 second instead of 8
+
+---
+
 ## Aux-addon — Auctions Tab Letter-Key Navigation *(2026-04-02)*
 - **Jump to item by letter:** Press a letter key in the Auctions tab to scroll to and select the first item starting with that letter
 - **Multi-letter search:** Type quickly (within 1s) to narrow results (e.g., "WI" jumps to "Wintersbite")
