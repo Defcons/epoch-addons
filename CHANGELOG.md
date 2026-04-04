@@ -4,6 +4,12 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## FishingBuddy — Fix Astrolabe nil position crash *(2026-04-04)*
+- **Nil position guard:** `GetCurrentPlayerPosition()` can return nil in unmapped zones or during loading — added early-return guards in `FishingSchools.lua` and `FishingExtravaganza.lua` to prevent arithmetic-on-nil crash in Astrolabe
+- **ComputeDistance typo fix:** `FishingSchools.lua:56` passed `x, x` instead of `x, y` — fixed so pool proximity checks use correct coordinates
+
+---
+
 ## Postal — Faster Open All Stuck Recovery *(2026-04-03)*
 - **Reduced stuck detection timer:** from 5s to 1s — stuck mail items are now skipped after just 1 second instead of 5
 - **Reduced refresh fallback timeout:** from 8s to 1s — if `MAIL_INBOX_UPDATE` never arrives, retry happens after 1 second instead of 8
