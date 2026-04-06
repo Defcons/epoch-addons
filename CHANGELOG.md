@@ -4,6 +4,17 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## PlateBuffs — Robust nameplate aura tracking *(2026-04-06)*
+Fixes for "?" icons, debuffs falling off mid-timer, and debuffs never appearing.
+- **Bypass LibAuraInfo gating** (`combatlog.lua` `LibAuraInfo_AURA_APPLIED`): when LibAI hasn't tracked an aura yet (cold cache, unfiltered spell), still add it using CLEU `auraType` + `GetSpellInfo` instead of silently dropping
+- **GUID-based caster matching:** new `casterGUID` field on every entry; REMOVED/REFRESH/DOSE handlers match by `srcGUID` (always present in CLEU) instead of resolved name. Stops other players' debuff removes from stripping yours
+- **Nil duration/expires guard** (`AddSpellToGUID`): normalize to `expirationTime=0` when unknown so `iconOnUpdate`'s `> 0` guard treats it as no-timer instead of dropping it next frame (was: `expires or 0 - 0.1` precedence bug = `-0.1`)
+- **SPELL_PERIODIC_AURA_\* backup CLEU listener:** registered raw `COMBAT_LOG_EVENT_UNFILTERED` frame so periodic-prefixed bleeds/HoTs that LibAI doesn't dispatch still reach the apply path
+- **Plate→GUID name fallback** (`LibNameplate_NewNameplate`): when a new plate has no GUID yet, look up `nametoGUIDs[name]` to attach buffs immediately. Populated opportunistically from CLEU dst names with collision detection (`= false` marker disables fallback for ambiguous names)
+- **`/pb debug` toggle:** prints per-event combatlog tracing (apply source, refresh, remove) so the issue can be reproduced and inspected from chat
+
+---
+
 ## FishingBuddy — Fix Astrolabe nil position crash *(2026-04-04)*
 - **Nil position guard:** `GetCurrentPlayerPosition()` can return nil in unmapped zones or during loading — added early-return guards in `FishingSchools.lua` and `FishingExtravaganza.lua` to prevent arithmetic-on-nil crash in Astrolabe
 - **ComputeDistance typo fix:** `FishingSchools.lua:56` passed `x, x` instead of `x, y` — fixed so pool proximity checks use correct coordinates
