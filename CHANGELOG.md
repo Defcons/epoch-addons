@@ -4,6 +4,11 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## unitscan — Skip instance dismiss cooldown when solo *(2026-04-06)*
+- **`instance_dismiss()` solo guard** (`unitscan.lua`): the 1h pause-on-dismiss now only applies when actually grouped. If you're alone in the instance (no party/raid members), dismissing the popup no longer suppresses the scan
+
+---
+
 ## PlateBuffs — Robust nameplate aura tracking *(2026-04-06)*
 Fixes for "?" icons, debuffs falling off mid-timer, and debuffs never appearing.
 - **Bypass LibAuraInfo gating** (`combatlog.lua` `LibAuraInfo_AURA_APPLIED`): when LibAI hasn't tracked an aura yet (cold cache, unfiltered spell), still add it using CLEU `auraType` + `GetSpellInfo` instead of silently dropping

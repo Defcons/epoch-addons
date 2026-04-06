@@ -2626,6 +2626,8 @@ function unitscan.LOAD()
 	function unitscan.instance_dismiss()
 		local _, instance_type = IsInInstance()
 		if not instance_type or instance_type == "none" then return end
+		-- Claude: skip cooldown if alone in the instance (no party/raid members)
+		if (GetNumRaidMembers() or 0) == 0 and (GetNumPartyMembers() or 0) == 0 then return end
 		local name = unitscan.button:GetText()
 		if not name or name == "" then return end
 		local key = strupper(name)
