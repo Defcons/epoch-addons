@@ -4,6 +4,25 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## Aux-addon v1.3 — Back button + Escape *(2026-04-06)*
+- **Back button** in bottom toolbar returns to the previously selected tab
+- **Mouse Button4** (back side button) triggers Back from anywhere in the Aux frame, even while hovering item rows (uses `IsMouseButtonDown` polling — child frames don't bubble mouse events on 3.3.5)
+- **Search-tab aware:** on the Search tab, Back returns to the previous subtab (e.g. Results → Saved Searches) before falling back to top-level tab history
+- **Escape closes Aux:** hooks `CloseSpecialWindows` so Escape always hides AuxFrame
+- **Nil guards in post settings:** fixed `read_settings()` returning nil reference instead of calling `get_default_settings()`; guarded `nil` `start_price`/`buyout_price` in price getters and `update_item()`
+
+---
+
+## DeleteItems v1.1 — Escape support *(2026-04-06)*
+- **Escape closes the window:** main and junk-scanner frames registered with `UISpecialFrames`. Open confirmation popups close first, then the main window
+
+---
+
+## AuxTSMBridge — Match aux's configurable decay *(2026-04-06)*
+- Sync now reads aux's live `history_decay` setting (or `aux.account.history_decay`) instead of hardcoding `0.99`, so AuxMarket prices in TSM match aux's own % Hist. Value column
+
+---
+
 ## unitscan — Skip instance dismiss cooldown when solo *(2026-04-06)*
 - **`instance_dismiss()` solo guard** (`unitscan.lua`): the 1h pause-on-dismiss now only applies when actually grouped. If you're alone in the instance (no party/raid members), dismissing the popup no longer suppresses the scan
 

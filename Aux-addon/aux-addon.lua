@@ -109,12 +109,25 @@ end
 
 do
 	local index
+	local prev_index -- Claude: remember previous tab so Back button can return to it
 	function get_active_tab() return tab_info[index] end
 	function on_tab_click(i)
 		CloseDropDownMenus()
 		do (index and active_tab.CLOSE or nop)() end
+		if i ~= index then prev_index = index end -- Claude: only update history when actually switching
 		index = i
 		do (index and active_tab.OPEN or nop)() end
+	end
+	-- Claude: Back button handler -- prefer in-tab back nav (e.g. search results -> saved searches),
+	-- otherwise fall back to switching to the previously selected top-level tab
+	function go_back_tab()
+		-- Claude: only do search-internal back when search is the active top-level tab
+		if active_tab and active_tab.name == 'Search' and search_tab.go_back_subtab and search_tab.go_back_subtab() then return end
+		if not tabs then return end
+		local target = prev_index
+		if target and target ~= index and tab_info[target] then
+			tabs:select(target)
+		end
 	end
 end
 

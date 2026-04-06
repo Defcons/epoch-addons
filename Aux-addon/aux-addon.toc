@@ -2,7 +2,7 @@
 ## Author: shirsig (original), Defcon (Epoch modifications)
 ## Title: aux
 ## Notes: Auction House replacement. Modified for Ascension/Epoch by Defcon — uses independent version history.
-## Version: 1.0
+## Version: 1.3
 ## SavedVariables: aux, aux_scale, aux_post_bid, aux_ignore_owner, aux_items, aux_item_ids, aux_auctionable_items, aux_merchant_buy, aux_merchant_sell
 
 libs\compat.lua

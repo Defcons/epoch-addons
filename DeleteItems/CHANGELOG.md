@@ -1,5 +1,8 @@
 # DeleteItems — Changelog
 
+## v1.1 — Escape support
+- **Escape closes the window:** both the main DeleteItems frame and the Junk Scanner frame now register with `UISpecialFrames`. Escape closes any open StaticPopup confirmation first, then the main window
+
 ## v1.0 — Initial Release
 
 ### Core data layer

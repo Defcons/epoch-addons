@@ -82,6 +82,15 @@ local function ParseAuxRecord(str)
     return daily_min, data_points
 end
 
+-- Claude: read decay from aux config so sync matches aux's own % Hist. Value column
+local function GetDecay()
+    if auxHistory and auxHistory.get_decay then -- Claude: prefer aux's live config
+        local ok, v = pcall(auxHistory.get_decay)
+        if ok and type(v) == "number" then return v end
+    end
+    return (aux and aux.account and aux.account.history_decay) or 0.75 -- Claude: fallback to aux default
+end
+
 -- Replicates aux's weighted_median calculation.
 -- data_points[1] is most recent (aux inserts at index 1 via tinsert(t, 1, ...))
 local function WeightedMedian(data_points)
@@ -90,10 +99,11 @@ local function WeightedMedian(data_points)
     local ref_time     = data_points[1].time
     local weighted     = {}
     local total_weight = 0
+    local decay        = GetDecay() -- Claude: use aux's configured decay instead of hardcoded 0.99
 
     for _, dp in ipairs(data_points) do
         local days_ago = floor((ref_time - dp.time) / 86400 + 0.5)
-        local weight   = (0.99) ^ days_ago
+        local weight   = decay ^ days_ago -- Claude: was hardcoded (0.99)
         total_weight   = total_weight + weight
         tinsert(weighted, { value = dp.value, weight = weight })
     end
@@ -125,7 +135,7 @@ local function GetAuxPricesDirect(item_key)
 
     local daily_min, data_points = ParseAuxRecord(str)
 
-    -- market value = weighted median of historical points (same as aux's value())
+    -- market value = weighted median of historical points (uses aux's decay config)
     -- fall back to daily_min if no history yet
     local market_value
     if #data_points > 0 then

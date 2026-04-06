@@ -2,6 +2,20 @@
 
 > Originally by shirsig. Heavily modified for Ascension/Epoch by Defcon — version history below is independent from the original addon.
 
+## v1.3
+
+### New feature — Back button + mouse Button4 navigation
+- New **Back** button on the bottom toolbar (left of "Blizzard UI") that returns to the previously selected tab
+- **Mouse Button4** (back side button) triggers Back from anywhere inside the Aux frame, including while hovering item rows. Implemented via an OnUpdate poller using `IsMouseButtonDown('Button4')` since mouse events don't bubble through child frames in 3.3.5
+- **Search-tab aware:** when on the Search tab, Back returns to the previous subtab (e.g. Results → Saved Searches) before falling back to top-level tab history
+
+### Escape closes Aux reliably
+- Hooks `CloseSpecialWindows` so Escape always hides AuxFrame, working around `UISpecialFrames` taint issues
+
+### Bug fix — nil guard on corrupt post settings
+- `read_settings()` was returning a nil reference (`default_settings`) instead of calling `get_default_settings()`
+- `get_unit_start_price` / `get_unit_buyout_price` and `update_item()` now guard against `nil` `start_price`/`buyout_price` from corrupt saved data
+
 ## v1.2
 
 ### Bug fix — Auctions tab scroll and selection lost after repeated cancels

@@ -33,7 +33,7 @@ end
 
 function read_settings(item_key)
 	item_key = item_key or selected_item.key
-	return data[item_key] and persistence.read(settings_schema, data[item_key]) or default_settings
+	return data[item_key] and persistence.read(settings_schema, data[item_key]) or get_default_settings() -- Claude: was 'default_settings' (nil); call the function
 end
 function write_settings(settings, item_key)
 	item_key = item_key or selected_item.key
@@ -96,7 +96,7 @@ function USE_ITEM(item_id, suffix_id)
 end
 
 function get_unit_start_price()
-	return selected_item and read_settings().start_price or 0
+	return selected_item and (read_settings().start_price or 0) or 0 -- Claude: guard nil field
 end
 
 function set_unit_start_price(amount)
@@ -106,7 +106,7 @@ function set_unit_start_price(amount)
 end
 
 function get_unit_buyout_price()
-	return selected_item and read_settings().buyout_price or 0
+	return selected_item and (read_settings().buyout_price or 0) or 0 -- Claude: guard nil field
 end
 
 function set_unit_buyout_price(amount)
@@ -629,8 +629,8 @@ function update_item(item)
     local total = selected_item.max_charges and selected_item.availability[stack_size_slider:GetValue()] or selected_item.availability[0]
     stack_count_slider:SetValue(max(1, floor(total / 2)))
 
-    unit_start_price_input:SetText(money.to_string(settings.start_price, true, nil, nil, true))
-    unit_buyout_price_input:SetText(money.to_string(settings.buyout_price, true, nil, nil, true))
+    unit_start_price_input:SetText(money.to_string(settings.start_price or 0, true, nil, nil, true)) -- Claude: guard nil from corrupt saved data
+    unit_buyout_price_input:SetText(money.to_string(settings.buyout_price or 0, true, nil, nil, true)) -- Claude: guard nil from corrupt saved data
 
     if not bid_records[selected_item.key] then
         refresh_entries()

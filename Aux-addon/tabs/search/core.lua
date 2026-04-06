@@ -44,24 +44,40 @@ function USE_ITEM(_, _, _, _, name)
 	execute(nil, false)
 end
 
-function set_subtab(tab)
-	CloseDropDownMenus()
-    search_results_button:UnlockHighlight()
-    saved_searches_button:UnlockHighlight()
-    new_filter_button:UnlockHighlight()
-    frame.results:Hide()
-    frame.saved:Hide()
-    frame.filter:Hide()
+do
+    -- Claude: closure-local previous-subtab tracking (cannot use module globals — those route through mutators)
+    local prev_sub
+    local cur_sub
+    function set_subtab(tab)
+        CloseDropDownMenus()
+        search_results_button:UnlockHighlight()
+        saved_searches_button:UnlockHighlight()
+        new_filter_button:UnlockHighlight()
+        frame.results:Hide()
+        frame.saved:Hide()
+        frame.filter:Hide()
 
-    if tab == RESULTS then
-        frame.results:Show()
-        search_results_button:LockHighlight()
-    elseif tab == SAVED then
-        frame.saved:Show()
-        saved_searches_button:LockHighlight()
-    elseif tab == FILTER then
-        frame.filter:Show()
-        new_filter_button:LockHighlight()
+        if tab ~= cur_sub then prev_sub = cur_sub end -- Claude: remember previous for Back
+        cur_sub = tab
+
+        if tab == RESULTS then
+            frame.results:Show()
+            search_results_button:LockHighlight()
+        elseif tab == SAVED then
+            frame.saved:Show()
+            saved_searches_button:LockHighlight()
+        elseif tab == FILTER then
+            frame.filter:Show()
+            new_filter_button:LockHighlight()
+        end
+    end
+    -- Claude: Back button support -- returns to previous search subtab if there is one
+    function M.go_back_subtab()
+        if prev_sub and prev_sub ~= cur_sub then
+            set_subtab(prev_sub)
+            return true
+        end
+        return false
     end
 end
 

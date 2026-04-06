@@ -614,6 +614,7 @@ local function BuildJunkFrame()
     })
     junkFrame:SetBackdropColor(0, 0, 0, 0.92)
     junkFrame:Hide()
+    tinsert(UISpecialFrames, ADDON_NAME .. "JunkFrame") -- Claude: Escape closes junk scanner window
 
     ---- Title ----
     local title = junkFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -827,6 +828,7 @@ local function BuildUI()
     })
     mainFrame:SetBackdropColor(0, 0, 0, 0.92)
     mainFrame:Hide()
+    tinsert(UISpecialFrames, ADDON_NAME .. "MainFrame") -- Claude: Escape closes main window (StaticPopups close first if open)
 
     -- Title
     local title = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
