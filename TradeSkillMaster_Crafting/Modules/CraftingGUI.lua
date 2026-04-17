@@ -2867,8 +2867,23 @@ function GUI:CreateStandaloneQueueFrame()
 	craftContainer:SetHeight(200)
 	TSMAPI.Design:SetFrameColor(craftContainer)
 
-	local function OnCraftRowClicked(_, data)
-		if data and data.isTitle then
+	local function OnCraftRowClicked(_, data, _, button)
+		if not data then return end
+		-- Claude: Ctrl+Click or Shift+Right-Click removes the item from queue.
+		-- Mirror the behaviour of the main queue window's handler (line ~710)
+		-- so the standalone /tsm queue window is not view-only.
+		if not data.isTitle and data.spellID then
+			if IsControlKeyDown() or (button == "RightButton" and IsShiftKeyDown()) then
+				local craft = TSM.db.factionrealm.crafts[data.spellID]
+				if craft then
+					craft.queued = 0
+					craft.intermediateQueued = nil
+				end
+				GUI:UpdateStandaloneQueue()
+				return
+			end
+		end
+		if data.isTitle then
 			if data.stage then
 				TSM.db.factionrealm.queueStatus.collapsed[data.profession .. data.stage] = not TSM.db.factionrealm.queueStatus.collapsed[data.profession .. data.stage]
 			else

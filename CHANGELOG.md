@@ -18,6 +18,11 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## TradeSkillMaster_Crafting v1.3 — Standalone queue delete *(2026-04-17)*
+- **Fix:** Ctrl+Click and Shift+Right-Click now work in the **standalone `/tsm queue` window** too. v1.2 only patched the queue panel inside the main TSM craft-manager window — the standalone window had its own `OnCraftRowClicked` handler (line 2874) that was view-only aside from title-row collapse. Both handlers now share the same delete semantics.
+
+---
+
 ## TradeSkillMaster_Crafting v1.2 — Cross-faction queue + Ctrl-Click delete *(2026-04-17)*
 Ascension runs a unified cross-faction AH and a common workflow is "crafter on one faction, banker on the other." TSM's queue lives under `TSM.db.factionrealm.crafts[spellID].queued`, so switching faction showed an empty queue.
 - **Realm-scoped storage:** in `OnEnable` after `AceDB:New`, lift `crafts`, `mats`, and `tradeSkills` into `TSM.db.realm` and reassign the `factionrealm` keys to point at the same Lua tables. All 184 existing `factionrealm.X` call sites keep working — the table they read is now shared across factions.
