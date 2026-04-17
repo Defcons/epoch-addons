@@ -50,6 +50,42 @@ function TSM:OnEnable()
 
 	-- load the savedDB into TSM.db
 	TSM.db = LibStub:GetLibrary("AceDB-3.0"):New("TradeSkillMaster_CraftingDB", savedDBDefaults, true)
+
+	-- Claude: cross-faction craft queue. On Ascension the AH is unified and
+	-- a common setup is "crafter on one faction, banker on the other". The
+	-- queue (craft.queued) lives under factionrealm scope so switching toons
+	-- across factions used to show an empty queue. We lift crafts / mats /
+	-- tradeSkills to realm scope and make the factionrealm keys point at the
+	-- same Lua tables, so all 184 call sites keep working unchanged.
+	do
+		TSM.db.realm.crafts      = TSM.db.realm.crafts      or {}
+		TSM.db.realm.mats        = TSM.db.realm.mats        or {}
+		TSM.db.realm.tradeSkills = TSM.db.realm.tradeSkills or {}
+
+		-- First-login merge: copy any entry not already in the realm scope.
+		-- Idempotent on subsequent logins because realm is authoritative.
+		for spellID, data in pairs(TSM.db.factionrealm.crafts or {}) do
+			if TSM.db.realm.crafts[spellID] == nil then
+				TSM.db.realm.crafts[spellID] = data
+			end
+		end
+		for itemString, data in pairs(TSM.db.factionrealm.mats or {}) do
+			if TSM.db.realm.mats[itemString] == nil then
+				TSM.db.realm.mats[itemString] = data
+			end
+		end
+		for player, data in pairs(TSM.db.factionrealm.tradeSkills or {}) do
+			if TSM.db.realm.tradeSkills[player] == nil then
+				TSM.db.realm.tradeSkills[player] = data
+			end
+		end
+
+		-- Redirect factionrealm access to the shared realm tables.
+		TSM.db.factionrealm.crafts      = TSM.db.realm.crafts
+		TSM.db.factionrealm.mats        = TSM.db.realm.mats
+		TSM.db.factionrealm.tradeSkills = TSM.db.realm.tradeSkills
+	end
+
 	TSM:UpdateCraftReverseLookup()
 	
 	-- register this module with TSM

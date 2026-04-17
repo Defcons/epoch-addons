@@ -43,10 +43,23 @@ local function GetAuxItemKey(link)
     return itemID .. ":" .. (suffixID or "0")
 end
 
-local function GetAuxFactionKey()
-    local realm   = GetCVar("realmName")       or ""
-    local faction = UnitFactionGroup("player") or ""
-    return realm .. "|" .. faction
+-- Claude: Ascension uses a single unified cross-faction AH. Aux still stores
+-- history under the scanning character's faction key, so we merge every
+-- faction scope on this realm when reading. (Old single-faction helper
+-- GetAuxFactionKey removed — all callers moved to the multi-faction path.)
+local function GetAuxFactionTablesForRealm()
+    local realm  = GetCVar("realmName") or ""
+    local prefix = realm .. "|"
+    local out    = {}
+    if aux and aux.faction then
+        for key, tbl in pairs(aux.faction) do
+            if type(key) == "string" and type(tbl) == "table"
+                and key:sub(1, #prefix) == prefix then
+                tinsert(out, tbl)
+            end
+        end
+    end
+    return out
 end
 
 -- -------------------------------------------------------------------------
@@ -124,59 +137,66 @@ end
 
 -- High-level: return market value and min-buyout for an item_key using only
 -- raw string parsing — no calls into aux's temp-table system.
+-- Claude: merge history from every faction table on this realm (unified AH).
 local function GetAuxPricesDirect(item_key)
-    local factionKey  = GetAuxFactionKey()
-    local auxFaction  = aux and aux.faction and aux.faction[factionKey]
-    local historyData = auxFaction and auxFaction["history"]
-    if not historyData then return nil, nil end
+    local merged_points = {} -- Claude: union of data points across factions
+    local best_daily    = nil -- Claude: min(daily_min) across factions
 
-    local str = historyData[item_key]
-    if not str then return nil, nil end
-
-    local daily_min, data_points = ParseAuxRecord(str)
-
-    -- market value = weighted median of historical points (uses aux's decay config)
-    -- fall back to daily_min if no history yet
-    local market_value
-    if #data_points > 0 then
-        market_value = WeightedMedian(data_points)
-    else
-        market_value = daily_min
+    for _, auxFaction in ipairs(GetAuxFactionTablesForRealm()) do
+        local historyData = auxFaction["history"]
+        local str         = historyData and historyData[item_key]
+        if str then
+            local daily_min, data_points = ParseAuxRecord(str)
+            if type(daily_min) == "number"
+                and (not best_daily or daily_min < best_daily) then
+                best_daily = daily_min
+            end
+            if data_points then
+                for _, dp in ipairs(data_points) do
+                    tinsert(merged_points, dp)
+                end
+            end
+        end
     end
 
-    return market_value, daily_min
+    if #merged_points == 0 and not best_daily then
+        return nil, nil
+    end
+
+    -- Claude: WeightedMedian uses data_points[1].time as its reference point,
+    -- so sort the merged list newest-first to match aux's own insertion order.
+    if #merged_points > 1 then
+        table.sort(merged_points, function(a, b) return a.time > b.time end)
+    end
+
+    local market_value
+    if #merged_points > 0 then
+        market_value = WeightedMedian(merged_points)
+    else
+        market_value = best_daily
+    end
+
+    return market_value, best_daily
 end
 
 -- -------------------------------------------------------------------------
--- AUX price lookups for TSM price source callbacks.
--- These are called one item at a time by TSM — safe to use auxHistory here.
--- If auxHistory is unavailable, fall back to direct parsing.
+-- AUX price lookups for TSM price source callbacks (one item at a time).
+-- Claude: aux's own value()/market_value() only read the current faction,
+-- so we skip them and use the cross-faction merged direct parser for both
+-- live TSM tooltip callbacks and the bulk sync. auxHistory is still used
+-- via GetDecay() for the decay config.
 -- -------------------------------------------------------------------------
 local function GetAuxValue(link)
     local item_key = GetAuxItemKey(link)
     if not item_key then return nil end
-
-    if auxHistory then
-        local ok, v = pcall(auxHistory.value, item_key)
-        if ok and type(v) == "number" and v > 0 then return v end
-    end
-
-    -- fallback: direct parse
-    local mv = GetAuxPricesDirect(item_key)
+    local mv = GetAuxPricesDirect(item_key) -- Claude: cross-faction merged
     return (type(mv) == "number" and mv > 0) and mv or nil
 end
 
 local function GetAuxMinBuyout(link)
     local item_key = GetAuxItemKey(link)
     if not item_key then return nil end
-
-    if auxHistory then
-        local ok, v = pcall(auxHistory.market_value, item_key)
-        if ok and type(v) == "number" and v > 0 then return v end
-    end
-
-    -- fallback: direct parse
-    local _, mb = GetAuxPricesDirect(item_key)
+    local _, mb = GetAuxPricesDirect(item_key) -- Claude: cross-faction merged
     return (type(mb) == "number" and mb > 0) and mb or nil
 end
 
@@ -192,35 +212,35 @@ local function SyncAuxToTSM()
         return
     end
 
-    local factionKey  = GetAuxFactionKey()
-    local auxFaction  = aux and aux.faction and aux.faction[factionKey]
-    local historyData = auxFaction and auxFaction["history"]
-
-    if not historyData then
+    -- Claude: collect item_keys across every faction table on this realm
+    -- (Ascension's unified AH means Horde/Alliance scans cover the same market).
+    local factionTables = GetAuxFactionTablesForRealm()
+    if #factionTables == 0 then
         Print("No aux price history found yet. Scan the AH with aux first.")
         return
+    end
+
+    local allKeys = {} -- Claude: dedup union of item_keys across factions
+    for _, auxFaction in ipairs(factionTables) do
+        local historyData = auxFaction["history"]
+        if historyData then
+            for item_key in pairs(historyData) do
+                allKeys[item_key] = true
+            end
+        end
     end
 
     local now     = time()
     local synced  = 0
     local skipped = 0
 
-    for item_key, raw_str in pairs(historyData) do
+    for item_key in pairs(allKeys) do -- Claude: iterate merged key set
         local itemID = tonumber(item_key:match("^(%d+):"))
-        if itemID and raw_str and raw_str ~= "" then
-            local market_value, daily_min = nil, nil
-            local ok, a, b = pcall(ParseAuxRecord, raw_str)
-            if ok then
-                local dp_min = a      -- daily_min_buyout
-                local dp_pts = b      -- data_points table
-                if dp_pts and #dp_pts > 0 then
-                    local okm, mv = pcall(WeightedMedian, dp_pts)
-                    market_value = okm and mv or dp_min
-                else
-                    market_value = dp_min
-                end
-                daily_min = dp_min
-            end
+        if itemID then
+            -- Claude: GetAuxPricesDirect already merges across factions
+            local ok, mv, mb = pcall(GetAuxPricesDirect, item_key)
+            local market_value = ok and mv or nil
+            local daily_min    = ok and mb or nil
 
             if market_value or daily_min then
                 -- Decode any existing TSM entry first (no-op if not yet encoded)
@@ -299,14 +319,29 @@ SlashCmdList["AUXTSMBRIDGE"] = function(msg)
     if msg == "sync" then
         SyncAuxToTSM()
     elseif msg == "status" then
-        local factionKey  = GetAuxFactionKey()
-        local auxFaction  = aux and aux.faction and aux.faction[factionKey]
-        local historyData = auxFaction and auxFaction["history"]
-        local count = 0
-        if historyData then
-            for _ in pairs(historyData) do count = count + 1 end
+        -- Claude: report per-faction counts plus merged unique-item total
+        local realm  = GetCVar("realmName") or ""
+        local prefix = realm .. "|"
+        local merged = {}
+        if aux and aux.faction then
+            for key, tbl in pairs(aux.faction) do
+                if type(key) == "string" and type(tbl) == "table"
+                    and key:sub(1, #prefix) == prefix then
+                    local historyData = tbl["history"]
+                    local count = 0
+                    if historyData then
+                        for item_key in pairs(historyData) do
+                            merged[item_key] = true
+                            count = count + 1
+                        end
+                    end
+                    Print(format("  [%s] %d items", key, count))
+                end
+            end
         end
-        Print("aux has price history for " .. count .. " items  [" .. factionKey .. "]")
+        local mergedCount = 0
+        for _ in pairs(merged) do mergedCount = mergedCount + 1 end
+        Print(format("Cross-faction merged: %d unique items on %s", mergedCount, realm))
         if adbModule and adbModule.db and adbModule.db.factionrealm then
             local last = adbModule.db.factionrealm.lastCompleteScan or 0
             if last > 0 then

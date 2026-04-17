@@ -18,6 +18,27 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## TradeSkillMaster_Crafting v1.2 — Cross-faction queue + Ctrl-Click delete *(2026-04-17)*
+Ascension runs a unified cross-faction AH and a common workflow is "crafter on one faction, banker on the other." TSM's queue lives under `TSM.db.factionrealm.crafts[spellID].queued`, so switching faction showed an empty queue.
+- **Realm-scoped storage:** in `OnEnable` after `AceDB:New`, lift `crafts`, `mats`, and `tradeSkills` into `TSM.db.realm` and reassign the `factionrealm` keys to point at the same Lua tables. All 184 existing `factionrealm.X` call sites keep working — the table they read is now shared across factions.
+- **First-login merge:** non-destructive copy from `factionrealm` → `realm` (only fills missing keys), so existing scans survive. Idempotent; realm is authoritative from that point on.
+- **Ctrl+Click removes row from queue** (`CraftingGUI.lua`): easier one-handed alternative to the existing Shift+Right-Click. Sets `queued = 0` and clears `intermediateQueued`. Tooltip hint updated to mention both.
+- **Tooltip nil-cost guard** (`CraftingGUI.lua`): `TSM.Cost:GetCraftPrices()` returns nil when no mat prices are available; `FormatTextMoney(nil)` then returned nil and crashed the string concat. Now shows `---` instead of crashing.
+- **Side effects:** SavedVariables writes the same blob into both the factionrealm and realm scopes on save (small disk overhead, no correctness issue). TSM core's operations/groups are still faction-scoped — if you run `Create Restock Queue` from a banker that doesn't have the operation, it won't queue anything. Manual queue edits and viewing work from either faction.
+
+---
+
+## AuxTSMBridge v1.1 — Cross-faction merge *(2026-04-17)*
+Ascension runs a single unified AH, but aux stores history keyed by the scanning character's faction. The bridge previously only read the current character's faction, so switching factions hid half your scan history from TSM.
+- **`GetAuxFactionTablesForRealm()`:** new helper that returns every faction table on the current realm
+- **`GetAuxPricesDirect()`:** unions `data_points` across all faction scopes, takes `min(daily_min)`, then re-runs weighted-median on the combined set (sorted newest-first so the decay reference time is correct)
+- **`SyncAuxToTSM()`:** iterates the deduped union of item_keys across factions; writes one merged entry per item into TSM AuctionDB
+- **`GetAuxValue` / `GetAuxMinBuyout`:** dropped the `auxHistory.value()` / `market_value()` shortcut because those are faction-siloed — live TSM tooltips now use the merged direct parser too
+- **`/axtsm status`:** lists per-faction counts plus the merged unique-item total
+- Removed now-orphaned `GetAuxFactionKey()` helper
+
+---
+
 ## AuxTSMBridge — Match aux's configurable decay *(2026-04-06)*
 - Sync now reads aux's live `history_decay` setting (or `aux.account.history_decay`) instead of hardcoding `0.99`, so AuxMarket prices in TSM match aux's own % Hist. Value column
 

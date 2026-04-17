@@ -650,17 +650,18 @@ function GUI:CreateQueueFrame(parent)
 		end
 
 		GameTooltip:AddLine(" ")
+		-- Claude: guard nil cost — TSM.Cost:GetCraftPrices() returns nil when no mat prices, FormatTextMoney(nil) returns nil and crashes concat
 		if moneyCoinsTooltip then
-			GameTooltip:AddLine("Crafting Cost: " .. (TSMAPI:FormatTextMoneyIcon(cost, "|cffffff00")))
+			GameTooltip:AddLine("Crafting Cost: " .. (cost and TSMAPI:FormatTextMoneyIcon(cost, "|cffffff00") or "---"))
 		else
-			GameTooltip:AddLine("Crafting Cost: " .. (TSMAPI:FormatTextMoney(cost, "|cffffff00")))
+			GameTooltip:AddLine("Crafting Cost: " .. (cost and TSMAPI:FormatTextMoney(cost, "|cffffff00") or "---"))
 		end
-		if data.numQueued>1 then
+		if data.numQueued>1 and cost then
 		local totalcost = cost * data.numQueued
 			if moneyCoinsTooltip then
-				GameTooltip:AddLine("Total Cost: " .. (TSMAPI:FormatTextMoneyIcon(totalcost, "|cffffff00")))
+				GameTooltip:AddLine("Total Cost: " .. (TSMAPI:FormatTextMoneyIcon(totalcost, "|cffffff00") or "---"))
 			else
-				GameTooltip:AddLine("Total Cost: " .. (TSMAPI:FormatTextMoney(totalcost, "|cffffff00")))
+				GameTooltip:AddLine("Total Cost: " .. (TSMAPI:FormatTextMoney(totalcost, "|cffffff00") or "---"))
 			end
 		end
 
@@ -698,7 +699,7 @@ function GUI:CreateQueueFrame(parent)
 			GameTooltip:AddLine(name, 1, 1, 1)
 		end
 		GameTooltip:AddLine(" ")
-		GameTooltip:AddLine("|cff808080Shift+Right-Click to remove from queue|r") -- Claude: hint for per-item queue removal
+		GameTooltip:AddLine("|cff808080Ctrl+Click or Shift+Right-Click to remove from queue|r") -- Claude: ctrl-click + shift-rclick delete hint
 		GameTooltip:Show()
 	end
 
@@ -707,6 +708,17 @@ function GUI:CreateQueueFrame(parent)
 	end
 
 	local function OnCraftRowClicked(_, data, _, button)
+		-- Claude: Ctrl+Click (either button) also removes the item from queue.
+		-- Easier one-handed delete than Shift+Right-Click; same underlying logic.
+		if IsControlKeyDown() and data.spellID and not data.isTitle then
+			local craft = TSM.db.factionrealm.crafts[data.spellID]
+			if craft then
+				craft.queued = 0
+				craft.intermediateQueued = nil
+			end
+			GUI:UpdateQueue()
+			return
+		end
 		if button == "RightButton" and IsShiftKeyDown() and data.spellID and not data.isTitle then -- Claude: Shift+Right-Click removes single item from queue
 			local craft = TSM.db.factionrealm.crafts[data.spellID]
 			if craft then
