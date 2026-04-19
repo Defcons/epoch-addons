@@ -10,6 +10,34 @@ local RAID_CLASS_COLORS = RAID_CLASS_COLORS
 
 local frames = {}
 
+-- Claude: CLEU-fed class cache so enemy players show correct class colors
+-- without needing target/mouseover/focus/group-target matching. Nameplates
+-- don't expose GUIDs natively on 3.3.5, so we build a name→guid→class chain
+-- from combat log events. Name collisions disable the name-lookup for that
+-- name rather than returning wrong data.
+local classByGuid = {}  -- guid → class token ("WARRIOR", "MAGE", ...)
+local guidByName  = {}  -- player name → guid; set to false on ambiguity
+local bit_band    = bit.band
+local PLAYER_FLAG = COMBATLOG_OBJECT_TYPE_PLAYER or 0x00000400
+local GetPlayerInfoByGUID = GetPlayerInfoByGUID
+
+local function RememberPlayer(guid, name, flags)
+    if not guid or not name or not flags then return end
+    if bit_band(flags, PLAYER_FLAG) == 0 then return end
+    if not classByGuid[guid] then
+        local _, class = GetPlayerInfoByGUID(guid)
+        if class and RAID_CLASS_COLORS[class] then
+            classByGuid[guid] = class
+        end
+    end
+    local existing = guidByName[name]
+    if existing == nil then
+        guidByName[name] = guid
+    elseif existing ~= guid and existing ~= false then
+        guidByName[name] = false -- two different GUIDs for same name → disable
+    end
+end
+
 NotPlater.frame = CreateFrame("Frame")
 function NotPlater:OnInitialize()
 	self:LoadDefaultConfig()
@@ -22,6 +50,7 @@ function NotPlater:OnInitialize()
 	self:RegisterEvent("PARTY_MEMBERS_CHANGED")
 	self:RegisterEvent("RAID_ROSTER_UPDATE")
 	self:RegisterEvent("PLAYER_TARGET_CHANGED")
+	self:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED") -- Claude: feed class-color cache
 	self:Reload()
 
 	self.SML = LibStub:GetLibrary("LibSharedMedia-3.0")
@@ -160,6 +189,14 @@ function NotPlater:PLAYER_TARGET_CHANGED()
 	end
 end
 
+-- Claude: feed classByGuid / guidByName on every combat event so enemy
+-- players can be class-colored without needing a target/mouseover. Early
+-- bail in RememberPlayer keeps the per-event cost to a couple of bit.bands.
+function NotPlater:COMBAT_LOG_EVENT_UNFILTERED(event, _, _, srcGUID, srcName, srcFlags, dstGUID, dstName, dstFlags)
+	RememberPlayer(srcGUID, srcName, srcFlags)
+	RememberPlayer(dstGUID, dstName, dstFlags)
+end
+
 function NotPlater:ClassCheck(frame)
 	if frame.unitClass then return end
 
@@ -179,7 +216,7 @@ function NotPlater:ClassCheck(frame)
 		for gMember,unitID in pairs(group) do
 			local targetString = unitID .. "-target"
 			if name == UnitName(targetString) and level == tostring(UnitLevel(targetString)) and healthValue == UnitHealth(targetString) then
-				frame.unitClass = select(2, UnitClass("target"))
+				frame.unitClass = select(2, UnitClass(targetString)) -- Claude: was UnitClass("target") — read from matching unit, not player's target
 				if frame.unitClass then frame.unitClass = RAID_CLASS_COLORS[frame.unitClass] end
 				return
 			end
@@ -193,6 +230,14 @@ function NotPlater:ClassCheck(frame)
 	if name == UnitName("focus") and level == tostring(UnitLevel("focus")) and healthValue == UnitHealth("focus") then
 		frame.unitClass = select(2, UnitClass("focus"))
 		if frame.unitClass then frame.unitClass = RAID_CLASS_COLORS[frame.unitClass] end
+		return
+	end
+
+	-- Claude: CLEU-based fallback. Resolves class for any enemy player that
+	-- has been in our combat log range, even if we've never targeted them.
+	local cachedGuid = guidByName[name]
+	if cachedGuid and classByGuid[cachedGuid] then
+		frame.unitClass = RAID_CLASS_COLORS[classByGuid[cachedGuid]]
 	end
 end
 

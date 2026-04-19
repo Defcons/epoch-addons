@@ -18,6 +18,18 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## NotPlater v1.2 — Class color fixes *(2026-04-19)*
+Class colors on nameplates were slow to appear and sometimes showed the wrong class. Three issues fixed in `NotPlater-3.3.5.lua`:
+
+- **Bug (wrong color):** `ClassCheck` line 182 read `UnitClass("target")` inside the party/raid-member target loop instead of `UnitClass(targetString)`. When a group member's target matched a nameplate, the class was taken from the **player's** target, not the matching unit — so enemies targeted by groupmates inherited the player's target class color.
+- **Slow resolution for arbitrary enemies:** class previously only resolved via target/mouseover/focus/group-target matching. Added a `COMBAT_LOG_EVENT_UNFILTERED` listener that builds a `guidByName` + `classByGuid` cache from CLEU events — anyone who casts/hits/is-hit in your combat log range gets cached via `GetPlayerInfoByGUID`. `ClassCheck` falls back to this cache after the existing checks, so enemy players show correct class colors within 0.1s of the nameplate appearing.
+- **Name-collision handling:** if two different GUIDs are seen for the same name, the name→guid entry is set to `false` (ambiguous), disabling the name-lookup for that name rather than returning a wrong class.
+- **Nil-guard on `RAID_CLASS_COLORS[class]`** in case Ascension's custom classes return a non-standard class token.
+
+Old behavior: enemy players often uncolored until you targeted them, and sometimes showed the wrong color when a groupmate was targeting them. New behavior: correct colors show as soon as the enemy has appeared in CLEU even once.
+
+---
+
 ## TradeSkillMaster_Crafting v1.3 — Standalone queue delete *(2026-04-17)*
 - **Fix:** Ctrl+Click and Shift+Right-Click now work in the **standalone `/tsm queue` window** too. v1.2 only patched the queue panel inside the main TSM craft-manager window — the standalone window had its own `OnCraftRowClicked` handler (line 2874) that was view-only aside from title-row collapse. Both handlers now share the same delete semantics.
 
