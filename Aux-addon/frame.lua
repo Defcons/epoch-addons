@@ -72,11 +72,4 @@ do
 	end)
 	blizzard_button = btn
 end
-do
-	-- Claude: Back button -- returns to the previously selected tab
-	local btn = gui.button(AuxFrame, gui.font_size.small)
-	btn:SetPoint('RIGHT', blizzard_button, 'LEFT', -5, 0)
-	gui.set_size(btn, 60, 24)
-	btn:SetText('Back')
-	btn:SetScript('OnClick', function() go_back_tab() end)
-end
+-- Claude: Back button removed -- mouse Button4 (OnUpdate poll above) still triggers go_back_tab()
