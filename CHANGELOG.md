@@ -18,6 +18,17 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## NotPlater v1.3 — Fix NPC class coloring + MouseoverThreatCheck crash *(2026-04-19)*
+Fallout from v1.2 surfaced two pre-existing bugs:
+
+- **NPCs were getting class colors when targeted/moused-over/focused.** `UnitClass()` on an NPC mob returns valid class tokens like `"WARRIOR"` → `RAID_CLASS_COLORS["WARRIOR"]` is a valid color → NPC nameplate became brown. Existed before v1.2 but the buggy group-target branch was masking it by sometimes overwriting the color. v1.2 fixed that branch, which made the NPC coloring bug more visible.
+  - Added `ResolvePlayerClassColor(unit)` helper that gates on `UnitIsPlayer()`. All four non-CLEU branches of `ClassCheck` now route through it. NPC → nil → nameplate keeps its default/threat color.
+- **`threat-3.3.5.lua:258` double `.unitClass` extraction** (separate pre-existing bug): `local frame = healthFrame:GetParent().unitClass` assigned the color table to `frame`, then `frame.unitClass` was accessed — always nil (color tables have no `.unitClass` field), and crashed when the parent had no cached color under `useClassColors=true`. Changed to `local frame = healthFrame:GetParent()`.
+
+Documented the remaining rare edge case (NPC sharing an exact name with a cached player → wrong CLEU fallback color) in code comments rather than adding complex mitigations; nameplate GUID caching isn't natively available on 3.3.5.
+
+---
+
 ## NotPlater v1.2 — Class color fixes *(2026-04-19)*
 Class colors on nameplates were slow to appear and sometimes showed the wrong class. Three issues fixed in `NotPlater-3.3.5.lua`:
 

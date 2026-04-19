@@ -255,7 +255,12 @@ function NotPlater:MouseoverThreatCheck(healthFrame, guid)
 		healthFrame.lastUnitGuid = guid
 		self:OnNameplateMatch(healthFrame, group)
 	else
-		local frame = healthFrame:GetParent().unitClass
+		-- Claude: was `healthFrame:GetParent().unitClass` — a double
+		-- extraction bug. The resulting `frame.unitClass` was always nil
+		-- (unitClass color table has no .unitClass field) and when the parent
+		-- had no unitClass set, `frame = nil` and `frame.unitClass` crashed
+		-- under useClassColors=true.
+		local frame = healthFrame:GetParent()
 		if self.db.profile.threat.nameplateColors.general.useClassColors and frame.unitClass then
 			healthFrame:SetStatusBarColor(frame.unitClass.r, frame.unitClass.g, frame.unitClass.b, 1)
 		else

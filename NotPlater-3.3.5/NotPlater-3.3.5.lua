@@ -6,9 +6,21 @@ local UnitLevel = UnitLevel
 local UnitHealth = UnitHealth
 local UnitGUID = UnitGUID
 local UnitExists = UnitExists
+local UnitIsPlayer = UnitIsPlayer -- Claude: filter NPCs out of class coloring
+local UnitClass = UnitClass
 local RAID_CLASS_COLORS = RAID_CLASS_COLORS
 
 local frames = {}
+
+-- Claude: class color resolver. Returns RAID_CLASS_COLORS[class] only if the
+-- unit exists AND is a player. NPCs (warrior mobs etc.) will otherwise return
+-- valid class tokens from UnitClass() and get wrongly colored. NPCs → nil →
+-- the nameplate keeps its default/threat color.
+local function ResolvePlayerClassColor(unit)
+    if not UnitExists(unit) or not UnitIsPlayer(unit) then return nil end
+    local _, class = UnitClass(unit)
+    return class and RAID_CLASS_COLORS[class] or nil
+end
 
 -- Claude: CLEU-fed class cache so enemy players show correct class colors
 -- without needing target/mouseover/focus/group-target matching. Nameplates
@@ -200,9 +212,10 @@ end
 function NotPlater:ClassCheck(frame)
 	if frame.unitClass then return end
 
+	-- Claude: every branch below goes through ResolvePlayerClassColor which
+	-- nils out NPCs. NPC nameplates keep their default/threat color.
 	if self:IsTarget(frame) then
-		frame.unitClass = select(2, UnitClass("target"))
-		if frame.unitClass then frame.unitClass = RAID_CLASS_COLORS[frame.unitClass] end
+		frame.unitClass = ResolvePlayerClassColor("target")
 		return
 	end
 
@@ -216,25 +229,25 @@ function NotPlater:ClassCheck(frame)
 		for gMember,unitID in pairs(group) do
 			local targetString = unitID .. "-target"
 			if name == UnitName(targetString) and level == tostring(UnitLevel(targetString)) and healthValue == UnitHealth(targetString) then
-				frame.unitClass = select(2, UnitClass(targetString)) -- Claude: was UnitClass("target") — read from matching unit, not player's target
-				if frame.unitClass then frame.unitClass = RAID_CLASS_COLORS[frame.unitClass] end
+				frame.unitClass = ResolvePlayerClassColor(targetString) -- Claude: player-only + was UnitClass("target") in pre-v1.2
 				return
 			end
 		end
 	end
 	if name == UnitName("mouseover") and level == tostring(UnitLevel("mouseover")) and healthValue == UnitHealth("mouseover") then
-		frame.unitClass = select(2, UnitClass("mouseover"))
-		if frame.unitClass then frame.unitClass = RAID_CLASS_COLORS[frame.unitClass] end
+		frame.unitClass = ResolvePlayerClassColor("mouseover")
 		return
 	end
 	if name == UnitName("focus") and level == tostring(UnitLevel("focus")) and healthValue == UnitHealth("focus") then
-		frame.unitClass = select(2, UnitClass("focus"))
-		if frame.unitClass then frame.unitClass = RAID_CLASS_COLORS[frame.unitClass] end
+		frame.unitClass = ResolvePlayerClassColor("focus")
 		return
 	end
 
-	-- Claude: CLEU-based fallback. Resolves class for any enemy player that
-	-- has been in our combat log range, even if we've never targeted them.
+	-- Claude: CLEU-based fallback. Cache is populated only for units with
+	-- COMBATLOG_OBJECT_TYPE_PLAYER, so cached entries are always players.
+	-- Edge case: an NPC sharing the exact name of a cached player would get
+	-- mis-colored. Rare enough to accept; mitigating would require caching
+	-- level/GUID per nameplate which nameplates don't expose on 3.3.5.
 	local cachedGuid = guidByName[name]
 	if cachedGuid and classByGuid[cachedGuid] then
 		frame.unitClass = RAID_CLASS_COLORS[classByGuid[cachedGuid]]
