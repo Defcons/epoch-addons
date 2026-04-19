@@ -337,16 +337,30 @@ end
 
 --[[]]
 function core:ForceNameplateUpdate(dstGUID)
-	if not self:UpdatePlateByGUID(dstGUID) then
-		--We can't find a nameplate that matches that GUID.
-		--Lets check if the GUID is a player, if so find a nameplate that matches the player's name.
+	if self:UpdatePlateByGUID(dstGUID) then return end
 
-		local dstName, dstFlags = LibAI:GetGUIDInfo(dstGUID)
-		if dstFlags and self:FlagIsPlayer(dstFlags) then
-			local shortName = self:RemoveServerName(dstName) --Nameplates don't have server names.
-			nametoGUIDs[shortName] = dstGUID
-			self:UpdatePlateByName(shortName)
-		end
+	-- Claude: extended to NPCs + collision-aware. Previously:
+	--   1) only tried the fallback for players (NPC debuffs couldn't reach
+	--      their plate until LibNameplate resolved the plate-GUID binding)
+	--   2) overwrote nametoGUIDs[name] unconditionally, trashing the
+	--      collision sentinel that elsewhere in the codebase is used to
+	--      disable name-fallback for ambiguous names.
+	local dstName, dstFlags = LibAI:GetGUIDInfo(dstGUID)
+	if not dstName or not dstFlags then return end
+	local shortName = self:RemoveServerName(dstName)
+
+	-- Merge into the name→GUID cache with collision detection
+	local existing = nametoGUIDs[shortName]
+	if existing == nil then
+		nametoGUIDs[shortName] = dstGUID
+	elseif existing ~= dstGUID and existing ~= false then
+		nametoGUIDs[shortName] = false -- two distinct GUIDs → ambiguous
+	end
+
+	-- Only attempt name-based plate lookup when the cached entry is a
+	-- definite GUID. `false` means ambiguous; skip rather than mis-attribute.
+	if nametoGUIDs[shortName] and nametoGUIDs[shortName] ~= false then
+		self:UpdatePlateByName(shortName)
 	end
 end
 

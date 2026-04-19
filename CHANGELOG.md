@@ -18,6 +18,22 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## PlateBuffs v1.1 — Nameplate↔GUID binding fixes for debuffs *(2026-04-19)*
+Three bugs in the plate-to-GUID resolution paths caused own debuffs to: not appear, vanish mid-duration, appear on the wrong target, and disappear when a plate re-entered view.
+
+- **`AddOurStuffToPlate` (`core.lua:484`) was restricted to PLAYER/BOSS.** Regular NPCs whose plate-GUID binding hadn't been resolved yet by LibNameplate (i.e. you hadn't targeted or moused over them) fell through to `AddUnknownIcon` and their debuffs never showed via the name fallback. The restriction existed because mobs share names — but the codebase already has collision detection (`nametoGUIDs[name] = false`), which makes the type restriction redundant. Replaced with a `~= false` check so NPCs with unique names work too; ambiguous names still skip.
+- **`ForceNameplateUpdate` (`combatlog.lua:339`) only handled players.** When you apply a debuff to an NPC, CLEU → `AddSpellToGUID` → `ForceNameplateUpdate`. It tried GUID lookup (fails when plate has no GUID binding), then fell through name fallback **only for players**. NPC debuffs never reached their plate until LibNameplate resolved the binding via target/mouseover. Extended to any GUID with name info, collision-aware.
+- **Same function overwrote `nametoGUIDs[name]` unconditionally.** Even for players, this ignored the collision sentinel — if two players with the same name had both been seen, this code would overwrite the `false` back to a specific GUID, mis-attributing debuffs. Now merges with collision detection.
+- **Simplified `LibNameplate_NewNameplate`:** the retry fallback here is now redundant with the fixed `AddOurStuffToPlate` and has been removed to avoid duplicate work and code-path divergence.
+
+### Expected effect on the four symptoms
+- **Don't appear:** NPC debuffs now resolve via name fallback when LibNameplate can't find the GUID binding.
+- **Vanish mid-duration:** `ForceNameplateUpdate` after refresh/dose events now works for NPCs, so timer refreshes propagate back to the plate.
+- **Wrong target:** collision detection now applies consistently across all paths; ambiguous names fail closed instead of mis-attributing.
+- **Disappear on re-view:** plate re-show (`LibNameplate_NewNameplate`) now uses the same collision-aware name fallback for all types, so debuffs re-attach immediately instead of waiting for LibNameplate to re-resolve the GUID.
+
+---
+
 ## NotPlater v1.3 — Fix NPC class coloring + MouseoverThreatCheck crash *(2026-04-19)*
 Fallout from v1.2 surfaced two pre-existing bugs:
 

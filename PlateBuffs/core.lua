@@ -479,11 +479,18 @@ function core:AddOurStuffToPlate(plate)
 		self:AddBuffsToPlate(plate, GUID)
 		return
 	end
-	
-	local plateName =  LibNameplate:GetName(plate) or "UNKNOWN"
-	if P.saveNameToGUID == true and nametoGUIDs[plateName] and (LibNameplate:GetType(plate) == "PLAYER" or LibNameplate:IsBoss(plate)) then
-		self:RemoveOldSpells(nametoGUIDs[plateName])
-		self:AddBuffsToPlate(plate, nametoGUIDs[plateName])
+
+	-- Claude: name-to-GUID fallback. Used to be restricted to PLAYER/BOSS
+	-- type, which meant any NPC whose plate-GUID binding hadn't yet been
+	-- resolved by LibNameplate (via target/mouseover) got a "?" icon and
+	-- their debuffs never appeared. Collision detection (nametoGUIDs[name]
+	-- set to `false` when two GUIDs seen for same name) makes this safe for
+	-- all plate types; duplicates fall through to AddUnknownIcon as before.
+	local plateName = LibNameplate:GetName(plate) or "UNKNOWN"
+	local cachedGUID = nametoGUIDs[plateName]
+	if P.saveNameToGUID == true and cachedGUID and cachedGUID ~= false then
+		self:RemoveOldSpells(cachedGUID)
+		self:AddBuffsToPlate(plate, cachedGUID)
 	elseif P.unknownSpellDataIcon == true then
 		self:AddUnknownIcon(plate)
 	end
@@ -491,16 +498,10 @@ end
 
 function core:LibNameplate_NewNameplate(event, plate)
 	if self:ShouldAddBuffs(plate, true) == true then
+		-- Claude: AddOurStuffToPlate now handles the name-fallback path for
+		-- all plate types (see its comment), so the post-call retry that
+		-- used to live here is redundant. Removed to avoid duplicate work.
 		core:AddOurStuffToPlate(plate)
-		-- Claude: if plate has no GUID yet but we know this name from CLEU, try
-		-- to resolve via nametoGUIDs (only safe if exactly one match exists).
-		if not LibNameplate:GetGUID(plate) then
-			local plateName = LibNameplate:GetName(plate)
-			-- Claude: nametoGUIDs[name] == false means collision; skip
-			if plateName and nametoGUIDs[plateName] and nametoGUIDs[plateName] ~= false then
-				self:AddBuffsToPlate(plate, nametoGUIDs[plateName])
-			end
-		end
 	end
 end
 
