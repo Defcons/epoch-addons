@@ -55,10 +55,11 @@ local function ZoneType()
     return instType or "unknown"
 end
 
--- Claude: don't scan or broadcast inside BG/arena — gear there is PvP loadout.
-local function InPvPZone()
+-- Claude: only scan when inside a 5-man or raid instance — collector rejects
+-- everything else, so don't waste inspect bandwidth elsewhere.
+local function IsInstanceZone()
     local z = ZoneType()
-    return z == "bg" or z == "arena"
+    return z == "party" or z == "raid"
 end
 
 -- Claude: strip localized name, keep the itemString portion (e.g. "3184:0:0:...").
@@ -157,7 +158,7 @@ end
 
 local function ScanRoster()
     lastRoster = now()
-    if InPvPZone() then return end
+    if not IsInstanceZone() then return end
     if GetNumRaidMembers() > 0 then
         for i = 1, 40 do AddUnit("raid" .. i) end
     elseif GetNumPartyMembers() > 0 then
@@ -174,7 +175,7 @@ local function TryInspect()
     if current then return end
     if now() < nextInspectAt then return end
     if #queue == 0 then return end
-    if InPvPZone() then return end
+    if not IsInstanceZone() then return end
 
     local entry = table.remove(queue, 1)
     inQueue[entry.guid] = nil

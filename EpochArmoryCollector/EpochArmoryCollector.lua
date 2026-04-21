@@ -23,6 +23,39 @@ local MIN_STORE_LEVEL    = 60      -- Claude: collector rejects saves below this
 local MIN_STORE_EQUIPPED = 10      -- Claude: drop snapshots with fewer equipped slots
 local ASSEMBLY_TIMEOUT   = 60      -- Claude: drop partially-received messages after 60s
 
+-- Claude: itemIDs that indicate a non-PvE "utility" loadout. If any equipped slot
+-- matches, the scan is rejected and whatever (older) snapshot we have is kept.
+-- Add more IDs here as they come up.
+local UTILITY_ITEMS = {
+    -- Mount speed trinkets
+    [11122] = "Carrot on a Stick",
+    [25653] = "Riding Crop",
+    [32863] = "Charm of Swift Flight",
+    [46906] = "Argent War Horn",
+    -- Fishing poles
+    [6256]  = "Fishing Pole",
+    [6365]  = "Strong Fishing Pole",
+    [6366]  = "Darkwood Fishing Pole",
+    [6367]  = "Big Iron Fishing Pole",
+    [12225] = "Blump Family Fishing Pole",
+    [19970] = "Arcanite Fishing Pole",
+    [25978] = "Seth's Graphite Fishing Pole",
+    [44050] = "Mastercraft Kalu'ak Fishing Pole",
+    [45858] = "Nat's Lucky Fishing Pole",
+    [45991] = "Bone Fishing Pole",
+    -- Fishing / cooking hats
+    [19972] = "Lucky Fishing Hat",
+    [33820] = "Weather-Beaten Fishing Hat",
+    [33864] = "Chef's Hat",
+}
+
+-- Claude: enchantIDs that mark a utility loadout. Kept conservative — many
+-- "minor speed" enchants are legitimately used in PvE (feral druids etc.)
+-- so only true mount-speed riding enchants belong here.
+local UTILITY_ENCHANTS = {
+    [464] = "Enchant Gloves - Riding Skill", -- +3% mount speed (glove enchant)
+}
+
 -- ---------------- State: scanner half ----------------
 local queue, inQueue, seen = {}, {}, {}
 local current = nil
@@ -51,9 +84,11 @@ local function ZoneType()
     return instType or "unknown"
 end
 
-local function InPvPZone()
+-- Claude: only scan/store when scanner is inside a 5-man or raid instance.
+-- Outdoor / city / BG / arena scans are skipped (wrong gear context).
+local function IsInstanceZone()
     local z = ZoneType()
-    return z == "bg" or z == "arena"
+    return z == "party" or z == "raid"
 end
 
 local function ItemStringFromLink(link)
@@ -135,16 +170,29 @@ end
 
 -- ---------------- Receiver: parse + store ----------------
 
--- Claude: drop PvP/low/naked scans at the collector boundary too (defense in depth).
+-- Claude: defense in depth — reject anything that isn't a clean PvE instance scan.
+-- Returns (ok, reason) so dprint can show why.
 local function ShouldStore(entry)
-    if not entry then return false end
-    if (entry.level or 0) < MIN_STORE_LEVEL then return false end
-    if entry.zone == "bg" or entry.zone == "arena" then return false end
+    if not entry then return false, "nil" end
+    if (entry.level or 0) < MIN_STORE_LEVEL then return false, "level<" .. MIN_STORE_LEVEL end
+    if entry.zone ~= "party" and entry.zone ~= "raid" then
+        return false, "zone=" .. tostring(entry.zone)
+    end
     local equipped = 0
     for i = 1, 19 do
         if entry.gear[i] and entry.gear[i] ~= "" then equipped = equipped + 1 end
     end
-    if equipped < MIN_STORE_EQUIPPED then return false end
+    if equipped < MIN_STORE_EQUIPPED then return false, "equipped=" .. equipped end
+    for slot = 1, 19 do
+        local s = entry.gear[slot]
+        if s and s ~= "" then
+            local iid, eid = s:match("^(%d+):(%-?%d+)")
+            iid = tonumber(iid) or 0
+            eid = tonumber(eid) or 0
+            if UTILITY_ITEMS[iid] then return false, "util-item:" .. UTILITY_ITEMS[iid] end
+            if UTILITY_ENCHANTS[eid] then return false, "util-ench:" .. UTILITY_ENCHANTS[eid] end
+        end
+    end
     return true
 end
 
@@ -170,8 +218,9 @@ end
 local function Ingest(payload, sender)
     local entry = ParsePayload(payload)
     if not entry then return end
-    if not ShouldStore(entry) then
-        dprint("rejected:", entry.name, "L" .. entry.level, entry.zone)
+    local ok, reason = ShouldStore(entry)
+    if not ok then
+        dprint("rejected:", entry.name, "L" .. entry.level, "->", reason)
         return
     end
 
@@ -244,7 +293,7 @@ end
 
 local function ScanRoster()
     lastRoster = now()
-    if InPvPZone() then return end
+    if not IsInstanceZone() then return end
     if GetNumRaidMembers() > 0 then
         for i = 1, 40 do AddUnit("raid" .. i) end
     elseif GetNumPartyMembers() > 0 then
@@ -261,7 +310,7 @@ local function TryInspect()
     if current then return end
     if now() < nextInspectAt then return end
     if #queue == 0 then return end
-    if InPvPZone() then return end
+    if not IsInstanceZone() then return end
 
     local entry = table.remove(queue, 1)
     inQueue[entry.guid] = nil

@@ -13,7 +13,8 @@ Armory data pipeline for epochlogs.com. Two paired addons sharing the `EpArmr` a
 - Builds pipe-separated payload: `v1^name^realm^class^level^guid^spec1^spec2^spec3^ts^zone^slot1..slot19` where each slot is the raw `itemString` (colon-separated) stripped from the itemLink
 - Chunks to 200-byte bodies (under 255-byte addon-msg cap), staggers sends 0.3s apart
 - Broadcasts to RAID/PARTY + GUILD (fan-out so guild collectors catch in-party scans)
-- Skips BG/arena zones, skips targets <L60, skips naked/<10-equipped scans at source
+- **Only scans inside 5-man dungeon or raid instances** (outdoor/city/BG/arena skipped) — gear worn elsewhere is usually wrong context
+- Skips targets <L60, skips naked/<10-equipped scans at source
 - Enchants + gems preserved — itemString is `itemID:enchantID:gem1:gem2:gem3:gem4:suffixID:uniqueID:linkLevel`
 - Self-disables if `EpochArmoryCollector` is loaded (collector does everything)
 - Slash: `/eparmrs status | debug`
@@ -21,7 +22,8 @@ Armory data pipeline for epochlogs.com. Two paired addons sharing the `EpArmr` a
 **EpochArmoryCollector** (only the armory curator installs):
 - Full scanner half (same logic, duplicated — scanner file notes this)
 - `CHAT_MSG_ADDON` listener reassembles chunks keyed by `sender\001msgID`, 60s GC for partials
-- `Ingest()` parses payload, rejects `level < 60`, `zone == "bg"/"arena"`, or `equipped < 10`
+- `Ingest()` parses payload, rejects: `level < 60`, zone not in {party,raid}, `equipped < 10`, or any slot matching `UTILITY_ITEMS` (Carrot on a Stick, Riding Crop, fishing poles, Chef's Hat, etc.) or `UTILITY_ENCHANTS` (mount-speed glove enchant)
+- Rejection does NOT overwrite existing entries — a "utility loadout" scan leaves the older real-gear snapshot intact
 - Dedup by `GUID`, latest `scanTime` wins (older snapshots discarded)
 - Direct-ingests own scans locally (works even with no group to echo back)
 - Stores to `EpochArmoryDB.players[guid] = {name,realm,class,level,spec,scanTime,zone,gear,scannedBy}`
