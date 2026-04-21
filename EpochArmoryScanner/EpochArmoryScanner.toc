@@ -4,5 +4,6 @@
 ## Author: Claude + David
 ## Version: 1.0
 ## X-Role: Scanner
+## SavedVariables: EpochArmoryScannerDB
 
 EpochArmoryScanner.lua

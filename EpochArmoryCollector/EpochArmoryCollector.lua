@@ -23,6 +23,10 @@ local MIN_STORE_LEVEL    = 60      -- Claude: collector rejects saves below this
 local MIN_STORE_EQUIPPED = 10      -- Claude: drop snapshots with fewer equipped slots
 local ASSEMBLY_TIMEOUT   = 60      -- Claude: drop partially-received messages after 60s
 
+-- Claude: runtime config, persisted in EpochArmoryDB.config on logout.
+-- Default true; toggle via /eparmr instance on|off for testing outside instances.
+local requireInstance = true
+
 -- Claude: itemIDs that indicate a non-PvE "utility" loadout. If any equipped slot
 -- matches, the scan is rejected and whatever (older) snapshot we have is kept.
 -- Add more IDs here as they come up.
@@ -175,7 +179,7 @@ end
 local function ShouldStore(entry)
     if not entry then return false, "nil" end
     if (entry.level or 0) < MIN_STORE_LEVEL then return false, "level<" .. MIN_STORE_LEVEL end
-    if entry.zone ~= "party" and entry.zone ~= "raid" then
+    if requireInstance and entry.zone ~= "party" and entry.zone ~= "raid" then
         return false, "zone=" .. tostring(entry.zone)
     end
     local equipped = 0
@@ -293,7 +297,7 @@ end
 
 local function ScanRoster()
     lastRoster = now()
-    if not IsInstanceZone() then return end
+    if requireInstance and not IsInstanceZone() then return end
     if GetNumRaidMembers() > 0 then
         for i = 1, 40 do AddUnit("raid" .. i) end
     elseif GetNumPartyMembers() > 0 then
@@ -310,7 +314,7 @@ local function TryInspect()
     if current then return end
     if now() < nextInspectAt then return end
     if #queue == 0 then return end
-    if not IsInstanceZone() then return end
+    if requireInstance and not IsInstanceZone() then return end
     if InCombatLockdown() then return end -- Claude: defer inspects until out of combat
 
     local entry = table.remove(queue, 1)
@@ -388,10 +392,22 @@ f:RegisterEvent("INSPECT_TALENT_READY")
 f:RegisterEvent("CHAT_MSG_ADDON")
 
 f:SetScript("OnEvent", function(self, event, ...)
+    if event == "PLAYER_LOGIN" then
+        -- Claude: initialize persistent config on first login; subsequent runs
+        -- inherit whatever the previous session saved.
+        EpochArmoryDB = EpochArmoryDB or { meta = { version = 1, created = time() }, players = {} }
+        EpochArmoryDB.config = EpochArmoryDB.config or {}
+        if EpochArmoryDB.config.requireInstance == nil then
+            EpochArmoryDB.config.requireInstance = true
+        end
+        requireInstance = EpochArmoryDB.config.requireInstance
+    end
     if event == "CHAT_MSG_ADDON" then
         OnAddonMessage(...)
     elseif event == "INSPECT_TALENT_READY" then
         OnInspectReady()
+    elseif event == "PLAYER_LOGIN" then
+        -- handled above
     else
         ScanRoster()
     end
@@ -414,10 +430,23 @@ SlashCmdList["EPARMRC"] = function(msg)
         EpochArmoryCollectorDebug = not EpochArmoryCollectorDebug
         print("EpArmrC debug:", EpochArmoryCollectorDebug and "on" or "off")
     elseif msg == "status" then
-        print(string.format("EpArmrC stored=%d queue=%d out=%d asm=%d cur=%s",
+        print(string.format("EpArmrC stored=%d queue=%d out=%d asm=%d cur=%s requireInstance=%s",
             CountStored(), #queue, #outQueue,
             (function() local n = 0 for _ in pairs(assembly) do n = n + 1 end return n end)(),
-            current and UnitName(current.unit) or "none"))
+            current and UnitName(current.unit) or "none",
+            tostring(requireInstance)))
+    elseif msg == "instance on" or msg == "instance true" then
+        requireInstance = true
+        EpochArmoryDB = EpochArmoryDB or {}
+        EpochArmoryDB.config = EpochArmoryDB.config or {}
+        EpochArmoryDB.config.requireInstance = true
+        print("EpArmrC: requireInstance = true (scan + store only in dungeon/raid)")
+    elseif msg == "instance off" or msg == "instance false" then
+        requireInstance = false
+        EpochArmoryDB = EpochArmoryDB or {}
+        EpochArmoryDB.config = EpochArmoryDB.config or {}
+        EpochArmoryDB.config.requireInstance = false
+        print("EpArmrC: requireInstance = false (scan + store everywhere)")
     elseif msg == "wipe" then
         EpochArmoryDB = { meta = { version = 1, created = time() }, players = {} }
         print("EpArmrC: wiped database")
@@ -429,6 +458,6 @@ SlashCmdList["EPARMRC"] = function(msg)
                 p.scannedBy or "?", date("%Y-%m-%d %H:%M", p.scanTime or 0)))
         end
     else
-        print("EpochArmoryCollector: /eparmrc status | debug | list | wipe")
+        print("EpochArmoryCollector: /eparmrc status | debug | list | wipe | instance on|off")
     end
 end

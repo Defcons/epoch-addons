@@ -13,7 +13,7 @@ Armory data pipeline for epochlogs.com. Two paired addons sharing the `EpArmr` a
 - Builds pipe-separated payload: `v1^name^realm^class^level^guid^spec1^spec2^spec3^ts^zone^slot1..slot19` where each slot is the raw `itemString` (colon-separated) stripped from the itemLink
 - Chunks to 200-byte bodies (under 255-byte addon-msg cap), staggers sends 0.3s apart
 - Broadcasts to RAID/PARTY + GUILD (fan-out so guild collectors catch in-party scans)
-- **Only scans inside 5-man dungeon or raid instances** (outdoor/city/BG/arena skipped) — gear worn elsewhere is usually wrong context
+- **Instance-only scanning configurable** — default on, toggle via `/eparmrs instance off` (scanner) / `/eparmrc instance off` (collector) for testing. Persisted in SavedVariables (`EpochArmoryScannerDB.requireInstance`, `EpochArmoryDB.config.requireInstance`). When on, scans are skipped outside 5-man/raid instances
 - **Scanner waits until player is out of combat** (`InCombatLockdown()`) — queue still builds during fights, drains between pulls
 - Skips targets <L60, skips naked/<10-equipped scans at source
 - Enchants + gems preserved — itemString is `itemID:enchantID:gem1:gem2:gem3:gem4:suffixID:uniqueID:linkLevel`

@@ -19,6 +19,10 @@ local MAX_CHUNK_BODY    = 200    -- Claude: keep well below 255-byte chat msg li
 local ROSTER_TICK       = 10     -- Claude: re-scan group roster every 10s
 local MIN_INSPECT_LEVEL = 60     -- Claude: skip sub-cap alts; collector rejects <60 anyway
 
+-- Claude: runtime config, persisted in EpochArmoryScannerDB on logout.
+-- Default true; toggle via /eparmrs instance on|off for testing outside instances.
+local requireInstance = true
+
 -- State
 local queue         = {}          -- Claude: pending inspect targets (list)
 local inQueue       = {}          -- Claude: guid -> true (dedupe)
@@ -158,7 +162,7 @@ end
 
 local function ScanRoster()
     lastRoster = now()
-    if not IsInstanceZone() then return end
+    if requireInstance and not IsInstanceZone() then return end
     if GetNumRaidMembers() > 0 then
         for i = 1, 40 do AddUnit("raid" .. i) end
     elseif GetNumPartyMembers() > 0 then
@@ -175,7 +179,7 @@ local function TryInspect()
     if current then return end
     if now() < nextInspectAt then return end
     if #queue == 0 then return end
-    if not IsInstanceZone() then return end
+    if requireInstance and not IsInstanceZone() then return end
     if InCombatLockdown() then return end -- Claude: defer inspects until out of combat
 
     local entry = table.remove(queue, 1)
@@ -245,6 +249,14 @@ f:RegisterEvent("RAID_ROSTER_UPDATE")
 f:RegisterEvent("INSPECT_TALENT_READY")
 
 f:SetScript("OnEvent", function(self, event, ...)
+    if event == "PLAYER_LOGIN" then
+        -- Claude: SVs are available by PLAYER_LOGIN in 3.3.5; initialize + load flags
+        EpochArmoryScannerDB = EpochArmoryScannerDB or {}
+        if EpochArmoryScannerDB.requireInstance == nil then
+            EpochArmoryScannerDB.requireInstance = true
+        end
+        requireInstance = EpochArmoryScannerDB.requireInstance
+    end
     if ScannerDisabled() then return end
     if event == "INSPECT_TALENT_READY" then
         OnInspectReady()
@@ -260,11 +272,22 @@ SlashCmdList["EPARMRS"] = function(msg)
         EpochArmoryScannerDebug = not EpochArmoryScannerDebug
         print("EpArmrS debug:", EpochArmoryScannerDebug and "on" or "off")
     elseif msg == "status" then
-        print(string.format("EpArmrS queue=%d out=%d cur=%s disabled=%s",
+        print(string.format("EpArmrS queue=%d out=%d cur=%s disabled=%s requireInstance=%s",
             #queue, #outQueue,
             current and UnitName(current.unit) or "none",
-            tostring(ScannerDisabled())))
+            tostring(ScannerDisabled()),
+            tostring(requireInstance)))
+    elseif msg == "instance on" or msg == "instance true" then
+        requireInstance = true
+        EpochArmoryScannerDB = EpochArmoryScannerDB or {}
+        EpochArmoryScannerDB.requireInstance = true
+        print("EpArmrS: requireInstance = true (will only scan inside dungeon/raid)")
+    elseif msg == "instance off" or msg == "instance false" then
+        requireInstance = false
+        EpochArmoryScannerDB = EpochArmoryScannerDB or {}
+        EpochArmoryScannerDB.requireInstance = false
+        print("EpArmrS: requireInstance = false (will scan everywhere)")
     else
-        print("EpochArmoryScanner: /eparmrs debug | status")
+        print("EpochArmoryScanner: /eparmrs debug | status | instance on|off")
     end
 end
