@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: EpochArmory Scanner
+## Notes: Inspects group/raid/guildmates and broadcasts gear for collection by EpochArmory Collector.
+## Author: Claude + David
+## Version: 1.0
+## X-Role: Scanner
+
+EpochArmoryScanner.lua

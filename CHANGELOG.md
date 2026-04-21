@@ -4,6 +4,37 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpochArmoryScanner v1.0 + EpochArmoryCollector v1.0 — NEW *(2026-04-21)*
+Armory data pipeline for epochlogs.com. Two paired addons sharing the `EpArmr` addon-message prefix.
+
+**EpochArmoryScanner** (distributed widely):
+- Inspects group/raid members on `PARTY_MEMBERS_CHANGED` / `RAID_ROSTER_UPDATE` / 10s roster tick
+- One `NotifyInspect` at a time, 4s timeout, 2.5s spacing, 15min rescan cooldown per GUID
+- Builds pipe-separated payload: `v1^name^realm^class^level^guid^spec1^spec2^spec3^ts^zone^slot1..slot19` where each slot is the raw `itemString` (colon-separated) stripped from the itemLink
+- Chunks to 200-byte bodies (under 255-byte addon-msg cap), staggers sends 0.3s apart
+- Broadcasts to RAID/PARTY + GUILD (fan-out so guild collectors catch in-party scans)
+- Skips BG/arena zones, skips targets <L10, skips naked/<10-equipped scans at source
+- Self-disables if `EpochArmoryCollector` is loaded (collector does everything)
+- Slash: `/eparmrs status | debug`
+
+**EpochArmoryCollector** (only the armory curator installs):
+- Full scanner half (same logic, duplicated — scanner file notes this)
+- `CHAT_MSG_ADDON` listener reassembles chunks keyed by `sender\001msgID`, 60s GC for partials
+- `Ingest()` parses payload, rejects `level < 70`, `zone == "bg"/"arena"`, or `equipped < 10`
+- Dedup by `GUID`, latest `scanTime` wins (older snapshots discarded)
+- Direct-ingests own scans locally (works even with no group to echo back)
+- Stores to `EpochArmoryDB.players[guid] = {name,realm,class,level,spec,scanTime,zone,gear,scannedBy}`
+- Slash: `/eparmr status | list | debug | wipe`
+
+**Protocol notes for future changes:** bump `PROTO = "1"` constant in both files if the payload schema changes — collector drops mismatched versions.
+
+**Known limits:**
+- Addon messages reach only PARTY/RAID/GUILD — cross-realm/BG unreachable (3.3.5 constraint)
+- Level cap assumed ≥70 for `MIN_STORE_LEVEL`; adjust if server cap differs
+- PvP gear detection deferred to webpage via itemID blacklist (addon can't detect from itemString alone)
+
+---
+
 ## Aux-addon v1.3 — Back button + Escape *(2026-04-06)*
 - **Back button** in bottom toolbar returns to the previously selected tab
 - **Mouse Button4** (back side button) triggers Back from anywhere in the Aux frame, even while hovering item rows (uses `IsMouseButtonDown` polling — child frames don't bubble mouse events on 3.3.5)
