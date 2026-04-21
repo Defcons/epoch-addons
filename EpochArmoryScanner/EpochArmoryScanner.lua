@@ -20,6 +20,7 @@ local MAX_CHUNK_BODY        = 200    -- Claude: keep well below 255-byte chat ms
 local ROSTER_TICK           = 10     -- Claude: re-scan group roster every 10s
 local MIN_INSPECT_LEVEL     = 60     -- Claude: skip sub-cap alts; collector rejects <60 anyway
 local SCAN_FRESH_WINDOW     = 86400  -- Claude: 24h — skip re-inspecting a player we already scanned this recently (persisted across reloads via SV)
+local ASSEMBLY_TIMEOUT      = 60     -- Claude: drop partially-received gossip messages after 60s
 
 -- Claude: runtime config, persisted in EpochArmoryScannerDB on logout.
 -- Default true; toggle via /epocharmoryscanner instance on|off for testing.
@@ -35,6 +36,7 @@ local nextInspectAt = 0
 local nextSendAt    = 0
 local lastRoster    = 0
 local msgCounter    = 0
+local assembly      = {}          -- Claude: gossip reassembly, key "sender\001msgID" -> {chunks, total, firstSeen}
 
 local function now() return GetTime() end
 
@@ -123,6 +125,64 @@ local function BuildPayload(unit, guid)
         return nil, string.format("only %d slots equipped (inspect data incomplete?)", equipped)
     end
     return table.concat(parts, "^"), equipped
+end
+
+-- Claude: gossip receiver. Scanners listen to each other's broadcasts and
+-- record each target's scanTime in the persisted lastScanned table, so a
+-- player scanned by Scanner A is skipped by Scanner B within the 24h window.
+-- Scanner doesn't keep the gear data — only the (guid, scanTime) pair.
+local function OnAddonMessage(prefix, body, channel, sender)
+    if prefix ~= PREFIX then return end
+    if not body or body == "" then return end
+    local msgID, idx_s, total_s, data = body:match("^([^%^]+)%^([^%^]+)%^([^%^]+)%^(.*)$")
+    local idx = tonumber(idx_s)
+    local total = tonumber(total_s)
+    if not msgID or not idx or not total or not data then return end
+
+    local key = (sender or "?") .. "\001" .. msgID
+    local asm = assembly[key]
+    if not asm then
+        asm = { chunks = {}, total = total, firstSeen = now() }
+        assembly[key] = asm
+    end
+    if asm.chunks[idx] then return end
+    asm.chunks[idx] = data
+
+    local have = 0
+    for i = 1, total do
+        if asm.chunks[i] then have = have + 1 end
+    end
+    if have ~= total then return end
+
+    local pieces = {}
+    for i = 1, total do pieces[i] = asm.chunks[i] end
+    local full = table.concat(pieces)
+    assembly[key] = nil
+
+    -- Parse just the header fields we need. Slot strings are colon-separated
+    -- so the caret-split is safe.
+    local t = { strsplit("^", full) }
+    if t[1] ~= ("v" .. PROTO) then return end
+    local targetName = t[2]
+    local guid = t[6]
+    local scanTime = tonumber(t[10]) or 0
+    if not guid or guid == "" or scanTime <= 0 then return end
+
+    EpochArmoryScannerDB = EpochArmoryScannerDB or {}
+    EpochArmoryScannerDB.lastScanned = EpochArmoryScannerDB.lastScanned or {}
+    local existing = EpochArmoryScannerDB.lastScanned[guid] or 0
+    if scanTime > existing then
+        EpochArmoryScannerDB.lastScanned[guid] = scanTime
+        dprint(string.format("[gossip] learned %s scanned at %s by %s — won't re-inspect for 24h",
+            targetName or "?", date("%H:%M:%S", scanTime), sender or "?"))
+    end
+end
+
+local function GCAssembly()
+    local cutoff = now() - ASSEMBLY_TIMEOUT
+    for k, v in pairs(assembly) do
+        if v.firstSeen < cutoff then assembly[k] = nil end
+    end
 end
 
 local function MakeChunks(payload, msgID)
@@ -263,7 +323,7 @@ local function OnInspectReady()
     ClearCurrent()
 end
 
-local acc = 0
+local acc, gcAcc = 0, 0
 local f = CreateFrame("Frame")
 f:SetScript("OnUpdate", function(self, elapsed)
     if ScannerDisabled() then return end
@@ -281,6 +341,9 @@ f:SetScript("OnUpdate", function(self, elapsed)
 
     CheckTimeout()
     TryInspect()
+
+    gcAcc = gcAcc + 0.25
+    if gcAcc >= 10 then gcAcc = 0; GCAssembly() end
 end)
 
 f:RegisterEvent("PLAYER_LOGIN")
@@ -288,6 +351,7 @@ f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("PARTY_MEMBERS_CHANGED")
 f:RegisterEvent("RAID_ROSTER_UPDATE")
 f:RegisterEvent("INSPECT_TALENT_READY")
+f:RegisterEvent("CHAT_MSG_ADDON") -- Claude: gossip receive
 
 f:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
@@ -297,9 +361,12 @@ f:SetScript("OnEvent", function(self, event, ...)
         end
         EpochArmoryScannerDB.lastScanned = EpochArmoryScannerDB.lastScanned or {}
         requireInstance = EpochArmoryScannerDB.requireInstance
+        return
     end
     if ScannerDisabled() then return end
-    if event == "INSPECT_TALENT_READY" then
+    if event == "CHAT_MSG_ADDON" then
+        OnAddonMessage(...)
+    elseif event == "INSPECT_TALENT_READY" then
         OnInspectReady()
     else
         ScanRoster()
