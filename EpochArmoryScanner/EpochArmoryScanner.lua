@@ -1,7 +1,7 @@
 -- EpochArmoryScanner.lua
 -- Claude: scanner-only addon. Inspects group/raid/guildmates, broadcasts gear
 -- chunks over the "EpArmr" addon prefix. A Collector elsewhere will receive
--- and persist the data. Does not write any SavedVariables itself.
+-- and persist the data. Does not write any SavedVariables beyond config flags.
 --
 -- NOTE: this file's core logic is duplicated inside EpochArmoryCollector.lua.
 -- If you change protocol constants or scan behavior, update both.
@@ -11,24 +11,25 @@ local PREFIX = "EpArmr"
 local PROTO = "1"
 
 -- Tuning
-local INSPECT_COOLDOWN  = 900    -- Claude: 15 min before rescanning same GUID
-local INSPECT_TIMEOUT   = 4      -- Claude: give up after 4s of no INSPECT_TALENT_READY
-local INSPECT_INTERVAL  = 2.5    -- Claude: delay between successive NotifyInspect calls
-local BROADCAST_STAGGER = 0.3    -- Claude: delay between addon-message chunk sends
-local MAX_CHUNK_BODY    = 200    -- Claude: keep well below 255-byte chat msg limit
-local ROSTER_TICK       = 10     -- Claude: re-scan group roster every 10s
-local MIN_INSPECT_LEVEL = 60     -- Claude: skip sub-cap alts; collector rejects <60 anyway
+local INSPECT_COOLDOWN      = 900    -- Claude: 15 min before rescanning same GUID after a successful scan
+local OUT_OF_RANGE_COOLDOWN = 30     -- Claude: retry 30s later when CanInspect fails (range/visibility)
+local INSPECT_TIMEOUT       = 4      -- Claude: give up after 4s of no INSPECT_TALENT_READY
+local INSPECT_INTERVAL      = 2.5    -- Claude: delay between successive NotifyInspect calls
+local BROADCAST_STAGGER     = 0.3    -- Claude: delay between addon-message chunk sends
+local MAX_CHUNK_BODY        = 200    -- Claude: keep well below 255-byte chat msg limit
+local ROSTER_TICK           = 10     -- Claude: re-scan group roster every 10s
+local MIN_INSPECT_LEVEL     = 60     -- Claude: skip sub-cap alts; collector rejects <60 anyway
 
 -- Claude: runtime config, persisted in EpochArmoryScannerDB on logout.
--- Default true; toggle via /eparmrs instance on|off for testing outside instances.
+-- Default true; toggle via /epocharmoryscanner instance on|off for testing.
 local requireInstance = true
 
 -- State
-local queue         = {}          -- Claude: pending inspect targets (list)
-local inQueue       = {}          -- Claude: guid -> true (dedupe)
-local seen          = {}          -- Claude: guid -> lastScanTime
-local current       = nil         -- Claude: {guid, unit, startedAt}
-local outQueue      = {}          -- Claude: pending addon-message chunks
+local queue         = {}
+local inQueue       = {}
+local seen          = {} -- Claude: guid -> lastScanTime (epoch-style via GetTime)
+local current       = nil
+local outQueue      = {}
 local nextInspectAt = 0
 local nextSendAt    = 0
 local lastRoster    = 0
@@ -38,17 +39,22 @@ local function now() return GetTime() end
 
 local function dprint(...)
     if EpochArmoryScannerDebug then
-        print("|cff00ff88EpArmrS|r:", ...)
+        print("|cff00ff88EpArmrS|r", ...)
     end
 end
 
--- Claude: skip all scan/broadcast work if the Collector is loaded; it handles both.
+-- Claude: bump last-seen timestamp so AddUnit will skip this GUID until
+-- `retryIn` seconds from now. Reuses the single `seen` table (no separate
+-- retry table needed).
+local function markRetryIn(guid, retryIn)
+    seen[guid] = now() - (INSPECT_COOLDOWN - retryIn)
+end
+
 local function ScannerDisabled()
     if IsAddOnLoaded("EpochArmoryCollector") then return true end
     return false
 end
 
--- Claude: return the zone context type for filtering on the webpage side.
 local function ZoneType()
     local inInstance, instType = IsInInstance()
     if not inInstance then return "outdoor" end
@@ -59,24 +65,21 @@ local function ZoneType()
     return instType or "unknown"
 end
 
--- Claude: only scan when inside a 5-man or raid instance — collector rejects
--- everything else, so don't waste inspect bandwidth elsewhere.
 local function IsInstanceZone()
     local z = ZoneType()
     return z == "party" or z == "raid"
 end
 
--- Claude: strip localized name, keep the itemString portion (e.g. "3184:0:0:...").
 local function ItemStringFromLink(link)
     if not link then return "" end
     local s = link:match("|Hitem:([%-%d:]+)|h")
     return s or ""
 end
 
--- Claude: build the pipe-separated gear payload for a unit.
+-- Claude: returns (payload, equippedCount) on success, (nil, reason) on failure.
 local function BuildPayload(unit, guid)
     local name = UnitName(unit)
-    if not name or name == "" or name == UNKNOWN then return nil end
+    if not name or name == "" or name == UNKNOWN then return nil, "name unresolved" end
     local realm = GetRealmName() or ""
     local _, classFile = UnitClass(unit)
     classFile = classFile or ""
@@ -100,12 +103,12 @@ local function BuildPayload(unit, guid)
         if istr ~= "" then equipped = equipped + 1 end
         parts[#parts + 1] = istr
     end
-    -- Claude: drop naked/low-gear scans at source to cut noise
-    if equipped < 10 then return nil end
-    return table.concat(parts, "^")
+    if equipped < 10 then
+        return nil, string.format("only %d slots equipped (inspect data incomplete?)", equipped)
+    end
+    return table.concat(parts, "^"), equipped
 end
 
--- Claude: split a payload into body chunks sized to fit under the 255-byte msg cap.
 local function MakeChunks(payload, msgID)
     local body = MAX_CHUNK_BODY
     local count = math.ceil(#payload / body)
@@ -118,7 +121,6 @@ local function MakeChunks(payload, msgID)
     return out
 end
 
--- Claude: pick channel(s). Prefer the group the target is in; also fan out to GUILD.
 local function PickChannels()
     local list = {}
     if GetNumRaidMembers() > 0 then
@@ -132,9 +134,12 @@ local function PickChannels()
     return list
 end
 
-local function EnqueueBroadcast(payload)
+local function EnqueueBroadcast(payload, targetName)
     local channels = PickChannels()
-    if #channels == 0 then return end
+    if #channels == 0 then
+        dprint(string.format("[send] %s: no channel available (solo + no guild)", targetName or "?"))
+        return
+    end
     msgCounter = msgCounter + 1
     local msgID = string.format("%x%x", math.floor(now() * 10) % 0xffff, msgCounter % 0xffff)
     local chunks = MakeChunks(payload, msgID)
@@ -143,7 +148,8 @@ local function EnqueueBroadcast(payload)
             outQueue[#outQueue + 1] = { ch = ch, body = body }
         end
     end
-    dprint(string.format("queued %d chunks x %d channels", #chunks, #channels))
+    dprint(string.format("[send] %s: %d chunks x %d channels [%s] (%d bytes)",
+        targetName or "?", #chunks, #channels, table.concat(channels, "+"), #payload))
 end
 
 local function AddUnit(unit)
@@ -163,10 +169,15 @@ end
 local function ScanRoster()
     lastRoster = now()
     if requireInstance and not IsInstanceZone() then return end
+    local before = #queue
     if GetNumRaidMembers() > 0 then
         for i = 1, 40 do AddUnit("raid" .. i) end
     elseif GetNumPartyMembers() > 0 then
         for i = 1, 4 do AddUnit("party" .. i) end
+    end
+    local added = #queue - before
+    if added > 0 then
+        dprint(string.format("[roster] +%d to queue (total %d pending)", added, #queue))
     end
 end
 
@@ -180,25 +191,31 @@ local function TryInspect()
     if now() < nextInspectAt then return end
     if #queue == 0 then return end
     if requireInstance and not IsInstanceZone() then return end
-    if InCombatLockdown() then return end -- Claude: defer inspects until out of combat
+    if InCombatLockdown() then return end
 
     local entry = table.remove(queue, 1)
     inQueue[entry.guid] = nil
+    local name = UnitName(entry.unit) or "?"
     if not UnitExists(entry.unit) or UnitGUID(entry.unit) ~= entry.guid then
-        return -- Claude: raid slot shuffled; will be re-enqueued on next roster tick
+        dprint(string.format("[inspect] SKIP: %s — raid slot reshuffled since queue time", name))
+        return
     end
     if not CanInspect(entry.unit) then
-        seen[entry.guid] = now() -- Claude: avoid tight retry loop
+        markRetryIn(entry.guid, OUT_OF_RANGE_COOLDOWN)
+        dprint(string.format("[inspect] SKIP: %s — CanInspect=false (out of range / not visible). retry in %ds",
+            name, OUT_OF_RANGE_COOLDOWN))
         return
     end
     current = { guid = entry.guid, unit = entry.unit, startedAt = now() }
     NotifyInspect(entry.unit)
-    dprint("NotifyInspect", UnitName(entry.unit))
+    dprint(string.format("[inspect] START: %s L%d — NotifyInspect sent (%d left in queue)",
+        name, UnitLevel(entry.unit) or 0, #queue))
 end
 
 local function CheckTimeout()
     if current and (now() - current.startedAt) > INSPECT_TIMEOUT then
-        dprint("inspect timeout", current.unit)
+        dprint(string.format("[inspect] TIMEOUT: %s — no INSPECT_TALENT_READY after %ds, moving on",
+            UnitName(current.unit) or "?", INSPECT_TIMEOUT))
         seen[current.guid] = now()
         ClearCurrent()
     end
@@ -208,15 +225,21 @@ local function OnInspectReady()
     if not current then return end
     local c = current
     if UnitGUID(c.unit) ~= c.guid then
+        dprint("[inspect] READY fired but current inspect GUID no longer matches — dropping")
         ClearCurrent()
         return
     end
-    local payload = BuildPayload(c.unit, c.guid)
+    local tname = UnitName(c.unit) or "?"
+    local tlvl = UnitLevel(c.unit) or 0
+    local payload, info = BuildPayload(c.unit, c.guid)
     if payload then
         seen[c.guid] = now()
-        EnqueueBroadcast(payload)
+        dprint(string.format("[inspect] OK: %s L%d — %d slots equipped, payload %d bytes",
+            tname, tlvl, info, #payload))
+        EnqueueBroadcast(payload, tname)
     else
-        seen[c.guid] = now() -- Claude: don't retry bad/naked scans immediately
+        seen[c.guid] = now()
+        dprint(string.format("[inspect] DROP: %s L%d — %s", tname, tlvl, info or "unknown"))
     end
     if ClearInspectPlayer then ClearInspectPlayer() end
     ClearCurrent()
@@ -250,7 +273,6 @@ f:RegisterEvent("INSPECT_TALENT_READY")
 
 f:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
-        -- Claude: SVs are available by PLAYER_LOGIN in 3.3.5; initialize + load flags
         EpochArmoryScannerDB = EpochArmoryScannerDB or {}
         if EpochArmoryScannerDB.requireInstance == nil then
             EpochArmoryScannerDB.requireInstance = true
@@ -265,29 +287,39 @@ f:SetScript("OnEvent", function(self, event, ...)
     end
 end)
 
-SLASH_EPARMRS1 = "/eparmrs"
-SlashCmdList["EPARMRS"] = function(msg)
+local function ShowHelp()
+    print("|cff00ff88EpochArmoryScanner|r:")
+    print("  /epocharmoryscanner status        — show queue/broadcast state")
+    print("  /epocharmoryscanner debug         — toggle verbose chat logging")
+    print("  /epocharmoryscanner instance on   — only scan inside dungeon/raid (default)")
+    print("  /epocharmoryscanner instance off  — scan everywhere (for testing)")
+end
+
+SLASH_EPOCHARMORYSCANNER1 = "/epocharmoryscanner"
+SlashCmdList["EPOCHARMORYSCANNER"] = function(msg)
     msg = (msg or ""):lower()
     if msg == "debug" then
         EpochArmoryScannerDebug = not EpochArmoryScannerDebug
-        print("EpArmrS debug:", EpochArmoryScannerDebug and "on" or "off")
+        print("|cff00ff88EpArmrS|r debug:", EpochArmoryScannerDebug and "|cff00ff00ON|r" or "|cffff0000OFF|r")
     elseif msg == "status" then
-        print(string.format("EpArmrS queue=%d out=%d cur=%s disabled=%s requireInstance=%s",
+        print(string.format("|cff00ff88EpArmrS|r queue=%d outPending=%d currentInspect=%s disabled=%s requireInstance=%s inCombat=%s zone=%s",
             #queue, #outQueue,
             current and UnitName(current.unit) or "none",
             tostring(ScannerDisabled()),
-            tostring(requireInstance)))
+            tostring(requireInstance),
+            tostring(InCombatLockdown()),
+            ZoneType()))
     elseif msg == "instance on" or msg == "instance true" then
         requireInstance = true
         EpochArmoryScannerDB = EpochArmoryScannerDB or {}
         EpochArmoryScannerDB.requireInstance = true
-        print("EpArmrS: requireInstance = true (will only scan inside dungeon/raid)")
+        print("|cff00ff88EpArmrS|r: requireInstance = |cff00ff00true|r (scan only inside dungeon/raid)")
     elseif msg == "instance off" or msg == "instance false" then
         requireInstance = false
         EpochArmoryScannerDB = EpochArmoryScannerDB or {}
         EpochArmoryScannerDB.requireInstance = false
-        print("EpArmrS: requireInstance = false (will scan everywhere)")
+        print("|cff00ff88EpArmrS|r: requireInstance = |cffff0000false|r (scan everywhere — testing mode)")
     else
-        print("EpochArmoryScanner: /eparmrs debug | status | instance on|off")
+        ShowHelp()
     end
 end
