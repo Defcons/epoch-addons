@@ -17,7 +17,7 @@ local INSPECT_INTERVAL  = 2.5    -- Claude: delay between successive NotifyInspe
 local BROADCAST_STAGGER = 0.3    -- Claude: delay between addon-message chunk sends
 local MAX_CHUNK_BODY    = 200    -- Claude: keep well below 255-byte chat msg limit
 local ROSTER_TICK       = 10     -- Claude: re-scan group roster every 10s
-local MIN_INSPECT_LEVEL = 10     -- Claude: skip very low-level alts
+local MIN_INSPECT_LEVEL = 60     -- Claude: skip sub-cap alts; collector rejects <60 anyway
 
 -- State
 local queue         = {}          -- Claude: pending inspect targets (list)

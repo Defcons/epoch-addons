@@ -18,8 +18,8 @@ local INSPECT_INTERVAL   = 2.5
 local BROADCAST_STAGGER  = 0.3
 local MAX_CHUNK_BODY     = 200
 local ROSTER_TICK        = 10
-local MIN_INSPECT_LEVEL  = 10      -- Claude: scanner-side min level (skip naked alts at source)
-local MIN_STORE_LEVEL    = 70      -- Claude: collector rejects saves below this (adjust for server cap)
+local MIN_INSPECT_LEVEL  = 60      -- Claude: scanner-side min level (don't waste inspects on sub-cap alts)
+local MIN_STORE_LEVEL    = 60      -- Claude: collector rejects saves below this
 local MIN_STORE_EQUIPPED = 10      -- Claude: drop snapshots with fewer equipped slots
 local ASSEMBLY_TIMEOUT   = 60      -- Claude: drop partially-received messages after 60s
 
