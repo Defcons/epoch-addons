@@ -19,6 +19,7 @@ local BROADCAST_STAGGER     = 0.3    -- Claude: delay between addon-message chun
 local MAX_CHUNK_BODY        = 200    -- Claude: keep well below 255-byte chat msg limit
 local ROSTER_TICK           = 10     -- Claude: re-scan group roster every 10s
 local MIN_INSPECT_LEVEL     = 60     -- Claude: skip sub-cap alts; collector rejects <60 anyway
+local SCAN_FRESH_WINDOW     = 86400  -- Claude: 24h — skip re-inspecting a player we already scanned this recently (persisted across reloads via SV)
 
 -- Claude: runtime config, persisted in EpochArmoryScannerDB on logout.
 -- Default true; toggle via /epocharmoryscanner instance on|off for testing.
@@ -48,6 +49,21 @@ end
 -- retry table needed).
 local function markRetryIn(guid, retryIn)
     seen[guid] = now() - (INSPECT_COOLDOWN - retryIn)
+end
+
+-- Claude: check the persisted SV table for a recent successful scan. Returns
+-- true if we have fresh enough data and should skip this target entirely.
+local function HasFreshPersistedScan(guid)
+    if not EpochArmoryScannerDB or not EpochArmoryScannerDB.lastScanned then return false end
+    local lastUnix = EpochArmoryScannerDB.lastScanned[guid]
+    if not lastUnix then return false end
+    return (time() - lastUnix) < SCAN_FRESH_WINDOW
+end
+
+local function MarkPersistedScan(guid)
+    EpochArmoryScannerDB = EpochArmoryScannerDB or {}
+    EpochArmoryScannerDB.lastScanned = EpochArmoryScannerDB.lastScanned or {}
+    EpochArmoryScannerDB.lastScanned[guid] = time()
 end
 
 local function ScannerDisabled()
@@ -161,6 +177,7 @@ local function AddUnit(unit)
     if inQueue[guid] then return end
     local last = seen[guid]
     if last and (now() - last) < INSPECT_COOLDOWN then return end
+    if HasFreshPersistedScan(guid) then return end -- Claude: already scanned them in the last 24h
     if (UnitLevel(unit) or 0) < MIN_INSPECT_LEVEL then return end
     queue[#queue + 1] = { guid = guid, unit = unit }
     inQueue[guid] = true
@@ -234,6 +251,7 @@ local function OnInspectReady()
     local payload, info = BuildPayload(c.unit, c.guid)
     if payload then
         seen[c.guid] = now()
+        MarkPersistedScan(c.guid) -- Claude: persist across reloads so 24h cooldown survives
         dprint(string.format("[inspect] OK: %s L%d — %d slots equipped, payload %d bytes",
             tname, tlvl, info, #payload))
         EnqueueBroadcast(payload, tname)
@@ -277,6 +295,7 @@ f:SetScript("OnEvent", function(self, event, ...)
         if EpochArmoryScannerDB.requireInstance == nil then
             EpochArmoryScannerDB.requireInstance = true
         end
+        EpochArmoryScannerDB.lastScanned = EpochArmoryScannerDB.lastScanned or {}
         requireInstance = EpochArmoryScannerDB.requireInstance
     end
     if ScannerDisabled() then return end

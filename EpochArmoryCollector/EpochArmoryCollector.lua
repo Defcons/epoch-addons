@@ -23,6 +23,7 @@ local MIN_INSPECT_LEVEL     = 60
 local MIN_STORE_LEVEL       = 60
 local MIN_STORE_EQUIPPED    = 10
 local ASSEMBLY_TIMEOUT      = 60
+local SCAN_FRESH_WINDOW     = 86400  -- Claude: 24h — skip re-inspecting a player we already have fresh data for
 
 -- Claude: runtime config, persisted in EpochArmoryDB.config on logout.
 local requireInstance = true
@@ -69,6 +70,16 @@ end
 
 local function markRetryIn(guid, retryIn)
     seen[guid] = now() - (INSPECT_COOLDOWN - retryIn)
+end
+
+-- Claude: check the stored DB for a fresh scan of this GUID. If we already have
+-- data from within SCAN_FRESH_WINDOW seconds, skip this target — no point
+-- burning an inspect cycle on someone whose gear we just captured.
+local function HasFreshStoredScan(guid)
+    if not EpochArmoryDB or not EpochArmoryDB.players then return false end
+    local p = EpochArmoryDB.players[guid]
+    if not p or not p.scanTime then return false end
+    return (time() - p.scanTime) < SCAN_FRESH_WINDOW
 end
 
 local function ZoneType()
@@ -313,6 +324,7 @@ local function AddUnit(unit)
     if inQueue[guid] then return end
     local last = seen[guid]
     if last and (now() - last) < INSPECT_COOLDOWN then return end
+    if HasFreshStoredScan(guid) then return end -- Claude: already have fresh data for this player
     if (UnitLevel(unit) or 0) < MIN_INSPECT_LEVEL then return end
     queue[#queue + 1] = { guid = guid, unit = unit }
     inQueue[guid] = true
