@@ -176,6 +176,7 @@ local function TryInspect()
     if now() < nextInspectAt then return end
     if #queue == 0 then return end
     if not IsInstanceZone() then return end
+    if InCombatLockdown() then return end -- Claude: defer inspects until out of combat
 
     local entry = table.remove(queue, 1)
     inQueue[entry.guid] = nil

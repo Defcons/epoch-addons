@@ -14,6 +14,7 @@ Armory data pipeline for epochlogs.com. Two paired addons sharing the `EpArmr` a
 - Chunks to 200-byte bodies (under 255-byte addon-msg cap), staggers sends 0.3s apart
 - Broadcasts to RAID/PARTY + GUILD (fan-out so guild collectors catch in-party scans)
 - **Only scans inside 5-man dungeon or raid instances** (outdoor/city/BG/arena skipped) — gear worn elsewhere is usually wrong context
+- **Scanner waits until player is out of combat** (`InCombatLockdown()`) — queue still builds during fights, drains between pulls
 - Skips targets <L60, skips naked/<10-equipped scans at source
 - Enchants + gems preserved — itemString is `itemID:enchantID:gem1:gem2:gem3:gem4:suffixID:uniqueID:linkLevel`
 - Self-disables if `EpochArmoryCollector` is loaded (collector does everything)
