@@ -4,7 +4,27 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
-## EpochArmoryScanner v1.0 + EpochArmoryCollector v1.0 — NEW *(2026-04-21)*
+## EpochArmory v1.0 — NEW (consolidated from Scanner + Collector) *(2026-04-21)*
+Unified into one addon. Every client does everything: scans groupmates in dungeons/raids, broadcasts chunked gear via `EpArmr` addon prefix, receives + reassembles other clients' broadcasts, stores latest snapshot per GUID. Every participant's `EpochArmoryDB` is a valid upload source.
+
+**Why consolidated:** the original split (lightweight scanner + heavyweight collector) was designed to spare "scanners" from storing the DB. In practice the DB is tiny (~1-2MB for thousands of players) so the split only added code duplication and an awkward ACK-less mesh where only Collectors captured data. Making every client both sender and receiver eliminates the "is a collector online?" question, removes the need for a persist-until-delivered ACK protocol, and means any participant can export for upload.
+
+**Features carried over:**
+- Pipe-separated payload `v1^name^realm^class^level^guid^spec^ts^zone^slot1..19` with itemString colons preserved (enchants + gems captured via slot fields 2-6)
+- Chunked at 200 bytes, staggered 0.3s sends, reassembly keyed by `sender\001msgID`, 60s GC for partials
+- Inspects only in dungeon/raid by default (configurable via `/epocharmory instance off`), out of combat, targets ≥ L60, ≥10 equipped slots
+- `UTILITY_ITEMS` + `UTILITY_ENCHANTS` filter (Carrot on a Stick, Riding Crop, fishing poles, Chef's Hat, mount-speed glove enchant) — rejection preserves older real-gear snapshot
+- 24h persistent scan cooldown via `EpochArmoryDB.lastScanned[guid]`, updated on both local inspects AND received broadcasts — mesh-wide cooldown sharing
+- `EpochArmoryDB.players[guid]` keyed by GUID, latest `scanTime` wins
+- Tagged debug output: `[roster]`, `[inspect]`, `[send]`, `[recv]`, `[asm]`, `[store]`
+- Slash: `/epocharmory status | debug | list | wipe | instance on|off`
+- SavedVariable: `EpochArmoryDB = { meta, config, players, lastScanned }`
+
+**Removed:** `EpochArmoryScanner/` and `EpochArmoryCollector/` folders (see commits `ac02382`..`741e360` for the split-era history).
+
+---
+
+## (archived) EpochArmoryScanner v1.0 + EpochArmoryCollector v1.0 — split architecture *(2026-04-21, superseded same day)*
 Armory data pipeline for epochlogs.com. Two paired addons sharing the `EpArmr` addon-message prefix.
 
 **EpochArmoryScanner** (distributed widely):

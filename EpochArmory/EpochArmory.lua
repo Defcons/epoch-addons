@@ -1,19 +1,16 @@
--- EpochArmoryCollector.lua
--- Claude: collector addon. Does everything the Scanner does (inspect groupmates,
--- broadcast chunked gear over "EpArmr" addon prefix) AND listens on the same
--- prefix to reassemble chunks from other senders, saving latest gear per GUID
--- to EpochArmoryDB for manual upload to epochlogs.com.
---
--- NOTE: the "scanner" half duplicates EpochArmoryScanner.lua. If you change the
--- protocol or scan behavior, update both files.
+-- EpochArmory.lua
+-- Claude: single-addon mesh gear inspector. Every client runs the same code:
+-- scans groupmates in dungeons/raids, broadcasts chunked gear on the "EpArmr"
+-- addon prefix, receives other clients' broadcasts, and stores latest gear
+-- per GUID in EpochArmoryDB for manual upload to epochlogs.com.
 
-local ADDON = "EpochArmoryCollector"
+local ADDON = "EpochArmory"
 local PREFIX = "EpArmr"
 local PROTO = "1"
 
 -- Tuning
 local INSPECT_COOLDOWN      = 900
-local OUT_OF_RANGE_COOLDOWN = 30       -- Claude: retry fast when CanInspect fails (range/visibility)
+local OUT_OF_RANGE_COOLDOWN = 30     -- Claude: retry fast when CanInspect fails
 local INSPECT_TIMEOUT       = 4
 local INSPECT_INTERVAL      = 2.5
 local BROADCAST_STAGGER     = 0.3
@@ -23,9 +20,9 @@ local MIN_INSPECT_LEVEL     = 60
 local MIN_STORE_LEVEL       = 60
 local MIN_STORE_EQUIPPED    = 10
 local ASSEMBLY_TIMEOUT      = 60
-local SCAN_FRESH_WINDOW     = 86400  -- Claude: 24h — skip re-inspecting a player we already have fresh data for
+local SCAN_FRESH_WINDOW     = 86400  -- Claude: 24h — skip re-inspecting a player anyone in the mesh scanned recently
 
--- Claude: runtime config, persisted in EpochArmoryDB.config on logout.
+-- Runtime config, persisted in EpochArmoryDB.config on logout.
 local requireInstance = true
 
 local UTILITY_ITEMS = {
@@ -63,23 +60,13 @@ local assembly = {}
 local function now() return GetTime() end
 
 local function dprint(...)
-    if EpochArmoryCollectorDebug then
-        print("|cff88ccffEpArmrC|r", ...)
+    if EpochArmoryDebug then
+        print("|cffffaa44EpArmr|r", ...)
     end
 end
 
 local function markRetryIn(guid, retryIn)
     seen[guid] = now() - (INSPECT_COOLDOWN - retryIn)
-end
-
--- Claude: check the stored DB for a fresh scan of this GUID. If we already have
--- data from within SCAN_FRESH_WINDOW seconds, skip this target — no point
--- burning an inspect cycle on someone whose gear we just captured.
-local function HasFreshStoredScan(guid)
-    if not EpochArmoryDB or not EpochArmoryDB.players then return false end
-    local p = EpochArmoryDB.players[guid]
-    if not p or not p.scanTime then return false end
-    return (time() - p.scanTime) < SCAN_FRESH_WINDOW
 end
 
 local function ZoneType()
@@ -103,9 +90,27 @@ local function ItemStringFromLink(link)
     return s or ""
 end
 
--- ---------------- Scanner: build + broadcast ----------------
+-- Claude: mark a GUID as inspected at unix timestamp `scanTime`. Called from
+-- both local successful inspects and gossip-reassembled broadcasts. Keeps the
+-- max of current vs new so older arrivals don't overwrite fresh data.
+local function MarkInspected(guid, scanTime)
+    if not guid or guid == "" or not scanTime or scanTime <= 0 then return end
+    EpochArmoryDB = EpochArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
+    EpochArmoryDB.lastScanned = EpochArmoryDB.lastScanned or {}
+    local existing = EpochArmoryDB.lastScanned[guid] or 0
+    if scanTime > existing then
+        EpochArmoryDB.lastScanned[guid] = scanTime
+    end
+end
 
--- Claude: returns (payload, equippedCount) on success, (nil, reason) on failure.
+local function HasFreshScan(guid)
+    if not EpochArmoryDB or not EpochArmoryDB.lastScanned then return false end
+    local t = EpochArmoryDB.lastScanned[guid]
+    return t and (time() - t) < SCAN_FRESH_WINDOW
+end
+
+-- ---------------- Build + broadcast ----------------
+
 local function BuildPayload(unit, guid)
     local name = UnitName(unit)
     if not name or name == "" or name == UNKNOWN then return nil, "name unresolved" end
@@ -181,7 +186,7 @@ local function EnqueueBroadcast(payload, targetName)
         targetName or "?", #chunks, #channels, table.concat(channels, "+"), #payload))
 end
 
--- ---------------- Receiver: parse + store ----------------
+-- ---------------- Receive: parse + store ----------------
 
 local function ShouldStore(entry)
     if not entry then return false, "nil entry" end
@@ -240,13 +245,19 @@ local function Ingest(payload, sender)
         dprint("[store] REJECT: payload parse failed")
         return
     end
+
+    -- Always update the "when was this GUID last inspected by anyone" clock
+    -- so the 24h dedup works across the full mesh — even if this particular
+    -- scan fails ShouldStore (utility gear, wrong zone, etc).
+    MarkInspected(entry.guid, entry.scanTime)
+
     local ok, reason = ShouldStore(entry)
     if not ok then
         dprint(string.format("[store] REJECT: %s L%d — %s", entry.name, entry.level, reason))
         return
     end
 
-    EpochArmoryDB = EpochArmoryDB or { meta = { version = 1, created = time() }, players = {} }
+    EpochArmoryDB = EpochArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
     EpochArmoryDB.players = EpochArmoryDB.players or {}
 
     local existing = EpochArmoryDB.players[entry.guid]
@@ -313,7 +324,7 @@ local function GCAssembly()
     end
 end
 
--- ---------------- Scanner: queue + inspect driver ----------------
+-- ---------------- Scan queue + inspect driver ----------------
 
 local function AddUnit(unit)
     if not UnitExists(unit) then return end
@@ -324,7 +335,7 @@ local function AddUnit(unit)
     if inQueue[guid] then return end
     local last = seen[guid]
     if last and (now() - last) < INSPECT_COOLDOWN then return end
-    if HasFreshStoredScan(guid) then return end -- Claude: already have fresh data for this player
+    if HasFreshScan(guid) then return end -- Claude: someone in the mesh scanned this player <24h ago
     if (UnitLevel(unit) or 0) < MIN_INSPECT_LEVEL then return end
     queue[#queue + 1] = { guid = guid, unit = unit }
     inQueue[guid] = true
@@ -398,11 +409,12 @@ local function OnInspectReady()
     local payload, info = BuildPayload(c.unit, c.guid)
     if payload then
         seen[c.guid] = now()
+        MarkInspected(c.guid, floor(time()))
         dprint(string.format("[inspect] OK: %s L%d — %d slots equipped, payload %d bytes",
             tname, tlvl, info, #payload))
         EnqueueBroadcast(payload, tname)
-        -- Claude: direct-ingest our own scan so we save data even when we don't
-        -- receive our own addon-msg echo (e.g. zero group members present).
+        -- Claude: direct-ingest our own scan so we save data even when no one
+        -- else is in our broadcast channels.
         Ingest(payload, UnitName("player"))
     else
         seen[c.guid] = now()
@@ -445,8 +457,10 @@ f:RegisterEvent("CHAT_MSG_ADDON")
 
 f:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
-        EpochArmoryDB = EpochArmoryDB or { meta = { version = 1, created = time() }, players = {} }
-        EpochArmoryDB.config = EpochArmoryDB.config or {}
+        EpochArmoryDB = EpochArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
+        EpochArmoryDB.players     = EpochArmoryDB.players     or {}
+        EpochArmoryDB.lastScanned = EpochArmoryDB.lastScanned or {}
+        EpochArmoryDB.config      = EpochArmoryDB.config      or {}
         if EpochArmoryDB.config.requireInstance == nil then
             EpochArmoryDB.config.requireInstance = true
         end
@@ -471,6 +485,13 @@ local function CountStored()
     return n
 end
 
+local function CountTracked()
+    if not EpochArmoryDB or not EpochArmoryDB.lastScanned then return 0 end
+    local n = 0
+    for _ in pairs(EpochArmoryDB.lastScanned) do n = n + 1 end
+    return n
+end
+
 local function CountAssembly()
     local n = 0
     for _ in pairs(assembly) do n = n + 1 end
@@ -478,25 +499,25 @@ local function CountAssembly()
 end
 
 local function ShowHelp()
-    print("|cff88ccffEpochArmoryCollector|r:")
-    print("  /epocharmorycollector status        — show queue / broadcast / storage state")
-    print("  /epocharmorycollector debug         — toggle verbose chat logging")
-    print("  /epocharmorycollector list          — print every stored player")
-    print("  /epocharmorycollector wipe          — clear EpochArmoryDB entirely")
-    print("  /epocharmorycollector instance on   — only scan/store inside dungeon/raid (default)")
-    print("  /epocharmorycollector instance off  — scan/store everywhere (testing)")
+    print("|cffffaa44EpochArmory|r commands:")
+    print("  /epocharmory status        — queue / broadcast / storage state")
+    print("  /epocharmory debug         — toggle verbose chat logging")
+    print("  /epocharmory list          — print every stored player")
+    print("  /epocharmory wipe          — clear stored players (keeps config)")
+    print("  /epocharmory instance on   — only scan/store inside dungeon/raid (default)")
+    print("  /epocharmory instance off  — scan/store everywhere (testing)")
 end
 
-SLASH_EPOCHARMORYCOLLECTOR1 = "/epocharmorycollector"
-SlashCmdList["EPOCHARMORYCOLLECTOR"] = function(msg)
+SLASH_EPOCHARMORY1 = "/epocharmory"
+SlashCmdList["EPOCHARMORY"] = function(msg)
     msg = (msg or ""):lower()
     if msg == "debug" then
-        EpochArmoryCollectorDebug = not EpochArmoryCollectorDebug
-        print("|cff88ccffEpArmrC|r debug:",
-            EpochArmoryCollectorDebug and "|cff00ff00ON|r" or "|cffff0000OFF|r")
+        EpochArmoryDebug = not EpochArmoryDebug
+        print("|cffffaa44EpArmr|r debug:",
+            EpochArmoryDebug and "|cff00ff00ON|r" or "|cffff0000OFF|r")
     elseif msg == "status" then
-        print(string.format("|cff88ccffEpArmrC|r stored=%d queue=%d outPending=%d asm=%d currentInspect=%s requireInstance=%s inCombat=%s zone=%s",
-            CountStored(), #queue, #outQueue, CountAssembly(),
+        print(string.format("|cffffaa44EpArmr|r stored=%d tracked=%d queue=%d outPending=%d asm=%d currentInspect=%s requireInstance=%s inCombat=%s zone=%s",
+            CountStored(), CountTracked(), #queue, #outQueue, CountAssembly(),
             current and UnitName(current.unit) or "none",
             tostring(requireInstance),
             tostring(InCombatLockdown()),
@@ -506,16 +527,17 @@ SlashCmdList["EPOCHARMORYCOLLECTOR"] = function(msg)
         EpochArmoryDB = EpochArmoryDB or {}
         EpochArmoryDB.config = EpochArmoryDB.config or {}
         EpochArmoryDB.config.requireInstance = true
-        print("|cff88ccffEpArmrC|r: requireInstance = |cff00ff00true|r (scan + store only in dungeon/raid)")
+        print("|cffffaa44EpArmr|r: requireInstance = |cff00ff00true|r (scan + store only in dungeon/raid)")
     elseif msg == "instance off" or msg == "instance false" then
         requireInstance = false
         EpochArmoryDB = EpochArmoryDB or {}
         EpochArmoryDB.config = EpochArmoryDB.config or {}
         EpochArmoryDB.config.requireInstance = false
-        print("|cff88ccffEpArmrC|r: requireInstance = |cffff0000false|r (scan + store everywhere — testing mode)")
+        print("|cffffaa44EpArmr|r: requireInstance = |cffff0000false|r (scan + store everywhere — testing mode)")
     elseif msg == "wipe" then
-        EpochArmoryDB = { meta = { version = 1, created = time() }, players = {}, config = EpochArmoryDB and EpochArmoryDB.config or {} }
-        print("|cff88ccffEpArmrC|r: wiped database (kept config)")
+        local kept = EpochArmoryDB and EpochArmoryDB.config or {}
+        EpochArmoryDB = { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = kept }
+        print("|cffffaa44EpArmr|r: wiped players + lastScanned (kept config)")
     elseif msg == "list" then
         if not EpochArmoryDB or not EpochArmoryDB.players then print("empty") return end
         for guid, p in pairs(EpochArmoryDB.players) do

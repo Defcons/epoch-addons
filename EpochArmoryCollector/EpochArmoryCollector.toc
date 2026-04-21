@@ -1,9 +1,0 @@
-## Interface: 30300
-## Title: EpochArmory Collector
-## Notes: Scans group/raidmates AND listens for EpochArmory Scanner broadcasts, saving latest gear per player to EpochArmoryDB for manual upload.
-## Author: Claude + David
-## Version: 1.0
-## X-Role: Collector
-## SavedVariables: EpochArmoryDB
-
-EpochArmoryCollector.lua
