@@ -275,22 +275,21 @@ end
 local function ReadSpecPoints(unit)
     -- inspectFlag: 1 when reading another unit's talents (after NotifyInspect),
     -- nil for "player" — standard 3.3.5 GetTalentTabInfo convention.
+    -- Deliberately NOT passing talentGroup as the 4th arg — on Ascension's
+    -- classless system, explicit talentGroup=1 seems to read the wrong slot
+    -- (or an empty slot) for self. Default (active group, per API docs)
+    -- works for the cases we've observed.
     local isInspect = UnitIsUnit(unit, "player") and nil or 1
-    local activeGroup = 1
-    if GetActiveTalentGroup then
-        -- GetActiveTalentGroup takes (isInspect, isPet) as booleans
-        activeGroup = GetActiveTalentGroup(isInspect ~= nil, false) or 1
-    end
 
     local function tabPoints(tabIndex)
-        local pts = select(3, GetTalentTabInfo(tabIndex, isInspect, nil, activeGroup)) or 0
+        local pts = select(3, GetTalentTabInfo(tabIndex, isInspect)) or 0
         if pts > 0 then return pts end
         -- Fallback: iterate talents in this tab and sum pointsSpent directly.
         if GetNumTalents and GetTalentInfo then
             local n = GetNumTalents(tabIndex, isInspect) or 0
             local total = 0
             for i = 1, n do
-                local _, _, _, _, spent = GetTalentInfo(tabIndex, i, isInspect, nil, activeGroup)
+                local _, _, _, _, spent = GetTalentInfo(tabIndex, i, isInspect)
                 total = total + (spent or 0)
             end
             if total > 0 then return total end
@@ -298,7 +297,7 @@ local function ReadSpecPoints(unit)
         return 0
     end
 
-    return tabPoints(1), tabPoints(2), tabPoints(3), activeGroup
+    return tabPoints(1), tabPoints(2), tabPoints(3)
 end
 
 -- Scan the enchant description lines of an equipped item for blacklisted
@@ -892,8 +891,9 @@ local function TryScanSelf()
         return
     end
     lastSelfFingerprint = fp
-    dprint(string.format("[self] scanned self — %d slots equipped, payload %d bytes",
-        info, #payload))
+    local _s1, _s2, _s3 = ReadSpecPoints("player")
+    dprint(string.format("[self] scanned self — %d slots equipped, spec=%d/%d/%d tree=%d, payload %d bytes",
+        info, _s1, _s2, _s3, DominantTree({_s1, _s2, _s3}), #payload))
     MarkInspected(playerGUID, floor(time()))
     EnqueueBroadcast(payload, UnitName("player"))
     Ingest(payload, UnitName("player"))
@@ -1092,6 +1092,7 @@ local function ShowHelp()
     print("  /epogarmory cache         — show item-info cache size")
     print("  /epogarmory cachebuild    — fill the cache from all stored players' gear (names/quality/ilvl)")
     print("  /epogarmory cachewipe     — clear the item-info cache")
+    print("  /epogarmory dumpspec      — diagnostic: print every talent-API variant's read for each of your 3 tabs")
 end
 
 SLASH_EPOGARMORY1 = "/epogarmory"
@@ -1148,6 +1149,40 @@ SlashCmdList["EPOGARMORY"] = function(msg)
                 p.class or "?", p.name or "?", p.level or 0, p.zone or "?",
                 p.scannedBy or "?", date("%Y-%m-%d %H:%M", p.scanTime or 0)))
         end
+    elseif msg == "dumpspec" or msg == "specs" then
+        -- Diagnostic: shows every talent-API variant's read for each of the
+        -- player's 3 tabs. Tells us which call style actually returns real
+        -- points-spent on this Ascension client.
+        print("|cffffaa44EpogArmory|r talent-read diagnostics for self:")
+        local gatg = GetActiveTalentGroup and GetActiveTalentGroup() or nil
+        local gntg = GetNumTalentGroups and GetNumTalentGroups() or nil
+        print(string.format("  GetActiveTalentGroup() = %s    GetNumTalentGroups() = %s",
+            tostring(gatg), tostring(gntg)))
+        for tab = 1, 3 do
+            local name1, _, pts1 = GetTalentTabInfo(tab)
+            local name2, _, pts2 = GetTalentTabInfo(tab, nil)
+            local _,     _, pts3 = GetTalentTabInfo(tab, nil, nil, 1)
+            local _,     _, pts4 = GetTalentTabInfo(tab, nil, nil, 2)
+            local nt = (GetNumTalents and GetNumTalents(tab)) or 0
+            local sumDefault = 0
+            for i = 1, nt do
+                local _, _, _, _, spent = GetTalentInfo(tab, i)
+                sumDefault = sumDefault + (spent or 0)
+            end
+            local sumGroup1 = 0
+            for i = 1, nt do
+                local _, _, _, _, spent = GetTalentInfo(tab, i, nil, nil, 1)
+                sumGroup1 = sumGroup1 + (spent or 0)
+            end
+            print(string.format("  Tab %d [%s]: GTTI(1-arg)=%s  GTTI(nil)=%s  GTTI(grp=1)=%s  GTTI(grp=2)=%s  GTI-sum(default)=%d  GTI-sum(grp=1)=%d  over %d talents",
+                tab, tostring(name1 or "?"),
+                tostring(pts1 or "nil"), tostring(pts2 or "nil"),
+                tostring(pts3 or "nil"), tostring(pts4 or "nil"),
+                sumDefault, sumGroup1, nt))
+        end
+        local s1, s2, s3 = ReadSpecPoints("player")
+        print(string.format("  ReadSpecPoints(player) = %d / %d / %d → DominantTree = %d",
+            s1, s2, s3, DominantTree({s1, s2, s3})))
     else
         ShowHelp()
     end

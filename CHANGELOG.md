@@ -4,6 +4,19 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.15 — Talent-read diagnostic + simplify GetTalentTabInfo call *(2026-04-22)* *(local-only, not released yet)*
+
+Still landing all scans in `sets[1]` despite v0.14's `DominantTree` keying, which means `ReadSpecPoints` is reading `0/0/0` regardless of actual spec — the explicit `talentGroup` 4th arg I passed in v0.9 is apparently confusing Ascension's classless API.
+
+**Two changes:**
+
+- **Simplified `ReadSpecPoints`** — dropped the explicit `talentGroup` arg from `GetTalentTabInfo` and `GetTalentInfo`. Now uses the 2-arg form (`GetTalentTabInfo(tabIndex, isInspect)`) which defaults to the player's active group per the 3.3.5 API docs. This matches the earliest version of the addon that the user reports *did* successfully read spec points on Ascension.
+- **New `/epogarmory dumpspec` diagnostic** — prints every talent-API variant's return for each of the player's 3 tabs, so we can see exactly which call style Ascension actually returns real points-spent for. Also prints `GetActiveTalentGroup()`, `GetNumTalentGroups()`, and the final `ReadSpecPoints` result with the `DominantTree` computation. Run this while on any spec to tell us which API path works.
+
+**Extra debug line** — `[self] scanned self` now includes the spec read: `... spec=51/0/20 tree=1 ...`. Makes it obvious at a glance whether `ReadSpecPoints` is returning real numbers.
+
+---
+
 ## EpogArmory v0.14 — Dominant-tree set keying + class-tree button labels *(2026-04-22)* *(local-only, not released yet)*
 
 Fixes the core confusion in v0.13: "3 specs per player" meant the 3 class trees (Assassination/Combat/Subtlety for a rogue), not the dual-spec talent groups. v0.13 was keying sets by `GetActiveTalentGroup()`, which on Ascension's classless system always returns `1`, so every scan landed in `sets[1]` and respecs never triggered a fresh scan — the 24h gate always saw `sets[1]` as fresh.
