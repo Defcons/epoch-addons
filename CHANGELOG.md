@@ -4,6 +4,29 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpochArmory v1.4 — Item-info cache (GetItemInfo → SavedVariable) *(2026-04-22)*
+
+New `EpochItemCacheDB` SavedVariable that persists `GetItemInfo()` results for every itemID seen in any scan (local or received via mesh gossip). Populated with:
+
+```lua
+EpochItemCacheDB[itemID] = { name, quality, itemLevel, icon, ts }
+```
+
+This closes the last data gap — Ascension's custom items aren't in Wowhead or TrinityCore, but `GetItemInfo()` returns real server-authoritative data for anything the client has seen. Between all mesh participants, the cache converges to full coverage of every item anyone has scanned.
+
+**Implementation:**
+- `CacheItemInfo(itemID)` — queries `GetItemInfo`, persists result. Triggers a hidden-tooltip `SetHyperlink` when uncached to ask the server for the data.
+- `pendingCache` in-memory queue with OnUpdate retry loop (`CACHE_RETRY_INTERVAL = 0.5s`, gives up after 15s if the server never responds).
+- Hooked into `Ingest()` so every scan (local or received gossip, accepted or rejected) feeds the cache with `CachePayloadItems(entry)`.
+- `/epocharmory cache` — show cache size + pending count.
+- `/epocharmory cachebuild` — iterate all stored players, seed the cache from their gear itemIDs. Useful after first install (fills cache from existing DB without waiting for new scans).
+- `/epocharmory cachewipe` — reset the cache (persistent + pending).
+- Status line shows `cache=N cachePending=M`.
+
+**Upload flow:** the same `EpochArmory.lua` SavedVariables file now contains both `EpochArmoryDB` (player data) and `EpochItemCacheDB` (item lookup). epocharmory-web parses both and merges the cache on top of its DBC-derived `items.json` at upload time — no separate file, no extra step.
+
+---
+
 ## EpochArmory v1.3 — Fixed slot borders + minimap button + browser frame *(2026-04-22)*
 
 - **Slot button redesign:** each slot now uses the Blizzard paperdoll empty-slot texture (`Interface\PaperDoll\UI-PaperDoll-Slot-<Head|Neck|...>`) as a dim background so users can see which slot is which even when empty. Replaced the glowy offset `UI-ActionButton-Border` with 4 thin vertex-colored rectangles (via the white `ChatFrameBackground` texture) that frame the slot exactly. Quality colors (green/blue/purple/orange) now sit flush against the icon instead of bleeding past it.

@@ -3,7 +3,7 @@
 ## Notes: Mesh-based gear inspector. Every client scans groupmates in dungeons/raids, broadcasts gear via addon messages, and stores received broadcasts in EpochArmoryDB for manual upload to epochlogs.com.
 ## Author: Claude + David
 ## Version: 1.0
-## SavedVariables: EpochArmoryDB
+## SavedVariables: EpochArmoryDB, EpochItemCacheDB
 
 EpochArmory.lua
 EpochArmoryUI.lua

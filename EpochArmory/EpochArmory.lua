@@ -58,6 +58,12 @@ local nextInspectAt, nextSendAt, lastRoster = 0, 0, 0
 local msgCounter = 0
 local assembly = {}
 
+-- Claude: item-info cache. EpochItemCacheDB is the persistent half; pendingCache
+-- is the in-memory retry queue for items the client hasn't fetched yet.
+local pendingCache = {} -- itemID -> firstSeenTime
+local CACHE_RETRY_INTERVAL = 0.5
+local CACHE_GIVE_UP        = 15
+
 local function now() return GetTime() end
 
 local function dprint(...)
@@ -108,6 +114,90 @@ local function HasFreshScan(guid)
     if not EpochArmoryDB or not EpochArmoryDB.lastScanned then return false end
     local t = EpochArmoryDB.lastScanned[guid]
     return t and (time() - t) < SCAN_FRESH_WINDOW
+end
+
+-- ---------------- Item-info cache ----------------
+-- Claude: for every itemID we see on a scanned player, query GetItemInfo()
+-- locally. If the client already has the item cached, we get
+-- name/quality/itemLevel/texture and persist to EpochItemCacheDB so the web
+-- site can render without needing external data sources. If the client hasn't
+-- seen the item yet, we trigger a background fetch via a hidden tooltip and
+-- retry from an OnUpdate poll. Covers Ascension-custom items that aren't in
+-- Wowhead / TrinityCore data.
+
+local cacheTip -- created lazily on first use
+
+local function TriggerItemFetch(itemID)
+    if not cacheTip then
+        cacheTip = CreateFrame("GameTooltip", "EpochArmoryItemCacheTip", UIParent, "GameTooltipTemplate")
+        cacheTip:SetOwner(UIParent, "ANCHOR_NONE")
+    end
+    cacheTip:ClearLines()
+    cacheTip:SetHyperlink("item:" .. itemID)
+    cacheTip:Hide()
+end
+
+-- Claude: returns true if GetItemInfo succeeded and we wrote to the cache,
+-- false if still pending (client hasn't resolved the item yet).
+local function CacheItemInfo(itemID)
+    if not itemID or itemID <= 0 then return false end
+    EpochItemCacheDB = EpochItemCacheDB or {}
+    if EpochItemCacheDB[itemID] then return true end -- already cached, skip re-query
+
+    local name, _, quality, itemLevel, _, _, _, _, _, texture = GetItemInfo(itemID)
+    if not name then
+        TriggerItemFetch(itemID)
+        return false
+    end
+    -- texture is "Interface\Icons\INV_Sword_01" — we want the basename, lowercased.
+    local icon = nil
+    if texture then
+        icon = texture:match("([^\\/]+)$") or texture
+        icon = icon:lower()
+    end
+    EpochItemCacheDB[itemID] = {
+        name = name,
+        quality = quality or 0,
+        itemLevel = itemLevel or 0,
+        icon = icon,
+        ts = floor(time()),
+    }
+    return true
+end
+
+local function MarkPendingCache(itemID)
+    if not itemID or itemID <= 0 then return end
+    if EpochItemCacheDB and EpochItemCacheDB[itemID] then return end
+    if not pendingCache[itemID] then
+        pendingCache[itemID] = now()
+        TriggerItemFetch(itemID)
+    end
+end
+
+local function TryCachePending()
+    if not next(pendingCache) then return end
+    local nowT = now()
+    for iid, firstSeen in pairs(pendingCache) do
+        if CacheItemInfo(iid) then
+            pendingCache[iid] = nil
+        elseif (nowT - firstSeen) > CACHE_GIVE_UP then
+            pendingCache[iid] = nil -- server never responded; try again on next scan
+        end
+    end
+end
+
+-- Claude: iterate gear slots, ensure every itemID is either cached or queued.
+local function CachePayloadItems(entry)
+    if not entry or not entry.gear then return end
+    for slot = 1, 19 do
+        local raw = entry.gear[slot]
+        if raw and raw ~= "" then
+            local iid = tonumber(raw:match("^(%d+)"))
+            if iid and iid > 0 then
+                if not CacheItemInfo(iid) then MarkPendingCache(iid) end
+            end
+        end
+    end
 end
 
 -- ---------------- Build + broadcast ----------------
@@ -255,6 +345,10 @@ local function Ingest(payload, sender)
     -- so the 24h dedup works across the full mesh — even if this particular
     -- scan fails ShouldStore (utility gear, wrong zone, etc).
     MarkInspected(entry.guid, entry.scanTime)
+
+    -- Populate the item-info cache from every scan we observe — even rejected
+    -- ones give us valid itemIDs to enrich our DB.
+    CachePayloadItems(entry)
 
     local ok, reason = ShouldStore(entry)
     if not ok then
@@ -500,6 +594,7 @@ f:SetScript("OnUpdate", function(self, elapsed)
     CheckTimeout()
     TryInspect()
     TryScanSelf()
+    TryCachePending()
 
     gcAcc = gcAcc + 0.25
     if gcAcc >= 10 then gcAcc = 0; GCAssembly() end
@@ -523,6 +618,7 @@ f:SetScript("OnEvent", function(self, event, ...)
             EpochArmoryDB.config.requireInstance = true
         end
         requireInstance = EpochArmoryDB.config.requireInstance
+        EpochItemCacheDB = EpochItemCacheDB or {}
         RequestSelfScan(SELF_SCAN_LOGIN_DELAY) -- Claude: initial self-scan after talent data warms up
         return
     end
@@ -560,6 +656,47 @@ local function CountAssembly()
     return n
 end
 
+local function CountCache()
+    if not EpochItemCacheDB then return 0 end
+    local n = 0
+    for _ in pairs(EpochItemCacheDB) do n = n + 1 end
+    return n
+end
+
+local function CountPending()
+    local n = 0
+    for _ in pairs(pendingCache) do n = n + 1 end
+    return n
+end
+
+-- Claude: iterate all stored players and feed every itemID through the cache.
+-- Anything not cached locally gets queued for a SetHyperlink-triggered server
+-- fetch; the OnUpdate poll picks them up over the next few seconds.
+local function CacheBuildAll()
+    if not EpochArmoryDB or not EpochArmoryDB.players then return 0, 0, 0 end
+    local tried, hit, pended = 0, 0, 0
+    for _, p in pairs(EpochArmoryDB.players) do
+        if p.gear then
+            for slot = 1, 19 do
+                local raw = p.gear[slot]
+                if raw and raw ~= "" then
+                    local iid = tonumber(raw:match("^(%d+)"))
+                    if iid and iid > 0 then
+                        tried = tried + 1
+                        if CacheItemInfo(iid) then
+                            hit = hit + 1
+                        else
+                            MarkPendingCache(iid)
+                            pended = pended + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return tried, hit, pended
+end
+
 local function ShowHelp()
     print("|cffffaa44EpochArmory|r commands:")
     print("  /epocharmory show <name>   — open paperdoll for a stored player (or target + /epocharmory show)")
@@ -570,6 +707,9 @@ local function ShowHelp()
     print("  /epocharmory wipe          — clear stored players (keeps config)")
     print("  /epocharmory instance on   — only scan/store inside dungeon/raid (default)")
     print("  /epocharmory instance off  — scan/store everywhere (testing)")
+    print("  /epocharmory cache         — show item-info cache size")
+    print("  /epocharmory cachebuild    — fill the cache from all stored players' gear (names/quality/ilvl)")
+    print("  /epocharmory cachewipe     — clear the item-info cache")
 end
 
 SLASH_EPOCHARMORY1 = "/epocharmory"
@@ -580,12 +720,24 @@ SlashCmdList["EPOCHARMORY"] = function(msg)
         print("|cffffaa44EpochArmory|r debug:",
             EpochArmoryDebug and "|cff00ff00ON|r" or "|cffff0000OFF|r")
     elseif msg == "status" then
-        print(string.format("|cffffaa44EpochArmory|r stored=%d tracked=%d queue=%d outPending=%d asm=%d currentInspect=%s requireInstance=%s inCombat=%s zone=%s",
-            CountStored(), CountTracked(), #queue, #outQueue, CountAssembly(),
+        print(string.format("|cffffaa44EpochArmory|r stored=%d tracked=%d cache=%d cachePending=%d queue=%d outPending=%d asm=%d currentInspect=%s requireInstance=%s inCombat=%s zone=%s",
+            CountStored(), CountTracked(), CountCache(), CountPending(),
+            #queue, #outQueue, CountAssembly(),
             current and UnitName(current.unit) or "none",
             tostring(requireInstance),
             tostring(InCombatLockdown()),
             ZoneType()))
+    elseif msg == "cache" then
+        print(string.format("|cffffaa44EpochArmory|r cache: %d items known, %d pending client fetch",
+            CountCache(), CountPending()))
+    elseif msg == "cachebuild" then
+        local tried, hit, pended = CacheBuildAll()
+        print(string.format("|cffffaa44EpochArmory|r cachebuild: %d items scanned, %d already known, %d queued for fetch (check /epocharmory cache in ~15s)",
+            tried, hit, pended))
+    elseif msg == "cachewipe" then
+        EpochItemCacheDB = {}
+        pendingCache = {}
+        print("|cffffaa44EpochArmory|r: wiped item-info cache")
     elseif msg == "instance on" or msg == "instance true" then
         requireInstance = true
         EpochArmoryDB = EpochArmoryDB or {}
