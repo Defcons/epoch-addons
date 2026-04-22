@@ -4,6 +4,19 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.8 — Drop dominant-spec gate (broken on Ascension classless) *(2026-04-22)*
+
+The v0.7 dominant-spec validation rejected every scan — including fully-geared L60 self-scans — because Ascension is classless and `GetTalentTabInfo(tab, ...)` returns 0 points-spent for every tab regardless of the player's actual talent investment. Observed in-game:
+
+```
+[self] scanned self — 19 slots equipped, payload 532 bytes
+[store] REJECT: Defcon L60 — no dominant spec (0/0/0)
+```
+
+Fix: removed the dominant-spec check from `ShouldStore()` along with the `MIN_STORE_DOMINANT` / `MIN_STORE_TOTAL` constants. The addon now gates on level + gear-equipped count only; the server-side validator in `warcraftlogs-epog routes/admin.js` keeps the final say on what gets published to the public armory. Spec fields in the payload stay (wire format unchanged) — they're just not used for gating.
+
+---
+
 ## EpogArmory v0.7 — Version ping + mesh forward-compat *(2026-04-22)*
 
 Peer-to-peer new-release notification plus a lenient mesh parser so additive wire-format changes no longer fragment older clients.

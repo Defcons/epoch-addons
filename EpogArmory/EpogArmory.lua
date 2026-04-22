@@ -27,14 +27,6 @@ local ROSTER_TICK           = 10
 local MIN_INSPECT_LEVEL     = 60
 local MIN_STORE_LEVEL       = 60
 local MIN_STORE_EQUIPPED    = 10
--- (v0.7): dominant-tree rule mirroring the server-side validator in
--- warcraftlogs-epog routes/admin.js computePrimaryTree(). A scan is only accepted
--- when the player has meaningfully committed to a spec — either the max tree has
--- the 31-point capstone unlocked OR they have ≥61 total points (Ascension gives
--- 71 at L60 so hybrid builds like 25/23/23 still resolve to their strongest tree
--- instead of being rejected). Freshly-dinged 0/0/0 players are skipped.
-local MIN_STORE_DOMINANT    = 31
-local MIN_STORE_TOTAL       = 61
 local ASSEMBLY_TIMEOUT      = 60
 local SCAN_FRESH_WINDOW     = 86400  -- 24h — skip re-inspecting a player anyone in the mesh scanned recently
 
@@ -315,16 +307,11 @@ local function ShouldStore(entry)
     if requireInstance and entry.zone ~= "party" and entry.zone ~= "raid" then
         return false, string.format("zone=%s (requireInstance on)", tostring(entry.zone))
     end
-    -- (v0.7): reject scans without a committed spec. Matches the server-side
-    -- validator in warcraftlogs-epog routes/admin.js — 31+ in max tree OR 61+ total.
-    local s1 = (entry.spec and entry.spec[1]) or 0
-    local s2 = (entry.spec and entry.spec[2]) or 0
-    local s3 = (entry.spec and entry.spec[3]) or 0
-    local specMax   = math.max(s1, s2, s3)
-    local specTotal = s1 + s2 + s3
-    if specMax < MIN_STORE_DOMINANT and specTotal < MIN_STORE_TOTAL then
-        return false, string.format("no dominant spec (%d/%d/%d)", s1, s2, s3)
-    end
+    -- Ascension is classless: GetTalentTabInfo(tab, ...) returns 0 points-spent
+    -- for every tab regardless of what the player actually specced, so we can't
+    -- use spec distribution as a "committed player" gate here. The server-side
+    -- validator in warcraftlogs-epog still has the final say on what gets
+    -- published — we just collect everything gated by level + gear-equipped.
     local equipped = 0
     for i = 1, 19 do
         if entry.gear[i] and entry.gear[i] ~= "" then equipped = equipped + 1 end
