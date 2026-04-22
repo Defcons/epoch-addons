@@ -1,10 +1,10 @@
--- EpochArmoryUI.lua
--- Claude: in-game UI for EpochArmoryDB:
---   * Paperdoll inspect frame for a single stored player (/epocharmory show)
+-- EpogArmoryUI.lua
+-- Claude: in-game UI for EpogArmoryDB:
+--   * Paperdoll inspect frame for a single stored player (/epogarmory show)
 --   * Browser frame with search-filtered list of all stored players
 --   * Minimap button that toggles the browser
 --
--- Loaded after EpochArmory.lua (TOC order) so SlashCmdList["EPOCHARMORY"]
+-- Loaded after EpogArmory.lua (TOC order) so SlashCmdList["EPOGARMORY"]
 -- already exists when this file runs.
 
 local inspectFrame = nil
@@ -92,9 +92,9 @@ end
 
 local function FindPlayer(name)
     if not name or name == "" then return nil end
-    if not EpochArmoryDB or not EpochArmoryDB.players then return nil end
+    if not EpogArmoryDB or not EpogArmoryDB.players then return nil end
     local low = name:lower()
-    for _, p in pairs(EpochArmoryDB.players) do
+    for _, p in pairs(EpogArmoryDB.players) do
         if (p.name or ""):lower() == low then return p end
     end
     return nil
@@ -103,7 +103,7 @@ end
 -- Claude: hidden tooltip used to force the client to cache item data for
 -- uncached itemIDs. GetItemInfo returns nil until the client has seen the
 -- item; SetHyperlink triggers the background fetch.
-local cacheTip = CreateFrame("GameTooltip", "EpochArmoryCacheTip", UIParent, "GameTooltipTemplate")
+local cacheTip = CreateFrame("GameTooltip", "EpogArmoryCacheTip", UIParent, "GameTooltipTemplate")
 cacheTip:SetOwner(UIParent, "ANCHOR_NONE")
 cacheTip:Hide()
 
@@ -117,7 +117,7 @@ local function MakeEdge(parent)
 end
 
 local function MakeSlotButton(parent, slotID)
-    local b = CreateFrame("Button", "EpochArmorySlotBtn" .. slotID, parent)
+    local b = CreateFrame("Button", "EpogArmorySlotBtn" .. slotID, parent)
     b:SetWidth(40); b:SetHeight(40)
     b.slotID = slotID
 
@@ -190,7 +190,7 @@ end
 -- ---------------- Paperdoll inspect frame ----------------
 
 local function BuildInspectFrame()
-    local f = CreateFrame("Frame", "EpochArmoryInspectFrame", UIParent)
+    local f = CreateFrame("Frame", "EpogArmoryInspectFrame", UIParent)
     f:SetWidth(290); f:SetHeight(500)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
@@ -208,7 +208,7 @@ local function BuildInspectFrame()
 
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     f.title:SetPoint("TOP", 0, -16)
-    f.title:SetText("EpochArmory")
+    f.title:SetText("EpogArmory")
 
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -4, -4)
@@ -228,7 +228,7 @@ local function BuildInspectFrame()
         f.slots[slotID] = btn
     end
 
-    tinsert(UISpecialFrames, "EpochArmoryInspectFrame")
+    tinsert(UISpecialFrames, "EpogArmoryInspectFrame")
     return f
 end
 
@@ -321,7 +321,7 @@ local BROWSER_ROWS = 18
 local BROWSER_ROW_HEIGHT = 18
 
 local function BuildBrowser()
-    local f = CreateFrame("Frame", "EpochArmoryBrowserFrame", UIParent)
+    local f = CreateFrame("Frame", "EpogArmoryBrowserFrame", UIParent)
     f:SetWidth(320); f:SetHeight(450)
     f:SetPoint("CENTER", UIParent, "CENTER", -180, 0)
     f:SetFrameStrata("DIALOG")
@@ -339,7 +339,7 @@ local function BuildBrowser()
 
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     f.title:SetPoint("TOP", 0, -16)
-    f.title:SetText("EpochArmory Browser")
+    f.title:SetText("EpogArmory Browser")
 
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -4, -4)
@@ -348,7 +348,7 @@ local function BuildBrowser()
     searchLabel:SetPoint("TOPLEFT", 22, -46)
     searchLabel:SetText("Search:")
 
-    local search = CreateFrame("EditBox", "EpochArmoryBrowserSearch", f, "InputBoxTemplate")
+    local search = CreateFrame("EditBox", "EpogArmoryBrowserSearch", f, "InputBoxTemplate")
     search:SetWidth(220); search:SetHeight(20)
     search:SetPoint("TOPLEFT", searchLabel, "TOPRIGHT", 10, 3)
     search:SetAutoFocus(false)
@@ -356,7 +356,7 @@ local function BuildBrowser()
     f.search = search
 
     -- Scroll frame
-    local scroll = CreateFrame("ScrollFrame", "EpochArmoryBrowserScroll", f, "FauxScrollFrameTemplate")
+    local scroll = CreateFrame("ScrollFrame", "EpogArmoryBrowserScroll", f, "FauxScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 18, -80)
     scroll:SetPoint("BOTTOMRIGHT", -32, 40)
     f.scroll = scroll
@@ -396,9 +396,9 @@ local function BuildBrowser()
 
     local function Update()
         local list = {}
-        if EpochArmoryDB and EpochArmoryDB.players then
+        if EpogArmoryDB and EpogArmoryDB.players then
             local filter = (search:GetText() or ""):lower()
-            for _, p in pairs(EpochArmoryDB.players) do
+            for _, p in pairs(EpogArmoryDB.players) do
                 if p and p.name then
                     if filter == "" or p.name:lower():find(filter, 1, true) then
                         list[#list + 1] = p
@@ -428,8 +428,8 @@ local function BuildBrowser()
         end
 
         local total = 0
-        if EpochArmoryDB and EpochArmoryDB.players then
-            for _ in pairs(EpochArmoryDB.players) do total = total + 1 end
+        if EpogArmoryDB and EpogArmoryDB.players then
+            for _ in pairs(EpogArmoryDB.players) do total = total + 1 end
         end
         if #list == total then
             f.countLabel:SetText(string.format("%d players stored", total))
@@ -446,7 +446,7 @@ local function BuildBrowser()
 
     f.Refresh = Update
 
-    tinsert(UISpecialFrames, "EpochArmoryBrowserFrame")
+    tinsert(UISpecialFrames, "EpogArmoryBrowserFrame")
     return f
 end
 
@@ -475,7 +475,7 @@ end
 
 local function BuildMinimapButton()
     if not Minimap then return end
-    local b = CreateFrame("Button", "EpochArmoryMinimapButton", Minimap)
+    local b = CreateFrame("Button", "EpogArmoryMinimapButton", Minimap)
     b:SetWidth(32); b:SetHeight(32)
     b:SetFrameStrata("MEDIUM")
     b:SetFrameLevel(8)
@@ -505,7 +505,7 @@ local function BuildMinimapButton()
 
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:SetText("EpochArmory")
+        GameTooltip:SetText("EpogArmory")
         GameTooltip:AddLine("Click to open the armory browser", 1, 1, 1)
         GameTooltip:AddLine("Drag to reposition around the minimap", 0.7, 0.7, 0.7)
         GameTooltip:Show()
@@ -521,9 +521,9 @@ local function BuildMinimapButton()
             local dx = px / scale - mx
             local dy = py / scale - my
             local angle = math.atan2(dy, dx)
-            EpochArmoryDB = EpochArmoryDB or {}
-            EpochArmoryDB.config = EpochArmoryDB.config or {}
-            EpochArmoryDB.config.minimapAngle = angle
+            EpogArmoryDB = EpogArmoryDB or {}
+            EpogArmoryDB.config = EpogArmoryDB.config or {}
+            EpogArmoryDB.config.minimapAngle = angle
             UpdateMinimapPos(angle)
         end)
     end)
@@ -539,27 +539,27 @@ local mmInit = CreateFrame("Frame")
 mmInit:RegisterEvent("PLAYER_LOGIN")
 mmInit:SetScript("OnEvent", function()
     minimapBtn = BuildMinimapButton()
-    local angle = (EpochArmoryDB and EpochArmoryDB.config and EpochArmoryDB.config.minimapAngle)
+    local angle = (EpogArmoryDB and EpogArmoryDB.config and EpogArmoryDB.config.minimapAngle)
         or math.rad(15) -- default near top-right of minimap
     UpdateMinimapPos(angle)
 end)
 
 -- ---------------- Slash hook ----------------
 
-local origHandler = SlashCmdList["EPOCHARMORY"]
-SlashCmdList["EPOCHARMORY"] = function(msg)
+local origHandler = SlashCmdList["EPOGARMORY"]
+SlashCmdList["EPOGARMORY"] = function(msg)
     msg = msg or ""
     local cmd, arg = msg:match("^(%S+)%s*(.*)$")
     local lcmd = (cmd or ""):lower()
     if lcmd == "show" or lcmd == "inspect" then
         local name = (arg and arg ~= "") and arg or (UnitName("target") or "")
         if name == "" then
-            print("|cffffaa44EpochArmory|r: usage — /epocharmory show <name>  (or target a player first)")
+            print("|cffffaa44EpogArmory|r: usage — /epogarmory show <name>  (or target a player first)")
             return
         end
         local player = FindPlayer(name)
         if not player then
-            print(string.format("|cffffaa44EpochArmory|r: no stored snapshot for '%s'", name))
+            print(string.format("|cffffaa44EpogArmory|r: no stored snapshot for '%s'", name))
             return
         end
         ShowInspect(player)

@@ -4,6 +4,35 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.5 — Rename EpochArmory → EpogArmory (brand consistency with epoglogs.com) *(2026-04-22)*
+
+Full rename across the project and sibling web repos for branding consistency with epoglogs.com:
+
+- Addon folder `EpochArmory/` → `EpogArmory/`
+- Lua files: `EpochArmory.lua` / `.toc` / `EpochArmoryUI.lua` → `EpogArmory.lua` / `.toc` / `EpogArmoryUI.lua`
+- SavedVariables: `EpochArmoryDB` → `EpogArmoryDB`, `EpochItemCacheDB` → `EpogItemCacheDB`
+- Slash commands: `/epocharmory …` → `/epogarmory …`
+- Chat prefix in all print output: `|cffffaa44EpochArmory|r` → `|cffffaa44EpogArmory|r`
+- Frame names (`EpochArmoryInspectFrame`, `EpochArmoryBrowserFrame`, `EpochArmoryMinimapButton`, etc.) renamed accordingly
+- `EpochArmoryDebug` global → `EpogArmoryDebug`
+
+**Sibling project renames** (for completeness — tracked in their own repos):
+- `C:\Dev\epoch-data` → `C:\Dev\epog-data`
+- `C:\Dev\epocharmory-web` → `C:\Dev\epogarmory-web`
+- `C:\Dev\warcraftlogs-epoch` → `C:\Dev\warcraftlogs-epog` (actually existed already as the canonical project; the typo folder was deleted)
+
+**Wire-protocol PREFIX unchanged** — still `"EpArmr"` (16-char addon-message channel identifier; changing would fragment the mesh across any older client versions).
+
+**SavedVariables migration:** ⚠️ existing users will lose their scanned data on upgrade — the SV filename changes from `EpochArmory.lua` to `EpogArmory.lua`, and the variable names change from `EpochArmoryDB` to `EpogArmoryDB`. Since the user testing had ~4 players, re-scanning is simpler than writing migration code. If you want to preserve data, copy `WTF/Account/<ACCT>/SavedVariables/EpochArmory.lua` to `EpogArmory.lua` AND edit it to rename the two variables before running the new addon.
+
+**Preserved (legitimately named "Epoch"):**
+- Game install path `epoch_live/`
+- In-game asset filenames like `inv_misc_coin_epoch_titan` (Ascension's own server content)
+- In-game spell titles like "Title: Of Epoch"
+- Historical CHANGELOG entries for v1.0..v1.4 (they describe what happened under the old name)
+
+---
+
 ## EpochArmory v1.4 — Item-info cache (GetItemInfo → SavedVariable) *(2026-04-22)*
 
 New `EpochItemCacheDB` SavedVariable that persists `GetItemInfo()` results for every itemID seen in any scan (local or received via mesh gossip). Populated with:

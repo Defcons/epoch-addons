@@ -1,11 +1,11 @@
--- EpochArmory.lua
+-- EpogArmory.lua
 -- Claude: single-addon mesh gear inspector. Every client runs the same code:
 -- scans self + groupmates in dungeons/raids, broadcasts chunked gear on the
 -- "EpArmr" addon-message prefix (internal identifier, fits the 16-char cap),
 -- receives other clients' broadcasts, and stores latest gear per GUID in
--- EpochArmoryDB for manual upload to epochlogs.com.
+-- EpogArmoryDB for manual upload to epoglogs.com.
 
-local ADDON = "EpochArmory"
+local ADDON = "EpogArmory"
 local PREFIX = "EpArmr"
 local PROTO = "1"
 
@@ -23,7 +23,7 @@ local MIN_STORE_EQUIPPED    = 10
 local ASSEMBLY_TIMEOUT      = 60
 local SCAN_FRESH_WINDOW     = 86400  -- Claude: 24h — skip re-inspecting a player anyone in the mesh scanned recently
 
--- Runtime config, persisted in EpochArmoryDB.config on logout.
+-- Runtime config, persisted in EpogArmoryDB.config on logout.
 local requireInstance = true
 
 local UTILITY_ITEMS = {
@@ -58,7 +58,7 @@ local nextInspectAt, nextSendAt, lastRoster = 0, 0, 0
 local msgCounter = 0
 local assembly = {}
 
--- Claude: item-info cache. EpochItemCacheDB is the persistent half; pendingCache
+-- Claude: item-info cache. EpogItemCacheDB is the persistent half; pendingCache
 -- is the in-memory retry queue for items the client hasn't fetched yet.
 local pendingCache = {} -- itemID -> firstSeenTime
 local CACHE_RETRY_INTERVAL = 0.5
@@ -67,8 +67,8 @@ local CACHE_GIVE_UP        = 15
 local function now() return GetTime() end
 
 local function dprint(...)
-    if EpochArmoryDebug then
-        print("|cffffaa44EpochArmory|r", ...)
+    if EpogArmoryDebug then
+        print("|cffffaa44EpogArmory|r", ...)
     end
 end
 
@@ -102,24 +102,24 @@ end
 -- max of current vs new so older arrivals don't overwrite fresh data.
 local function MarkInspected(guid, scanTime)
     if not guid or guid == "" or not scanTime or scanTime <= 0 then return end
-    EpochArmoryDB = EpochArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
-    EpochArmoryDB.lastScanned = EpochArmoryDB.lastScanned or {}
-    local existing = EpochArmoryDB.lastScanned[guid] or 0
+    EpogArmoryDB = EpogArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
+    EpogArmoryDB.lastScanned = EpogArmoryDB.lastScanned or {}
+    local existing = EpogArmoryDB.lastScanned[guid] or 0
     if scanTime > existing then
-        EpochArmoryDB.lastScanned[guid] = scanTime
+        EpogArmoryDB.lastScanned[guid] = scanTime
     end
 end
 
 local function HasFreshScan(guid)
-    if not EpochArmoryDB or not EpochArmoryDB.lastScanned then return false end
-    local t = EpochArmoryDB.lastScanned[guid]
+    if not EpogArmoryDB or not EpogArmoryDB.lastScanned then return false end
+    local t = EpogArmoryDB.lastScanned[guid]
     return t and (time() - t) < SCAN_FRESH_WINDOW
 end
 
 -- ---------------- Item-info cache ----------------
 -- Claude: for every itemID we see on a scanned player, query GetItemInfo()
 -- locally. If the client already has the item cached, we get
--- name/quality/itemLevel/texture and persist to EpochItemCacheDB so the web
+-- name/quality/itemLevel/texture and persist to EpogItemCacheDB so the web
 -- site can render without needing external data sources. If the client hasn't
 -- seen the item yet, we trigger a background fetch via a hidden tooltip and
 -- retry from an OnUpdate poll. Covers Ascension-custom items that aren't in
@@ -129,7 +129,7 @@ local cacheTip -- created lazily on first use
 
 local function TriggerItemFetch(itemID)
     if not cacheTip then
-        cacheTip = CreateFrame("GameTooltip", "EpochArmoryItemCacheTip", UIParent, "GameTooltipTemplate")
+        cacheTip = CreateFrame("GameTooltip", "EpogArmoryItemCacheTip", UIParent, "GameTooltipTemplate")
         cacheTip:SetOwner(UIParent, "ANCHOR_NONE")
     end
     cacheTip:ClearLines()
@@ -141,8 +141,8 @@ end
 -- false if still pending (client hasn't resolved the item yet).
 local function CacheItemInfo(itemID)
     if not itemID or itemID <= 0 then return false end
-    EpochItemCacheDB = EpochItemCacheDB or {}
-    if EpochItemCacheDB[itemID] then return true end -- already cached, skip re-query
+    EpogItemCacheDB = EpogItemCacheDB or {}
+    if EpogItemCacheDB[itemID] then return true end -- already cached, skip re-query
 
     local name, _, quality, itemLevel, _, _, _, _, _, texture = GetItemInfo(itemID)
     if not name then
@@ -155,7 +155,7 @@ local function CacheItemInfo(itemID)
         icon = texture:match("([^\\/]+)$") or texture
         icon = icon:lower()
     end
-    EpochItemCacheDB[itemID] = {
+    EpogItemCacheDB[itemID] = {
         name = name,
         quality = quality or 0,
         itemLevel = itemLevel or 0,
@@ -167,7 +167,7 @@ end
 
 local function MarkPendingCache(itemID)
     if not itemID or itemID <= 0 then return end
-    if EpochItemCacheDB and EpochItemCacheDB[itemID] then return end
+    if EpogItemCacheDB and EpogItemCacheDB[itemID] then return end
     if not pendingCache[itemID] then
         pendingCache[itemID] = now()
         TriggerItemFetch(itemID)
@@ -356,10 +356,10 @@ local function Ingest(payload, sender)
         return
     end
 
-    EpochArmoryDB = EpochArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
-    EpochArmoryDB.players = EpochArmoryDB.players or {}
+    EpogArmoryDB = EpogArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
+    EpogArmoryDB.players = EpogArmoryDB.players or {}
 
-    local existing = EpochArmoryDB.players[entry.guid]
+    local existing = EpogArmoryDB.players[entry.guid]
     if existing and (existing.scanTime or 0) >= entry.scanTime then
         dprint(string.format("[store] SKIP: %s — existing snapshot is newer (%s vs %s)",
             entry.name,
@@ -369,7 +369,7 @@ local function Ingest(payload, sender)
     end
 
     entry.scannedBy = sender or (UnitName("player") or "?")
-    EpochArmoryDB.players[entry.guid] = entry
+    EpogArmoryDB.players[entry.guid] = entry
     dprint(string.format("[store] OK: %s L%d [%s] — scanned by %s at %s",
         entry.name, entry.level, entry.zone, entry.scannedBy,
         date("%H:%M:%S", entry.scanTime)))
@@ -610,15 +610,15 @@ f:RegisterEvent("UNIT_INVENTORY_CHANGED") -- Claude: self gear changes trigger a
 
 f:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
-        EpochArmoryDB = EpochArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
-        EpochArmoryDB.players     = EpochArmoryDB.players     or {}
-        EpochArmoryDB.lastScanned = EpochArmoryDB.lastScanned or {}
-        EpochArmoryDB.config      = EpochArmoryDB.config      or {}
-        if EpochArmoryDB.config.requireInstance == nil then
-            EpochArmoryDB.config.requireInstance = true
+        EpogArmoryDB = EpogArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
+        EpogArmoryDB.players     = EpogArmoryDB.players     or {}
+        EpogArmoryDB.lastScanned = EpogArmoryDB.lastScanned or {}
+        EpogArmoryDB.config      = EpogArmoryDB.config      or {}
+        if EpogArmoryDB.config.requireInstance == nil then
+            EpogArmoryDB.config.requireInstance = true
         end
-        requireInstance = EpochArmoryDB.config.requireInstance
-        EpochItemCacheDB = EpochItemCacheDB or {}
+        requireInstance = EpogArmoryDB.config.requireInstance
+        EpogItemCacheDB = EpogItemCacheDB or {}
         RequestSelfScan(SELF_SCAN_LOGIN_DELAY) -- Claude: initial self-scan after talent data warms up
         return
     end
@@ -637,16 +637,16 @@ end)
 -- ---------------- Slash ----------------
 
 local function CountStored()
-    if not EpochArmoryDB or not EpochArmoryDB.players then return 0 end
+    if not EpogArmoryDB or not EpogArmoryDB.players then return 0 end
     local n = 0
-    for _ in pairs(EpochArmoryDB.players) do n = n + 1 end
+    for _ in pairs(EpogArmoryDB.players) do n = n + 1 end
     return n
 end
 
 local function CountTracked()
-    if not EpochArmoryDB or not EpochArmoryDB.lastScanned then return 0 end
+    if not EpogArmoryDB or not EpogArmoryDB.lastScanned then return 0 end
     local n = 0
-    for _ in pairs(EpochArmoryDB.lastScanned) do n = n + 1 end
+    for _ in pairs(EpogArmoryDB.lastScanned) do n = n + 1 end
     return n
 end
 
@@ -657,9 +657,9 @@ local function CountAssembly()
 end
 
 local function CountCache()
-    if not EpochItemCacheDB then return 0 end
+    if not EpogItemCacheDB then return 0 end
     local n = 0
-    for _ in pairs(EpochItemCacheDB) do n = n + 1 end
+    for _ in pairs(EpogItemCacheDB) do n = n + 1 end
     return n
 end
 
@@ -673,9 +673,9 @@ end
 -- Anything not cached locally gets queued for a SetHyperlink-triggered server
 -- fetch; the OnUpdate poll picks them up over the next few seconds.
 local function CacheBuildAll()
-    if not EpochArmoryDB or not EpochArmoryDB.players then return 0, 0, 0 end
+    if not EpogArmoryDB or not EpogArmoryDB.players then return 0, 0, 0 end
     local tried, hit, pended = 0, 0, 0
-    for _, p in pairs(EpochArmoryDB.players) do
+    for _, p in pairs(EpogArmoryDB.players) do
         if p.gear then
             for slot = 1, 19 do
                 local raw = p.gear[slot]
@@ -698,29 +698,29 @@ local function CacheBuildAll()
 end
 
 local function ShowHelp()
-    print("|cffffaa44EpochArmory|r commands:")
-    print("  /epocharmory show <name>   — open paperdoll for a stored player (or target + /epocharmory show)")
-    print("  /epocharmory browse        — open the searchable armory browser")
-    print("  /epocharmory status        — queue / broadcast / storage state")
-    print("  /epocharmory debug         — toggle verbose chat logging")
-    print("  /epocharmory list          — print every stored player")
-    print("  /epocharmory wipe          — clear stored players (keeps config)")
-    print("  /epocharmory instance on   — only scan/store inside dungeon/raid (default)")
-    print("  /epocharmory instance off  — scan/store everywhere (testing)")
-    print("  /epocharmory cache         — show item-info cache size")
-    print("  /epocharmory cachebuild    — fill the cache from all stored players' gear (names/quality/ilvl)")
-    print("  /epocharmory cachewipe     — clear the item-info cache")
+    print("|cffffaa44EpogArmory|r commands:")
+    print("  /epogarmory show <name>   — open paperdoll for a stored player (or target + /epogarmory show)")
+    print("  /epogarmory browse        — open the searchable armory browser")
+    print("  /epogarmory status        — queue / broadcast / storage state")
+    print("  /epogarmory debug         — toggle verbose chat logging")
+    print("  /epogarmory list          — print every stored player")
+    print("  /epogarmory wipe          — clear stored players (keeps config)")
+    print("  /epogarmory instance on   — only scan/store inside dungeon/raid (default)")
+    print("  /epogarmory instance off  — scan/store everywhere (testing)")
+    print("  /epogarmory cache         — show item-info cache size")
+    print("  /epogarmory cachebuild    — fill the cache from all stored players' gear (names/quality/ilvl)")
+    print("  /epogarmory cachewipe     — clear the item-info cache")
 end
 
-SLASH_EPOCHARMORY1 = "/epocharmory"
-SlashCmdList["EPOCHARMORY"] = function(msg)
+SLASH_EPOGARMORY1 = "/epogarmory"
+SlashCmdList["EPOGARMORY"] = function(msg)
     msg = (msg or ""):lower()
     if msg == "debug" then
-        EpochArmoryDebug = not EpochArmoryDebug
-        print("|cffffaa44EpochArmory|r debug:",
-            EpochArmoryDebug and "|cff00ff00ON|r" or "|cffff0000OFF|r")
+        EpogArmoryDebug = not EpogArmoryDebug
+        print("|cffffaa44EpogArmory|r debug:",
+            EpogArmoryDebug and "|cff00ff00ON|r" or "|cffff0000OFF|r")
     elseif msg == "status" then
-        print(string.format("|cffffaa44EpochArmory|r stored=%d tracked=%d cache=%d cachePending=%d queue=%d outPending=%d asm=%d currentInspect=%s requireInstance=%s inCombat=%s zone=%s",
+        print(string.format("|cffffaa44EpogArmory|r stored=%d tracked=%d cache=%d cachePending=%d queue=%d outPending=%d asm=%d currentInspect=%s requireInstance=%s inCombat=%s zone=%s",
             CountStored(), CountTracked(), CountCache(), CountPending(),
             #queue, #outQueue, CountAssembly(),
             current and UnitName(current.unit) or "none",
@@ -728,35 +728,35 @@ SlashCmdList["EPOCHARMORY"] = function(msg)
             tostring(InCombatLockdown()),
             ZoneType()))
     elseif msg == "cache" then
-        print(string.format("|cffffaa44EpochArmory|r cache: %d items known, %d pending client fetch",
+        print(string.format("|cffffaa44EpogArmory|r cache: %d items known, %d pending client fetch",
             CountCache(), CountPending()))
     elseif msg == "cachebuild" then
         local tried, hit, pended = CacheBuildAll()
-        print(string.format("|cffffaa44EpochArmory|r cachebuild: %d items scanned, %d already known, %d queued for fetch (check /epocharmory cache in ~15s)",
+        print(string.format("|cffffaa44EpogArmory|r cachebuild: %d items scanned, %d already known, %d queued for fetch (check /epogarmory cache in ~15s)",
             tried, hit, pended))
     elseif msg == "cachewipe" then
-        EpochItemCacheDB = {}
+        EpogItemCacheDB = {}
         pendingCache = {}
-        print("|cffffaa44EpochArmory|r: wiped item-info cache")
+        print("|cffffaa44EpogArmory|r: wiped item-info cache")
     elseif msg == "instance on" or msg == "instance true" then
         requireInstance = true
-        EpochArmoryDB = EpochArmoryDB or {}
-        EpochArmoryDB.config = EpochArmoryDB.config or {}
-        EpochArmoryDB.config.requireInstance = true
-        print("|cffffaa44EpochArmory|r: requireInstance = |cff00ff00true|r (scan + store only in dungeon/raid)")
+        EpogArmoryDB = EpogArmoryDB or {}
+        EpogArmoryDB.config = EpogArmoryDB.config or {}
+        EpogArmoryDB.config.requireInstance = true
+        print("|cffffaa44EpogArmory|r: requireInstance = |cff00ff00true|r (scan + store only in dungeon/raid)")
     elseif msg == "instance off" or msg == "instance false" then
         requireInstance = false
-        EpochArmoryDB = EpochArmoryDB or {}
-        EpochArmoryDB.config = EpochArmoryDB.config or {}
-        EpochArmoryDB.config.requireInstance = false
-        print("|cffffaa44EpochArmory|r: requireInstance = |cffff0000false|r (scan + store everywhere — testing mode)")
+        EpogArmoryDB = EpogArmoryDB or {}
+        EpogArmoryDB.config = EpogArmoryDB.config or {}
+        EpogArmoryDB.config.requireInstance = false
+        print("|cffffaa44EpogArmory|r: requireInstance = |cffff0000false|r (scan + store everywhere — testing mode)")
     elseif msg == "wipe" then
-        local kept = EpochArmoryDB and EpochArmoryDB.config or {}
-        EpochArmoryDB = { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = kept }
-        print("|cffffaa44EpochArmory|r: wiped players + lastScanned (kept config)")
+        local kept = EpogArmoryDB and EpogArmoryDB.config or {}
+        EpogArmoryDB = { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = kept }
+        print("|cffffaa44EpogArmory|r: wiped players + lastScanned (kept config)")
     elseif msg == "list" then
-        if not EpochArmoryDB or not EpochArmoryDB.players then print("empty") return end
-        for guid, p in pairs(EpochArmoryDB.players) do
+        if not EpogArmoryDB or not EpogArmoryDB.players then print("empty") return end
+        for guid, p in pairs(EpogArmoryDB.players) do
             print(string.format("  %s %s L%d [%s] — by %s at %s",
                 p.class or "?", p.name or "?", p.level or 0, p.zone or "?",
                 p.scannedBy or "?", date("%Y-%m-%d %H:%M", p.scanTime or 0)))
