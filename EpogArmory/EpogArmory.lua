@@ -218,6 +218,41 @@ end
 
 -- ---------------- Build + broadcast ----------------
 
+-- Read the talent point distribution across the 3 tabs for a given unit.
+-- Ascension's classless system sometimes returns 0 from GetTalentTabInfo's
+-- pointsSpent field even when the player has real talents — so we also fall
+-- back to summing pointsSpent across individual GetTalentInfo() reads. The
+-- explicit talentGroup (from GetActiveTalentGroup) helps in cases where the
+-- API doesn't default to the active group on Ascension.
+local function ReadSpecPoints(unit)
+    -- inspectFlag: 1 when reading another unit's talents (after NotifyInspect),
+    -- nil for "player" — standard 3.3.5 GetTalentTabInfo convention.
+    local isInspect = UnitIsUnit(unit, "player") and nil or 1
+    local activeGroup
+    if GetActiveTalentGroup then
+        -- GetActiveTalentGroup takes (isInspect, isPet) as booleans
+        activeGroup = GetActiveTalentGroup(isInspect ~= nil, false)
+    end
+
+    local function tabPoints(tabIndex)
+        local pts = select(3, GetTalentTabInfo(tabIndex, isInspect, nil, activeGroup)) or 0
+        if pts > 0 then return pts end
+        -- Fallback: iterate talents in this tab and sum pointsSpent directly.
+        if GetNumTalents and GetTalentInfo then
+            local n = GetNumTalents(tabIndex, isInspect) or 0
+            local total = 0
+            for i = 1, n do
+                local _, _, _, _, spent = GetTalentInfo(tabIndex, i, isInspect, nil, activeGroup)
+                total = total + (spent or 0)
+            end
+            if total > 0 then return total end
+        end
+        return 0
+    end
+
+    return tabPoints(1), tabPoints(2), tabPoints(3)
+end
+
 local function BuildPayload(unit, guid)
     local name = UnitName(unit)
     if not name or name == "" or name == UNKNOWN then return nil, "name unresolved" end
@@ -226,13 +261,7 @@ local function BuildPayload(unit, guid)
     classFile = classFile or ""
     local level = UnitLevel(unit) or 0
 
-    -- GetTalentTabInfo's second arg is the inspect flag — pass 1 when
-    -- reading another unit's talents (after NotifyInspect), nil when reading
-    -- our own talents from a direct "player" scan.
-    local inspectFlag = UnitIsUnit(unit, "player") and nil or 1
-    local s1 = select(3, GetTalentTabInfo(1, inspectFlag)) or 0
-    local s2 = select(3, GetTalentTabInfo(2, inspectFlag)) or 0
-    local s3 = select(3, GetTalentTabInfo(3, inspectFlag)) or 0
+    local s1, s2, s3 = ReadSpecPoints(unit)
 
     local parts = {
         "v" .. PROTO,
@@ -623,6 +652,23 @@ local SELF_SCAN_LOGIN_DELAY = 3
 
 local selfScanPending = false
 local selfScanAt = 0
+-- Fingerprint of the last successfully-broadcast self-scan (level + talents
+-- + gear itemStrings). On Ascension, UNIT_INVENTORY_CHANGED fires every ~15s
+-- for reasons unrelated to real gear swaps (durability ticks, aura procs,
+-- server-side refreshes), so without this check we'd rebroadcast the same
+-- payload over and over. The fingerprint changes only when something that
+-- actually matters to the mesh has changed.
+local lastSelfFingerprint = ""
+
+local function SelfFingerprint()
+    local parts = { tostring(UnitLevel("player") or 0) }
+    local s1, s2, s3 = ReadSpecPoints("player")
+    parts[#parts + 1] = string.format("%d:%d:%d", s1, s2, s3)
+    for slot = 1, 19 do
+        parts[#parts + 1] = ItemStringFromLink(GetInventoryItemLink("player", slot))
+    end
+    return table.concat(parts, "|")
+end
 
 local function RequestSelfScan(delay)
     selfScanPending = true
@@ -647,11 +693,19 @@ local function TryScanSelf()
     local playerGUID = UnitGUID("player")
     if not playerGUID then return end
 
+    -- Dedup: if nothing meaningful has changed since the last broadcast, skip.
+    local fp = SelfFingerprint()
+    if fp == lastSelfFingerprint then
+        dprint("[self] skip — level/talents/gear unchanged since last scan")
+        return
+    end
+
     local payload, info = BuildPayload("player", playerGUID)
     if not payload then
         dprint(string.format("[self] scan skipped — %s", info or "unknown"))
         return
     end
+    lastSelfFingerprint = fp
     dprint(string.format("[self] scanned self — %d slots equipped, payload %d bytes",
         info, #payload))
     MarkInspected(playerGUID, floor(time()))
@@ -693,6 +747,7 @@ f:RegisterEvent("RAID_ROSTER_UPDATE")
 f:RegisterEvent("INSPECT_TALENT_READY")
 f:RegisterEvent("CHAT_MSG_ADDON")
 f:RegisterEvent("UNIT_INVENTORY_CHANGED") -- self gear changes trigger a rescan of "player"
+f:RegisterEvent("PLAYER_TALENT_UPDATE")   -- respec / dual-spec switch triggers a rescan of "player"
 
 f:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
@@ -716,6 +771,8 @@ f:SetScript("OnEvent", function(self, event, ...)
     elseif event == "UNIT_INVENTORY_CHANGED" then
         local unit = ...
         if unit == "player" then RequestSelfScan() end
+    elseif event == "PLAYER_TALENT_UPDATE" then
+        RequestSelfScan()
     else
         ScanRoster()
     end

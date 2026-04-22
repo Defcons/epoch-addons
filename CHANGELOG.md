@@ -4,6 +4,34 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.9 — Robust talent read + self-scan dedup *(2026-04-22)*
+
+Two fixes: restore working talent reads on Ascension (v0.8 dropped the gate, but we actually want the data), and stop spamming duplicate self-broadcasts every ~15s.
+
+**Self-scan dedup (new).** `UNIT_INVENTORY_CHANGED` fires on the player every ~15s on Ascension for reasons unrelated to real gear swaps (durability ticks, aura procs, server-side inventory refreshes). Without a dedup gate, every fire triggered a fresh broadcast of the same 532-byte payload — spamming GUILD chat, spamming every other mesh client, and spamming the local debug output:
+
+```
+[self] scanned self — 19 slots equipped, payload 532 bytes
+[send] Defcon: 3 chunks x 1 channels [GUILD]
+[recv] new scan from Defcon (own broadcast echoing back through guild)
+[store] SKIP: existing snapshot is newer (15:58:01 vs 15:58:01)
+```
+
+Note: the 24h `HasFreshScan` dedup only gates *other-player inspects* via `AddUnit()`. Self-scans have always been a separate path. The new fix fingerprints `level + talents + gear itemStrings` at the top of `TryScanSelf`; if nothing meaningful has changed since the last broadcast, the scan short-circuits with `[self] skip — level/talents/gear unchanged since last scan`. Real gear swaps and respecs still go through immediately.
+
+**Robust talent read.** Earlier versions of this addon successfully fetched talent points on Ascension, so v0.8's "just drop the spec gate" was the right immediate fix but the wrong long-term one — we want the data so we can build per-spec gear sets later. This release makes the talent read robust.
+
+**New `ReadSpecPoints(unit)` helper** in `BuildPayload`:
+1. First tries `GetTalentTabInfo(tab, isInspect, nil, activeGroup)` with an explicit `activeGroup` from `GetActiveTalentGroup()` — Ascension's classless system doesn't always default to the active group correctly.
+2. If that returns 0 for a tab, falls back to iterating `GetTalentInfo(tab, i, ...)` across every talent in the tab and summing `pointsSpent` directly. This bypasses whatever is breaking the tab-level aggregation.
+3. Returns 0 only when both paths report zero — a real "no points spent" result.
+
+**New event: `PLAYER_TALENT_UPDATE`** → triggers a self-scan. Respecs, dual-spec switches, and Ascension talent-tree changes now capture fresh talent data instead of waiting for the next gear change.
+
+**Forward-looking note:** `GetActiveTalentGroup()` is captured inside `ReadSpecPoints` but isn't yet broadcast on the wire. When we add per-spec gear storage in a later release, the plan is to append `activeGroup` as position-31 in the payload (per the v0.7 append-only rule), so v0.9 clients can keep ingesting without a protocol bump.
+
+---
+
 ## EpogArmory v0.8 — Drop dominant-spec gate (broken on Ascension classless) *(2026-04-22)*
 
 The v0.7 dominant-spec validation rejected every scan — including fully-geared L60 self-scans — because Ascension is classless and `GetTalentTabInfo(tab, ...)` returns 0 points-spent for every tab regardless of the player's actual talent investment. Observed in-game:
