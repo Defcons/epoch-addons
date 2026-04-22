@@ -4,6 +4,57 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.13 — Per-spec gear sets + expanded filters + 24h self-scan *(2026-04-22)* *(local-only, not released yet)*
+
+Big feature release. Four things.
+
+### 1. Per-spec gear storage (3 sets per player)
+
+The DB shape was one gear snapshot per player GUID. Now it's one per active talent group — up to 3 sets per player (group 1 / 2 / 3). Respeccing or dual-spec-switching captures the new spec's gear without overwriting the old spec's set.
+
+**Data model change:**
+```
+-- Before
+players[guid] = { name, realm, class, level, spec, gear, scanTime, zone, scannedBy }
+-- After
+players[guid] = {
+    name, realm, class, level,
+    sets = {
+        [1] = { spec = {s1,s2,s3}, gear = {...}, scanTime, zone, scannedBy },
+        [2] = { ... },
+        [3] = { ... },
+    },
+    spec, gear, scanTime, zone, scannedBy,  -- mirror of the latest set (UI compat)
+}
+```
+
+**Migration:** on `PLAYER_LOGIN`, every pre-v0.13 flat entry is wrapped into `sets[1]` (with a `[migrate] wrapped N pre-v0.13 players into sets[1]` debug line). The top-level mirror stays populated to latest set on every Ingest, so the browser and any old consumers keep working unchanged.
+
+**Wire format:** `activeTalentGroup` appended at payload position 31, per the v0.7 append-only rule. Old v0.12 clients ignore it. v0.13 clients default to `1` when the field is absent. No PROTO bump — mesh is forward-compatible.
+
+### 2. Spec switcher in the inspect window
+
+Three buttons (`Spec 1`, `Spec 2`, `Spec 3`) between the meta header and the gear grid. Opening a player defaults to whichever group has the most recent scan. Click a button to swap the displayed set. Empty groups (no scan yet) show the button dimmed + disabled. Inspect frame extended 30px vertically to fit the button row without cramping the slots.
+
+### 3. Expanded "invalid loadout" filter
+
+Both sender (`BuildPayload`) and receiver (`ShouldStore`) now reject scans where:
+
+- **Name match, any slot** — `"Rugged Sandle"` or `"Rugged Sandal"` (resolved via `GetItemInfo`, so it works across any Ascension-custom item ID that has this name).
+- **Name match, trinket slots only (13, 14)** — any item with `"Insignia"` in the name. Covers PvP insignia trinkets.
+- **Enchant tooltip scan, boots (slot 8) + gloves (slot 10) only** — any enchant line containing `"Mithril Spurs"`. Sender-side only (tooltip-scanning is cheap locally but expensive to re-do on every received broadcast; we trust mesh peers running the same filter).
+- **Pre-existing** — `"Enchant Gloves - Riding Skill"` enchant ID (464) continues to catch the Minor Mount Speed glove enchant by ID fast-path.
+
+### 4. Self-scan: per-spec 24h rate limit
+
+`TryScanSelf` now skips the scan when the *currently-active talent group*'s set is less than 24h old, even if gear changed. Respeccing to a different group is not blocked — the new group's set has its own (stale or absent) scanTime, so the gate opens immediately after a spec switch. The fingerprint check (v0.9) is still the silent fast-path for "nothing changed at all"; the 24h gate is the rate-limit for "something changed but we scanned this spec recently".
+
+Log lines:
+- `[self] skip — spec 1 set scanned 3.4h ago (24h rate limit)` — the 24h gate holding a gear-change broadcast
+- (silent) — fingerprint unchanged, no log noise every 15s
+
+---
+
 ## EpogArmory v0.12 — Slow down peer broadcast chatter *(2026-04-22)* *(local-only, not released yet)*
 
 `BROADCAST_STAGGER` was `0.3s` — each scan drained its 6 addon-messages (3 chunks × 2 channels) in ~1.8s, pushing ~290 B/s of outgoing chatter for the user's client and their mesh peers.

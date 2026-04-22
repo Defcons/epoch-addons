@@ -28,23 +28,26 @@ local SLOT_BG_MAP = {
 }
 
 -- Two-column paperdoll layout: 8 slots left, 8 slots right, 3 weapons bottom.
+-- All TOP-anchored rows shifted by -30 vs original to make room for the
+-- spec-switcher button row at y=-82 (added in v0.13). Bottom weapons are
+-- unchanged (anchored to frame bottom).
 local SLOT_POS = {
-    [1]  = { "TOPLEFT",   15,  -90 }, -- Head
-    [2]  = { "TOPLEFT",   15, -134 }, -- Neck
-    [3]  = { "TOPLEFT",   15, -178 }, -- Shoulder
-    [15] = { "TOPLEFT",   15, -222 }, -- Back
-    [5]  = { "TOPLEFT",   15, -266 }, -- Chest
-    [4]  = { "TOPLEFT",   15, -310 }, -- Shirt
-    [19] = { "TOPLEFT",   15, -354 }, -- Tabard
-    [9]  = { "TOPLEFT",   15, -398 }, -- Wrist
-    [10] = { "TOPRIGHT", -15,  -90 }, -- Hands
-    [6]  = { "TOPRIGHT", -15, -134 }, -- Waist
-    [7]  = { "TOPRIGHT", -15, -178 }, -- Legs
-    [8]  = { "TOPRIGHT", -15, -222 }, -- Feet
-    [11] = { "TOPRIGHT", -15, -266 }, -- Finger 1
-    [12] = { "TOPRIGHT", -15, -310 }, -- Finger 2
-    [13] = { "TOPRIGHT", -15, -354 }, -- Trinket 1
-    [14] = { "TOPRIGHT", -15, -398 }, -- Trinket 2
+    [1]  = { "TOPLEFT",   15, -120 }, -- Head
+    [2]  = { "TOPLEFT",   15, -164 }, -- Neck
+    [3]  = { "TOPLEFT",   15, -208 }, -- Shoulder
+    [15] = { "TOPLEFT",   15, -252 }, -- Back
+    [5]  = { "TOPLEFT",   15, -296 }, -- Chest
+    [4]  = { "TOPLEFT",   15, -340 }, -- Shirt
+    [19] = { "TOPLEFT",   15, -384 }, -- Tabard
+    [9]  = { "TOPLEFT",   15, -428 }, -- Wrist
+    [10] = { "TOPRIGHT", -15, -120 }, -- Hands
+    [6]  = { "TOPRIGHT", -15, -164 }, -- Waist
+    [7]  = { "TOPRIGHT", -15, -208 }, -- Legs
+    [8]  = { "TOPRIGHT", -15, -252 }, -- Feet
+    [11] = { "TOPRIGHT", -15, -296 }, -- Finger 1
+    [12] = { "TOPRIGHT", -15, -340 }, -- Finger 2
+    [13] = { "TOPRIGHT", -15, -384 }, -- Trinket 1
+    [14] = { "TOPRIGHT", -15, -428 }, -- Trinket 2
     [16] = { "BOTTOMLEFT",  55, 20 }, -- Main Hand
     [17] = { "BOTTOM",       0, 20 }, -- Off Hand
     [18] = { "BOTTOMRIGHT", -55, 20 }, -- Ranged
@@ -189,9 +192,16 @@ end
 
 -- ---------------- Paperdoll inspect frame ----------------
 
+-- Forward declarations: both are defined later in the file but are referenced
+-- by the spec-button OnClick handlers created inside BuildInspectFrame. Lua
+-- 5.1 resolves unresolved names in closures at compile time, so without the
+-- forward `local`, these would bind to globals (= nil at click time).
+local RenderActiveSet
+local RefreshIcons
+
 local function BuildInspectFrame()
     local f = CreateFrame("Frame", "EpogArmoryInspectFrame", UIParent)
-    f:SetWidth(290); f:SetHeight(500)
+    f:SetWidth(290); f:SetHeight(530)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetBackdrop({
@@ -221,6 +231,29 @@ local function BuildInspectFrame()
     f.metaText:SetWidth(270)
     f.metaText:SetJustifyH("CENTER")
 
+    -- Spec switcher: 3 buttons between the meta text and the first slot row.
+    -- Each button toggles which talent-group's set is rendered in the slots.
+    -- Empty sets (no scan yet for that group) keep their button disabled.
+    f.specBtns = {}
+    for g = 1, 3 do
+        local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        b:SetWidth(62)
+        b:SetHeight(20)
+        b:SetPoint("TOP", f, "TOP", (g - 2) * 68, -82)
+        b:SetText("Spec " .. g)
+        b:SetScript("OnClick", function()
+            if f.activePlayer and RenderActiveSet then
+                f.activeGroup = g
+                RenderActiveSet()
+                -- Re-render icons for the newly-selected set. Any uncached
+                -- items get picked up by the ticker loop started in ShowInspect;
+                -- we don't need to restart the ticker here.
+                RefreshIcons()
+            end
+        end)
+        f.specBtns[g] = b
+    end
+
     f.slots = {}
     for slotID, pos in pairs(SLOT_POS) do
         local btn = MakeSlotButton(f, slotID)
@@ -232,7 +265,8 @@ local function BuildInspectFrame()
     return f
 end
 
-local function RefreshIcons()
+-- (forward-declared above BuildInspectFrame)
+function RefreshIcons()
     if not inspectFrame then return 0 end
     local pending = 0
     for _, btn in pairs(inspectFrame.slots) do
@@ -269,8 +303,37 @@ local function RefreshIcons()
     return pending
 end
 
-local function ShowInspect(player)
-    if not inspectFrame then inspectFrame = BuildInspectFrame() end
+-- Pick the talent group with the most recent scan — used as the default
+-- displayed set when the inspect window opens.
+local function FindLatestGroup(player)
+    if not (player and player.sets) then return 1 end
+    local latestGroup, latestTime = nil, 0
+    for g, s in pairs(player.sets) do
+        if (s.scanTime or 0) > latestTime then
+            latestGroup, latestTime = g, s.scanTime or 0
+        end
+    end
+    return latestGroup or 1
+end
+
+-- Render whichever player + talent group is currently marked active on the
+-- inspect frame. Called on initial open AND every time a spec button is
+-- clicked. All the rendering logic lives here so the spec-switcher only has
+-- to flip `inspectFrame.activeGroup` and call this.
+RenderActiveSet = function()
+    if not inspectFrame or not inspectFrame.activePlayer then return end
+    local player = inspectFrame.activePlayer
+    local group  = inspectFrame.activeGroup or 1
+    local set    = (player.sets and player.sets[group]) or nil
+
+    -- Fallback: if this group has no set (shouldn't happen for the default
+    -- since we pick FindLatestGroup), use the top-level mirror so the frame
+    -- still renders rather than going blank.
+    local spec      = (set and set.spec)      or player.spec     or {0,0,0}
+    local gear      = (set and set.gear)      or player.gear     or {}
+    local scanTime  = (set and set.scanTime)  or player.scanTime or 0
+    local zone      = (set and set.zone)      or player.zone     or ""
+    local scannedBy = (set and set.scannedBy) or player.scannedBy or "?"
 
     local cls = player.class or ""
     local c = (RAID_CLASS_COLORS or {})[cls]
@@ -282,19 +345,43 @@ local function ShowInspect(player)
     inspectFrame.nameText:SetText(string.format("%s  (L%d %s)",
         player.name or "?", player.level or 0, cls))
 
-    local spec = FormatSpec(cls, player.spec)
-    local line2 = string.format("Scanned %s [%s]  by %s",
-        FormatAge(player.scanTime), player.zone or "?", player.scannedBy or "?")
-    if spec ~= "" then
-        inspectFrame.metaText:SetText(spec .. "\n" .. line2)
+    local specText = FormatSpec(cls, spec)
+    local line2 = string.format("Spec %d · Scanned %s [%s] by %s",
+        group, FormatAge(scanTime), zone, scannedBy)
+    if specText ~= "" then
+        inspectFrame.metaText:SetText(specText .. "\n" .. line2)
     else
         inspectFrame.metaText:SetText(line2)
     end
 
+    -- Spec button states: highlight the active group, dim + disable empty groups
+    for g = 1, 3 do
+        local b = inspectFrame.specBtns and inspectFrame.specBtns[g]
+        if b then
+            local hasSet = player.sets and player.sets[g] ~= nil
+            if hasSet then
+                b:Enable()
+                b:SetAlpha(1.0)
+            else
+                b:Disable()
+                b:SetAlpha(0.4)
+            end
+            if g == group then b:LockHighlight() else b:UnlockHighlight() end
+        end
+    end
+
     for slotID, btn in pairs(inspectFrame.slots) do
-        btn.itemString = (player.gear or {})[slotID] or ""
+        btn.itemString = gear[slotID] or ""
         btn.link = nil
     end
+end
+
+local function ShowInspect(player, group)
+    if not inspectFrame then inspectFrame = BuildInspectFrame() end
+    inspectFrame.activePlayer = player
+    inspectFrame.activeGroup  = group or FindLatestGroup(player)
+
+    RenderActiveSet()
 
     local pending = RefreshIcons()
     inspectFrame:Show()

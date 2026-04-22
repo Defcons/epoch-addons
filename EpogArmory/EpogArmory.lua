@@ -60,8 +60,34 @@ local UTILITY_ITEMS = {
 }
 
 local UTILITY_ENCHANTS = {
-    [464] = "Enchant Gloves - Riding Skill",
+    [464] = "Enchant Gloves - Riding Skill", -- Minor +mount speed
 }
+
+-- Item-name blacklist patterns, matched via GetItemInfo at store time. Used
+-- for items whose IDs vary across Ascension's custom content but whose names
+-- are stable.
+local UTILITY_ITEM_NAMES_ANY_SLOT = {
+    "Rugged Sandle",   -- user's spelling (exact)
+    "Rugged Sandal",   -- alternate spelling ("Rugged Sandals")
+}
+
+-- Slot-restricted name patterns. Applied only when the item is in the listed
+-- equipment slots. Keyed by slot index (13, 14 = trinket slots).
+local UTILITY_ITEM_NAMES_BY_SLOT = {
+    [13] = { "Insignia" }, -- PvP trinkets: "Insignia of the Alliance/Horde" etc.
+    [14] = { "Insignia" },
+}
+
+-- Enchant-name patterns matched by tooltip text on specific slots. Used when
+-- an enchant doesn't have a stable SpellItemEnchantment.dbc ID we can rely on
+-- (e.g. Mithril Spurs — legacy engineering boot enchant). Only scanned on
+-- slots in MOUNT_ENCHANT_SLOTS below, and only at BuildPayload time (sender
+-- side) to avoid tooltip-scanning every received broadcast.
+local UTILITY_ENCHANT_TOOLTIP_PATTERNS = {
+    "Mithril Spurs",
+}
+
+local MOUNT_ENCHANT_SLOTS = { 8, 10 } -- feet, hands
 
 -- State
 local queue, inQueue, seen = {}, {}, {}
@@ -230,14 +256,15 @@ end
 -- back to summing pointsSpent across individual GetTalentInfo() reads. The
 -- explicit talentGroup (from GetActiveTalentGroup) helps in cases where the
 -- API doesn't default to the active group on Ascension.
+-- Returns: s1, s2, s3, activeGroup (1-based, defaults to 1 when API missing).
 local function ReadSpecPoints(unit)
     -- inspectFlag: 1 when reading another unit's talents (after NotifyInspect),
     -- nil for "player" — standard 3.3.5 GetTalentTabInfo convention.
     local isInspect = UnitIsUnit(unit, "player") and nil or 1
-    local activeGroup
+    local activeGroup = 1
     if GetActiveTalentGroup then
         -- GetActiveTalentGroup takes (isInspect, isPet) as booleans
-        activeGroup = GetActiveTalentGroup(isInspect ~= nil, false)
+        activeGroup = GetActiveTalentGroup(isInspect ~= nil, false) or 1
     end
 
     local function tabPoints(tabIndex)
@@ -256,7 +283,30 @@ local function ReadSpecPoints(unit)
         return 0
     end
 
-    return tabPoints(1), tabPoints(2), tabPoints(3)
+    return tabPoints(1), tabPoints(2), tabPoints(3), activeGroup
+end
+
+-- Scan the enchant description lines of an equipped item for blacklisted
+-- patterns (Mithril Spurs etc.). Returns the first matching pattern or nil.
+-- Only called on sender side (BuildPayload) so received broadcasts don't
+-- pay the tooltip cost.
+local enchantScanTip
+local function ScanEnchantTooltip(link)
+    if not link then return nil end
+    if not enchantScanTip then
+        enchantScanTip = CreateFrame("GameTooltip", "EpogArmoryEnchantScanTip", UIParent, "GameTooltipTemplate")
+    end
+    enchantScanTip:SetOwner(UIParent, "ANCHOR_NONE")
+    enchantScanTip:ClearLines()
+    enchantScanTip:SetHyperlink(link)
+    for i = 1, enchantScanTip:NumLines() do
+        local fs = _G["EpogArmoryEnchantScanTipTextLeft" .. i]
+        local text = fs and fs:GetText() or ""
+        for _, pat in ipairs(UTILITY_ENCHANT_TOOLTIP_PATTERNS) do
+            if text:find(pat, 1, true) then return pat end
+        end
+    end
+    return nil
 end
 
 local function BuildPayload(unit, guid)
@@ -267,7 +317,7 @@ local function BuildPayload(unit, guid)
     classFile = classFile or ""
     local level = UnitLevel(unit) or 0
 
-    local s1, s2, s3 = ReadSpecPoints(unit)
+    local s1, s2, s3, activeGroup = ReadSpecPoints(unit)
 
     local parts = {
         "v" .. PROTO,
@@ -281,11 +331,45 @@ local function BuildPayload(unit, guid)
         local link = GetInventoryItemLink(unit, slot)
         local istr = ItemStringFromLink(link)
         if istr ~= "" then equipped = equipped + 1 end
+
+        -- Name-based item blacklist (sender side — receive side also checks)
+        if link then
+            local itemName = GetItemInfo(link)
+            if itemName then
+                for _, pat in ipairs(UTILITY_ITEM_NAMES_ANY_SLOT) do
+                    if itemName:find(pat, 1, true) then
+                        return nil, string.format("utility item '%s' in slot %d", itemName, slot)
+                    end
+                end
+                local bySlot = UTILITY_ITEM_NAMES_BY_SLOT[slot]
+                if bySlot then
+                    for _, pat in ipairs(bySlot) do
+                        if itemName:find(pat, 1, true) then
+                            return nil, string.format("utility item '%s' in slot %d (blacklisted pattern '%s')", itemName, slot, pat)
+                        end
+                    end
+                end
+            end
+        end
+
         parts[#parts + 1] = istr
+    end
+    -- Mount enchant tooltip scan on boots + gloves. Only runs once per scan
+    -- per slot, only on sender side.
+    for _, mountSlot in ipairs(MOUNT_ENCHANT_SLOTS) do
+        local link = GetInventoryItemLink(unit, mountSlot)
+        local bad = ScanEnchantTooltip(link)
+        if bad then
+            return nil, string.format("mount enchant '%s' on slot %d", bad, mountSlot)
+        end
     end
     if equipped < 10 then
         return nil, string.format("only %d slots equipped (inspect data incomplete?)", equipped)
     end
+    -- Append activeTalentGroup at position 31 (per v0.7 append-only rule).
+    -- Old v0.12 clients parse t[1..30] and ignore this; new v0.13+ clients
+    -- read it for per-spec gear storage. Absent → default to group 1.
+    parts[#parts + 1] = tostring(activeGroup)
     return table.concat(parts, "^"), equipped
 end
 
@@ -366,6 +450,28 @@ local function ShouldStore(entry)
             if UTILITY_ENCHANTS[eid] then
                 return false, "utility enchant: " .. UTILITY_ENCHANTS[eid]
             end
+            -- Name-pattern blacklist (works across all Ascension custom item IDs).
+            -- Only effective if GetItemInfo has cached the item — uncached items
+            -- pass through this check. CachePayloadItems runs before ShouldStore
+            -- so most will be resolved by now.
+            if iid > 0 then
+                local itemName = GetItemInfo(iid)
+                if itemName then
+                    for _, pat in ipairs(UTILITY_ITEM_NAMES_ANY_SLOT) do
+                        if itemName:find(pat, 1, true) then
+                            return false, "utility item name: " .. itemName
+                        end
+                    end
+                    local bySlot = UTILITY_ITEM_NAMES_BY_SLOT[slot]
+                    if bySlot then
+                        for _, pat in ipairs(bySlot) do
+                            if itemName:find(pat, 1, true) then
+                                return false, string.format("utility item in slot %d: %s", slot, itemName)
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
     return true
@@ -382,15 +488,16 @@ local function ParsePayload(payload)
         return nil
     end
     local entry = {
-        name      = t[2] or "",
-        realm     = t[3] or "",
-        class     = t[4] or "",
-        level     = tonumber(t[5]) or 0,
-        guid      = t[6] or "",
-        spec      = { tonumber(t[7]) or 0, tonumber(t[8]) or 0, tonumber(t[9]) or 0 },
-        scanTime  = tonumber(t[10]) or 0,
-        zone      = t[11] or "",
-        gear      = {},
+        name        = t[2] or "",
+        realm       = t[3] or "",
+        class       = t[4] or "",
+        level       = tonumber(t[5]) or 0,
+        guid        = t[6] or "",
+        spec        = { tonumber(t[7]) or 0, tonumber(t[8]) or 0, tonumber(t[9]) or 0 },
+        scanTime    = tonumber(t[10]) or 0,
+        zone        = t[11] or "",
+        gear        = {},
+        talentGroup = tonumber(t[31]) or 1, -- v0.13+: position 31 is active talent group; v0.12 payloads default to 1
     }
     for i = 1, 19 do entry.gear[i] = t[11 + i] or "" end
     if entry.name == "" or entry.guid == "" then return nil end
@@ -422,19 +529,60 @@ local function Ingest(payload, sender)
     EpogArmoryDB = EpogArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
     EpogArmoryDB.players = EpogArmoryDB.players or {}
 
+    local group = entry.talentGroup or 1
+    local scannedBy = sender or (UnitName("player") or "?")
     local existing = EpogArmoryDB.players[entry.guid]
-    if existing and (existing.scanTime or 0) >= entry.scanTime then
-        dprint(string.format("[store] SKIP: %s — existing snapshot is newer (%s vs %s)",
-            entry.name,
-            date("%H:%M:%S", existing.scanTime or 0),
+
+    -- Per-spec dedup: only this talentGroup's set is compared for staleness.
+    -- A newer scan of a *different* spec set is never skipped here — that's a
+    -- different entry slot, not a conflict.
+    if existing and existing.sets and existing.sets[group]
+        and (existing.sets[group].scanTime or 0) >= entry.scanTime then
+        dprint(string.format("[store] SKIP: %s (spec %d) — existing set is newer (%s vs %s)",
+            entry.name, group,
+            date("%H:%M:%S", existing.sets[group].scanTime or 0),
             date("%H:%M:%S", entry.scanTime)))
         return
     end
 
-    entry.scannedBy = sender or (UnitName("player") or "?")
-    EpogArmoryDB.players[entry.guid] = entry
-    dprint(string.format("[store] OK: %s L%d [%s] — scanned by %s at %s",
-        entry.name, entry.level, entry.zone, entry.scannedBy,
+    -- Create or merge the player record, preserving sets for the other talent
+    -- groups. Top-level `name/realm/class/level` always reflect the latest scan.
+    existing = existing or { sets = {} }
+    existing.sets = existing.sets or {}
+    existing.name  = entry.name
+    existing.realm = entry.realm
+    existing.class = entry.class
+    existing.level = entry.level
+    existing.sets[group] = {
+        spec      = entry.spec,
+        gear      = entry.gear,
+        scanTime  = entry.scanTime,
+        zone      = entry.zone,
+        scannedBy = scannedBy,
+    }
+
+    -- Mirror the most-recently-scanned set to top-level fields for
+    -- backward-compat with the UI (v0.14 UI reads directly from .sets and this
+    -- mirror becomes redundant). Picks the highest-scanTime set across all
+    -- stored talent groups.
+    local latestSet, latestTime = nil, 0
+    for _, s in pairs(existing.sets) do
+        if (s.scanTime or 0) > latestTime then
+            latestTime = s.scanTime or 0
+            latestSet = s
+        end
+    end
+    if latestSet then
+        existing.spec      = latestSet.spec
+        existing.gear      = latestSet.gear
+        existing.scanTime  = latestSet.scanTime
+        existing.zone      = latestSet.zone
+        existing.scannedBy = latestSet.scannedBy
+    end
+
+    EpogArmoryDB.players[entry.guid] = existing
+    dprint(string.format("[store] OK: %s L%d [spec %d / %s] — scanned by %s at %s",
+        entry.name, entry.level, group, entry.zone, scannedBy,
         date("%H:%M:%S", entry.scanTime)))
 end
 
@@ -675,12 +823,22 @@ local lastSelfFingerprint = ""
 
 local function SelfFingerprint()
     local parts = { tostring(UnitLevel("player") or 0) }
-    local s1, s2, s3 = ReadSpecPoints("player")
-    parts[#parts + 1] = string.format("%d:%d:%d", s1, s2, s3)
+    -- activeGroup included so that switching talent groups changes the
+    -- fingerprint — PLAYER_TALENT_UPDATE → RequestSelfScan → new fp → scan.
+    local s1, s2, s3, activeGroup = ReadSpecPoints("player")
+    parts[#parts + 1] = string.format("%d:%d:%d:%d", s1, s2, s3, activeGroup or 1)
     for slot = 1, 19 do
         parts[#parts + 1] = ItemStringFromLink(GetInventoryItemLink("player", slot))
     end
     return table.concat(parts, "|")
+end
+
+-- Per-spec scanTime lookup. Returns 0 if the active group's set is absent.
+local function SelfSetScanTime(playerGUID, group)
+    if not (EpogArmoryDB and EpogArmoryDB.players) then return 0 end
+    local p = EpogArmoryDB.players[playerGUID]
+    if not (p and p.sets and p.sets[group]) then return 0 end
+    return p.sets[group].scanTime or 0
 end
 
 local function RequestSelfScan(delay)
@@ -706,10 +864,24 @@ local function TryScanSelf()
     local playerGUID = UnitGUID("player")
     if not playerGUID then return end
 
-    -- Dedup: if nothing meaningful has changed since the last broadcast, skip.
+    -- Silent short-circuit: nothing meaningful has changed since our last
+    -- broadcast. UNIT_INVENTORY_CHANGED fires every ~15s on Ascension from
+    -- durability/aura noise; unchanged fingerprint → no log, no work.
     local fp = SelfFingerprint()
-    if fp == lastSelfFingerprint then
-        dprint("[self] skip — level/talents/gear unchanged since last scan")
+    if fp == lastSelfFingerprint then return end
+
+    -- Per-spec 24h rate limit: check *this active group*'s set, not a flat
+    -- per-GUID timestamp. Respeccing to a different talent group triggers a
+    -- fresh scan because the new group's set has its own (stale or absent)
+    -- scanTime, independent of the previous spec's recent broadcast.
+    local _, _, _, activeGroup = ReadSpecPoints("player")
+    activeGroup = activeGroup or 1
+    local setTime = SelfSetScanTime(playerGUID, activeGroup)
+    if setTime > 0 and (time() - setTime) < SCAN_FRESH_WINDOW then
+        local hoursAgo = (time() - setTime) / 3600
+        dprint(string.format("[self] skip — spec %d set scanned %.1fh ago (24h rate limit)",
+            activeGroup, hoursAgo))
+        lastSelfFingerprint = fp
         return
     end
 
@@ -724,6 +896,36 @@ local function TryScanSelf()
     MarkInspected(playerGUID, floor(time()))
     EnqueueBroadcast(payload, UnitName("player"))
     Ingest(payload, UnitName("player"))
+end
+
+-- ---------------- Migration ----------------
+-- v0.13 reshapes EpogArmoryDB.players[guid] from a flat
+--   { name, realm, class, level, spec, gear, scanTime, zone, scannedBy }
+-- into
+--   { name, realm, class, level, sets = { [talentGroup] = { spec, gear, ... } }, ...mirror }
+-- Pre-v0.13 entries have no .sets; wrap their flat fields into sets[1] while
+-- keeping the top-level fields as the mirror (so older UI code keeps working
+-- until it's updated to read .sets directly).
+local function MigratePlayers()
+    if not (EpogArmoryDB and EpogArmoryDB.players) then return end
+    local migrated = 0
+    for _, p in pairs(EpogArmoryDB.players) do
+        if p.gear and not p.sets then
+            p.sets = {
+                [1] = {
+                    spec      = p.spec or { 0, 0, 0 },
+                    gear      = p.gear,
+                    scanTime  = p.scanTime or 0,
+                    zone      = p.zone or "",
+                    scannedBy = p.scannedBy or "?",
+                }
+            }
+            migrated = migrated + 1
+        end
+    end
+    if migrated > 0 then
+        dprint(string.format("[migrate] wrapped %d pre-v0.13 players into sets[1]", migrated))
+    end
 end
 
 -- ---------------- Main loop + events ----------------
@@ -773,6 +975,7 @@ f:SetScript("OnEvent", function(self, event, ...)
         end
         requireInstance = EpogArmoryDB.config.requireInstance
         EpogItemCacheDB = EpogItemCacheDB or {}
+        MigratePlayers() -- wrap pre-v0.13 flat entries into sets[1]
         RequestSelfScan(SELF_SCAN_LOGIN_DELAY) -- initial self-scan after talent data warms up
         versionPingAt = now() + VERSION_PING_DELAY -- one-shot version broadcast, 2min after login
         return
