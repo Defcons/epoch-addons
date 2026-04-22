@@ -21,7 +21,13 @@ local INSPECT_COOLDOWN      = 900
 local OUT_OF_RANGE_COOLDOWN = 30     -- retry fast when CanInspect fails
 local INSPECT_TIMEOUT       = 4
 local INSPECT_INTERVAL      = 2.5
-local BROADCAST_STAGGER     = 0.3
+-- Delay between consecutive addon-message sends from outQueue. Local inspect
+-- + ingest is instant; this gate only affects how fast data chatters out to
+-- peers. Peers don't need scans within seconds — eventually is fine, and
+-- spreading sends keeps the outgoing byte-rate tiny (~45 B/s at 2.0) so we
+-- never brush against Blizzard's ~800 B/s addon-message throttle in a churn
+-- like raid-roster-formation.
+local BROADCAST_STAGGER     = 2.0
 local MAX_CHUNK_BODY        = 200
 local ROSTER_TICK           = 10
 local MIN_INSPECT_LEVEL     = 60

@@ -4,6 +4,21 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.12 — Slow down peer broadcast chatter *(2026-04-22)* *(local-only, not released yet)*
+
+`BROADCAST_STAGGER` was `0.3s` — each scan drained its 6 addon-messages (3 chunks × 2 channels) in ~1.8s, pushing ~290 B/s of outgoing chatter for the user's client and their mesh peers.
+
+There's no reason peer clients need scan data within seconds — the payoff is "you can inspect them from the armory sometime today", not "within 2 seconds". And at 290 B/s you can get uncomfortably close to Blizzard's ~800 B/s addon-message throttle during raid-roster churn, where bursting 30+ fresh inspects in the first minute of a raid briefly pushes the queue full-tilt.
+
+Bumped to `2.0s`:
+- Each scan drains over ~12s (still well under a bathroom break)
+- Outgoing ~45 B/s — trickle, never near the throttle
+- Local `[inspect]` → `[store] OK` direct-ingest stays instant, so your own storage is immediate
+- Inspect pacing (`INSPECT_INTERVAL = 2.5s`) unchanged, so the scan throughput isn't the bottleneck
+- Burst of 40 fresh inspects now drains in ~8 minutes instead of ~72s, which is fine — raids last hours
+
+---
+
 ## EpogArmory v0.11 — Drop self-echoes in `OnAddonMessage` *(2026-04-22)* *(local-only, not released yet)*
 
 Every broadcast we sent was echoing back to our own client — once per channel — and being processed as if it were a real peer scan. The debug log was showing 2x `[recv] new scan from <self>` + 2x `[store] SKIP` per scan, and duplicate `[version] <self> is on vX` pings at T+120s because the ping also hit both PARTY+GUILD. None of it is useful (our own scans and pings are already direct-handled locally before broadcast).
