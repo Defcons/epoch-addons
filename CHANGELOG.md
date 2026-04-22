@@ -4,6 +4,31 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.16 — Fix self `ReadSpecPoints` always returning 0/0/0 *(2026-04-22)* *(local-only, not released yet)*
+
+The bug that's been hiding since v0.3. `ReadSpecPoints` computed the isInspect flag with the idiom:
+
+```lua
+local isInspect = UnitIsUnit(unit, "player") and nil or 1
+```
+
+For self, that evaluates to `1`, not `nil` — because Lua's `true and nil` is `nil`, and `nil or 1` is `1`. Classic ternary-with-nil gotcha. Every self-scan was calling `GetTalentTabInfo(tab, 1)`, which reads the *inspect* target's data — and you can't `NotifyInspect` yourself, so it returned 0 for every tab. The dumpspec diagnostic in v0.15 proved this: `GTTI(nil)` returned correct points (`41/20/0` for Combat, etc.), but `ReadSpecPoints` returned `0/0/0` on the same line.
+
+Fix: replaced the broken idiom with an explicit `if/then`:
+
+```lua
+local isInspect
+if not UnitIsUnit(unit, "player") then isInspect = 1 end
+```
+
+Self-scans now read real talent points, so `DominantTree` returns the correct tree (1/2/3) and a respec moves the gear into the correct `sets[tree]` slot.
+
+Related: this also explains why "the first test did fetch some talent points" — that first test was probably an *inspect* of another player, which correctly used `isInspect=1`. Self-scans have never worked for talents since they were added in v0.3. The dominant-spec validator added in v0.7 (and removed in v0.8) was rejecting everything for the same reason.
+
+The `/epogarmory dumpspec` diagnostic stays in place — it's useful for future talent-API investigations.
+
+---
+
 ## EpogArmory v0.15 — Talent-read diagnostic + simplify GetTalentTabInfo call *(2026-04-22)* *(local-only, not released yet)*
 
 Still landing all scans in `sets[1]` despite v0.14's `DominantTree` keying, which means `ReadSpecPoints` is reading `0/0/0` regardless of actual spec — the explicit `talentGroup` 4th arg I passed in v0.9 is apparently confusing Ascension's classless API.

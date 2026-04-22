@@ -275,11 +275,13 @@ end
 local function ReadSpecPoints(unit)
     -- inspectFlag: 1 when reading another unit's talents (after NotifyInspect),
     -- nil for "player" — standard 3.3.5 GetTalentTabInfo convention.
-    -- Deliberately NOT passing talentGroup as the 4th arg — on Ascension's
-    -- classless system, explicit talentGroup=1 seems to read the wrong slot
-    -- (or an empty slot) for self. Default (active group, per API docs)
-    -- works for the cases we've observed.
-    local isInspect = UnitIsUnit(unit, "player") and nil or 1
+    -- IMPORTANT: the idiom `cond and nil or 1` BREAKS when you want nil as the
+    -- true branch — `true and nil` evaluates to `nil`, then `nil or 1` is `1`.
+    -- Every self-scan from v0.3 through v0.15 was accidentally reading inspect
+    -- data (isInspect=1) for "player", which returns 0 for every tab because
+    -- you can't NotifyInspect yourself. That's why spec=0/0/0 on all self-scans.
+    local isInspect
+    if not UnitIsUnit(unit, "player") then isInspect = 1 end
 
     local function tabPoints(tabIndex)
         local pts = select(3, GetTalentTabInfo(tabIndex, isInspect)) or 0
