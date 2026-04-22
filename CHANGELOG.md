@@ -4,6 +4,16 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpochArmory v1.3 — Fixed slot borders + minimap button + browser frame *(2026-04-22)*
+
+- **Slot button redesign:** each slot now uses the Blizzard paperdoll empty-slot texture (`Interface\PaperDoll\UI-PaperDoll-Slot-<Head|Neck|...>`) as a dim background so users can see which slot is which even when empty. Replaced the glowy offset `UI-ActionButton-Border` with 4 thin vertex-colored rectangles (via the white `ChatFrameBackground` texture) that frame the slot exactly. Quality colors (green/blue/purple/orange) now sit flush against the icon instead of bleeding past it.
+- **Minimap button:** added `EpochArmoryMinimapButton`. Click → toggles the browser. Drag around the minimap edge → persisted in `EpochArmoryDB.config.minimapAngle` so the position survives reloads. Created lazily on `PLAYER_LOGIN` so the saved angle is available.
+- **Browser frame:** new searchable list at `/epocharmory browse`. `FauxScrollFrameTemplate` with 18 visible rows. Top EditBox filters by substring match on player name. Rows show class-colored name + level + class + "N h ago" scan age. Click row → opens the paperdoll inspect frame for that player. Footer shows `X of Y match` or `N players stored` when unfiltered. Escape closes (added to `UISpecialFrames`).
+- **Inspect frame:** slots are now 40×40 (was 37×37) to match the new background textures cleanly.
+- Slash: `/epocharmory browse | browser | search` (all aliases) opens the browser.
+
+---
+
 ## EpochArmory v1.2 — Self-scan + chat prefix rename + short retry on transient fails *(2026-04-22)*
 
 - **Self-scan:** client now scans its own gear and stores it in `EpochArmoryDB` without needing a NotifyInspect roundtrip. `GetInventoryItemLink("player", slot)` works directly. Triggered by `UNIT_INVENTORY_CHANGED` (debounced 2s so equipping a 19-slot set doesn't fire 19 times) and once on `PLAYER_LOGIN` after a 3s warmup for talent data. Respects the same `requireInstance` + out-of-combat gates as other scans. Also broadcast-published so mesh participants get your updated loadout.

@@ -1,12 +1,14 @@
 -- EpochArmoryUI.lua
--- Claude: paperdoll-style inspect frame rendering the latest stored snapshot
--- for any player by name, reading from EpochArmoryDB.players[guid]. Hooks
--- into the /epocharmory slash command to add the `show` / `inspect` verb.
+-- Claude: in-game UI for EpochArmoryDB:
+--   * Paperdoll inspect frame for a single stored player (/epocharmory show)
+--   * Browser frame with search-filtered list of all stored players
+--   * Minimap button that toggles the browser
 --
 -- Loaded after EpochArmory.lua (TOC order) so SlashCmdList["EPOCHARMORY"]
 -- already exists when this file runs.
 
-local frame = nil
+local inspectFrame = nil
+local browserFrame = nil
 local refreshTicker = nil
 
 local SLOT_LABELS = {
@@ -16,8 +18,16 @@ local SLOT_LABELS = {
     [15]="Back",[16]="Main Hand",[17]="Off Hand",[18]="Ranged",[19]="Tabard",
 }
 
+-- Claude: map each slotID to the Blizzard empty-slot texture name.
+-- Used as the dim background showing which slot is which when empty.
+local SLOT_BG_MAP = {
+    [1]="Head", [2]="Neck", [3]="Shoulder", [4]="Shirt", [5]="Chest",
+    [6]="Waist", [7]="Legs", [8]="Feet", [9]="Wrist", [10]="Hands",
+    [11]="Finger", [12]="Finger", [13]="Trinket", [14]="Trinket",
+    [15]="Back", [16]="MainHand", [17]="SecondaryHand", [18]="Ranged", [19]="Tabard",
+}
+
 -- Two-column paperdoll layout: 8 slots left, 8 slots right, 3 weapons bottom.
--- {anchorFromFrame, xOffset, yOffset}
 local SLOT_POS = {
     [1]  = { "TOPLEFT",   15,  -90 }, -- Head
     [2]  = { "TOPLEFT",   15, -134 }, -- Neck
@@ -74,6 +84,12 @@ local function FormatSpec(class, spec)
         spec[1] or 0, spec[2] or 0, spec[3] or 0)
 end
 
+local function ClassColorStr(class)
+    local c = (RAID_CLASS_COLORS or {})[class or ""]
+    if not c then return "|cffffffff" end
+    return string.format("|cff%02x%02x%02x", c.r * 255, c.g * 255, c.b * 255)
+end
+
 local function FindPlayer(name)
     if not name or name == "" then return nil end
     if not EpochArmoryDB or not EpochArmoryDB.players then return nil end
@@ -84,32 +100,60 @@ local function FindPlayer(name)
     return nil
 end
 
--- Hidden tooltip used to force the client to cache item data for itemIDs that
--- aren't yet in memory. GetItemInfo returns nil until the client has seen the
--- item; SetHyperlink triggers a background fetch.
+-- Claude: hidden tooltip used to force the client to cache item data for
+-- uncached itemIDs. GetItemInfo returns nil until the client has seen the
+-- item; SetHyperlink triggers the background fetch.
 local cacheTip = CreateFrame("GameTooltip", "EpochArmoryCacheTip", UIParent, "GameTooltipTemplate")
 cacheTip:SetOwner(UIParent, "ANCHOR_NONE")
 cacheTip:Hide()
 
+-- ---------------- Slot button ----------------
+
+local function MakeEdge(parent)
+    local t = parent:CreateTexture(nil, "OVERLAY")
+    t:SetTexture("Interface\\ChatFrame\\ChatFrameBackground") -- solid white, vertex-color-friendly
+    t:Hide()
+    return t
+end
+
 local function MakeSlotButton(parent, slotID)
     local b = CreateFrame("Button", "EpochArmorySlotBtn" .. slotID, parent)
-    b:SetWidth(37); b:SetHeight(37)
+    b:SetWidth(40); b:SetHeight(40)
     b.slotID = slotID
 
-    b.bg = b:CreateTexture(nil, "BACKGROUND")
-    b.bg:SetAllPoints()
-    b.bg:SetTexture(0, 0, 0, 0.6)
+    -- Slot background: dim empty-slot glyph so users see what each slot is
+    -- for, and the icon covers it when equipped.
+    b.slotBg = b:CreateTexture(nil, "BACKGROUND")
+    b.slotBg:SetTexture("Interface\\PaperDoll\\UI-PaperDoll-Slot-" .. (SLOT_BG_MAP[slotID] or "Head"))
+    b.slotBg:SetAllPoints()
+    b.slotBg:SetAlpha(0.55)
 
+    -- Item icon
     b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetAllPoints()
+    b.icon:SetPoint("TOPLEFT", 2, -2)
+    b.icon:SetPoint("BOTTOMRIGHT", -2, 2)
     b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-    b.border = b:CreateTexture(nil, "OVERLAY")
-    b.border:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-    b.border:SetBlendMode("ADD")
-    b.border:SetPoint("TOPLEFT", -3, 3)
-    b.border:SetPoint("BOTTOMRIGHT", 3, -3)
-    b.border:Hide()
+    -- Quality border: 4 thin rectangles framing the slot exactly.
+    b.bTop = MakeEdge(b)
+    b.bTop:SetPoint("TOPLEFT", 0, 0)
+    b.bTop:SetPoint("TOPRIGHT", 0, 0)
+    b.bTop:SetHeight(2)
+
+    b.bBot = MakeEdge(b)
+    b.bBot:SetPoint("BOTTOMLEFT", 0, 0)
+    b.bBot:SetPoint("BOTTOMRIGHT", 0, 0)
+    b.bBot:SetHeight(2)
+
+    b.bLeft = MakeEdge(b)
+    b.bLeft:SetPoint("TOPLEFT", 0, 0)
+    b.bLeft:SetPoint("BOTTOMLEFT", 0, 0)
+    b.bLeft:SetWidth(2)
+
+    b.bRight = MakeEdge(b)
+    b.bRight:SetPoint("TOPRIGHT", 0, 0)
+    b.bRight:SetPoint("BOTTOMRIGHT", 0, 0)
+    b.bRight:SetWidth(2)
 
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -132,9 +176,22 @@ local function MakeSlotButton(parent, slotID)
     return b
 end
 
-local function BuildFrame()
+local function SetQualityColor(btn, r, g, b, a)
+    for _, edge in ipairs({btn.bTop, btn.bBot, btn.bLeft, btn.bRight}) do
+        edge:SetVertexColor(r, g, b, a or 1)
+        edge:Show()
+    end
+end
+
+local function HideQualityBorder(btn)
+    btn.bTop:Hide(); btn.bBot:Hide(); btn.bLeft:Hide(); btn.bRight:Hide()
+end
+
+-- ---------------- Paperdoll inspect frame ----------------
+
+local function BuildInspectFrame()
     local f = CreateFrame("Frame", "EpochArmoryInspectFrame", UIParent)
-    f:SetWidth(280); f:SetHeight(500)
+    f:SetWidth(290); f:SetHeight(500)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetBackdrop({
@@ -161,7 +218,7 @@ local function BuildFrame()
 
     f.metaText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.metaText:SetPoint("TOP", 0, -62)
-    f.metaText:SetWidth(260)
+    f.metaText:SetWidth(270)
     f.metaText:SetJustifyH("CENTER")
 
     f.slots = {}
@@ -175,77 +232,73 @@ local function BuildFrame()
     return f
 end
 
--- Claude: re-read textures/quality from GetItemInfo. Returns the number of
--- slots still missing data (so the caller can keep polling until they resolve).
 local function RefreshIcons()
-    if not frame then return 0 end
+    if not inspectFrame then return 0 end
     local pending = 0
-    for _, btn in pairs(frame.slots) do
+    for _, btn in pairs(inspectFrame.slots) do
         local itemString = btn.itemString or ""
         if itemString ~= "" then
             local itemID = tonumber(itemString:match("^(%d+)")) or 0
             local name, link, quality, _, _, _, _, _, _, texture = GetItemInfo(itemID)
             if texture then
                 btn.icon:SetTexture(texture)
+                btn.slotBg:Hide() -- hide the dim empty-slot glyph
                 btn.link = link
                 if quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality] then
                     local c = ITEM_QUALITY_COLORS[quality]
-                    btn.border:SetVertexColor(c.r, c.g, c.b, 0.85)
-                    btn.border:Show()
+                    SetQualityColor(btn, c.r, c.g, c.b, 1)
                 else
-                    btn.border:Hide()
+                    HideQualityBorder(btn)
                 end
             else
                 btn.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-                btn.border:Hide()
+                btn.slotBg:Hide()
+                HideQualityBorder(btn)
                 pending = pending + 1
-                -- Trigger client-side fetch so it lands in the cache.
                 cacheTip:ClearLines()
                 cacheTip:SetHyperlink("item:" .. itemString)
                 cacheTip:Hide()
             end
         else
             btn.icon:SetTexture(nil)
+            btn.slotBg:Show() -- re-show empty-slot glyph
             btn.link = nil
-            btn.border:Hide()
+            HideQualityBorder(btn)
         end
     end
     return pending
 end
 
-local function Show(player)
-    if not frame then frame = BuildFrame() end
+local function ShowInspect(player)
+    if not inspectFrame then inspectFrame = BuildInspectFrame() end
 
     local cls = player.class or ""
-    local colors = RAID_CLASS_COLORS or {}
-    local c = colors[cls]
+    local c = (RAID_CLASS_COLORS or {})[cls]
     if c then
-        frame.nameText:SetTextColor(c.r, c.g, c.b)
+        inspectFrame.nameText:SetTextColor(c.r, c.g, c.b)
     else
-        frame.nameText:SetTextColor(1, 1, 1)
+        inspectFrame.nameText:SetTextColor(1, 1, 1)
     end
-    frame.nameText:SetText(string.format("%s  (L%d %s)",
+    inspectFrame.nameText:SetText(string.format("%s  (L%d %s)",
         player.name or "?", player.level or 0, cls))
 
     local spec = FormatSpec(cls, player.spec)
     local line2 = string.format("Scanned %s [%s]  by %s",
         FormatAge(player.scanTime), player.zone or "?", player.scannedBy or "?")
     if spec ~= "" then
-        frame.metaText:SetText(spec .. "\n" .. line2)
+        inspectFrame.metaText:SetText(spec .. "\n" .. line2)
     else
-        frame.metaText:SetText(line2)
+        inspectFrame.metaText:SetText(line2)
     end
 
-    for slotID, btn in pairs(frame.slots) do
+    for slotID, btn in pairs(inspectFrame.slots) do
         btn.itemString = (player.gear or {})[slotID] or ""
         btn.link = nil
     end
 
     local pending = RefreshIcons()
-    frame:Show()
+    inspectFrame:Show()
 
-    -- Deferred re-refresh while items resolve in the client cache.
-    -- 3.3.5 has no GET_ITEM_INFO_RECEIVED event, so poll GetItemInfo.
     if refreshTicker then refreshTicker:SetScript("OnUpdate", nil) end
     if pending > 0 then
         refreshTicker = refreshTicker or CreateFrame("Frame")
@@ -262,7 +315,237 @@ local function Show(player)
     end
 end
 
--- Hook the existing /epocharmory handler to add `show` / `inspect` verbs.
+-- ---------------- Browser frame (searchable list) ----------------
+
+local BROWSER_ROWS = 18
+local BROWSER_ROW_HEIGHT = 18
+
+local function BuildBrowser()
+    local f = CreateFrame("Frame", "EpochArmoryBrowserFrame", UIParent)
+    f:SetWidth(320); f:SetHeight(450)
+    f:SetPoint("CENTER", UIParent, "CENTER", -180, 0)
+    f:SetFrameStrata("DIALOG")
+    f:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    })
+    f:SetMovable(true); f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    f:Hide()
+
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    f.title:SetPoint("TOP", 0, -16)
+    f.title:SetText("EpochArmory Browser")
+
+    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -4, -4)
+
+    local searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    searchLabel:SetPoint("TOPLEFT", 22, -46)
+    searchLabel:SetText("Search:")
+
+    local search = CreateFrame("EditBox", "EpochArmoryBrowserSearch", f, "InputBoxTemplate")
+    search:SetWidth(220); search:SetHeight(20)
+    search:SetPoint("TOPLEFT", searchLabel, "TOPRIGHT", 10, 3)
+    search:SetAutoFocus(false)
+    search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    f.search = search
+
+    -- Scroll frame
+    local scroll = CreateFrame("ScrollFrame", "EpochArmoryBrowserScroll", f, "FauxScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 18, -80)
+    scroll:SetPoint("BOTTOMRIGHT", -32, 40)
+    f.scroll = scroll
+
+    f.rows = {}
+    for i = 1, BROWSER_ROWS do
+        local row = CreateFrame("Button", nil, f)
+        row:SetHeight(BROWSER_ROW_HEIGHT)
+        row:SetPoint("LEFT", scroll, "LEFT", 2, 0)
+        row:SetPoint("RIGHT", scroll, "RIGHT", -2, 0)
+        if i == 1 then
+            row:SetPoint("TOP", scroll, "TOP", 0, -2)
+        else
+            row:SetPoint("TOP", f.rows[i-1], "BOTTOM", 0, 0)
+        end
+
+        row.text = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        row.text:SetPoint("LEFT", 6, 0)
+        row.text:SetPoint("RIGHT", -6, 0)
+        row.text:SetJustifyH("LEFT")
+
+        row.hl = row:CreateTexture(nil, "HIGHLIGHT")
+        row.hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+        row.hl:SetBlendMode("ADD")
+        row.hl:SetAlpha(0.5)
+        row.hl:SetAllPoints()
+
+        row:SetScript("OnClick", function(self)
+            if self.player then ShowInspect(self.player) end
+        end)
+
+        f.rows[i] = row
+    end
+
+    f.countLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.countLabel:SetPoint("BOTTOM", 0, 18)
+
+    local function Update()
+        local list = {}
+        if EpochArmoryDB and EpochArmoryDB.players then
+            local filter = (search:GetText() or ""):lower()
+            for _, p in pairs(EpochArmoryDB.players) do
+                if p and p.name then
+                    if filter == "" or p.name:lower():find(filter, 1, true) then
+                        list[#list + 1] = p
+                    end
+                end
+            end
+            table.sort(list, function(a, b) return (a.name or "") < (b.name or "") end)
+        end
+
+        FauxScrollFrame_Update(scroll, #list, BROWSER_ROWS, BROWSER_ROW_HEIGHT)
+        local offset = FauxScrollFrame_GetOffset(scroll)
+
+        for i = 1, BROWSER_ROWS do
+            local row = f.rows[i]
+            local p = list[i + offset]
+            if p then
+                local colorStr = ClassColorStr(p.class)
+                local age = FormatAge(p.scanTime)
+                row.text:SetText(string.format("%s%s|r  |cff888888L%d %s|r  |cffaaaaaa%s|r",
+                    colorStr, p.name or "?", p.level or 0, p.class or "", age))
+                row.player = p
+                row:Show()
+            else
+                row:Hide()
+                row.player = nil
+            end
+        end
+
+        local total = 0
+        if EpochArmoryDB and EpochArmoryDB.players then
+            for _ in pairs(EpochArmoryDB.players) do total = total + 1 end
+        end
+        if #list == total then
+            f.countLabel:SetText(string.format("%d players stored", total))
+        else
+            f.countLabel:SetText(string.format("%d of %d match", #list, total))
+        end
+    end
+
+    scroll:SetScript("OnVerticalScroll", function(self, o)
+        FauxScrollFrame_OnVerticalScroll(self, o, BROWSER_ROW_HEIGHT, Update)
+    end)
+    search:SetScript("OnTextChanged", Update)
+    f:SetScript("OnShow", Update)
+
+    f.Refresh = Update
+
+    tinsert(UISpecialFrames, "EpochArmoryBrowserFrame")
+    return f
+end
+
+local function ToggleBrowser()
+    if not browserFrame then browserFrame = BuildBrowser() end
+    if browserFrame:IsShown() then
+        browserFrame:Hide()
+    else
+        browserFrame:Show()
+    end
+end
+
+-- ---------------- Minimap button ----------------
+
+local MINIMAP_ICON = "Interface\\Icons\\Achievement_Character_Human_Male"
+local minimapBtn
+
+local function UpdateMinimapPos(angle)
+    if not minimapBtn then return end
+    local radius = 80
+    local x = radius * math.cos(angle)
+    local y = radius * math.sin(angle)
+    minimapBtn:ClearAllPoints()
+    minimapBtn:SetPoint("CENTER", Minimap, "CENTER", x, y)
+end
+
+local function BuildMinimapButton()
+    if not Minimap then return end
+    local b = CreateFrame("Button", "EpochArmoryMinimapButton", Minimap)
+    b:SetWidth(32); b:SetHeight(32)
+    b:SetFrameStrata("MEDIUM")
+    b:SetFrameLevel(8)
+    b:RegisterForClicks("AnyUp")
+    b:RegisterForDrag("LeftButton")
+    b:SetMovable(true)
+
+    b.icon = b:CreateTexture(nil, "BACKGROUND")
+    b.icon:SetTexture(MINIMAP_ICON)
+    b.icon:SetWidth(20); b.icon:SetHeight(20)
+    b.icon:SetPoint("CENTER", 0, 1)
+    b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    b.border = b:CreateTexture(nil, "OVERLAY")
+    b.border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    b.border:SetWidth(54); b.border:SetHeight(54)
+    b.border:SetPoint("TOPLEFT")
+
+    b:SetScript("OnClick", function(self, button)
+        if button == "RightButton" then
+            -- Right click also toggles for accessibility
+            ToggleBrowser()
+        else
+            ToggleBrowser()
+        end
+    end)
+
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText("EpochArmory")
+        GameTooltip:AddLine("Click to open the armory browser", 1, 1, 1)
+        GameTooltip:AddLine("Drag to reposition around the minimap", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    b:SetScript("OnDragStart", function(self)
+        self:SetScript("OnUpdate", function()
+            local mx, my = Minimap:GetCenter()
+            if not mx then return end
+            local px, py = GetCursorPosition()
+            local scale = Minimap:GetEffectiveScale()
+            local dx = px / scale - mx
+            local dy = py / scale - my
+            local angle = math.atan2(dy, dx)
+            EpochArmoryDB = EpochArmoryDB or {}
+            EpochArmoryDB.config = EpochArmoryDB.config or {}
+            EpochArmoryDB.config.minimapAngle = angle
+            UpdateMinimapPos(angle)
+        end)
+    end)
+    b:SetScript("OnDragStop", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+
+    return b
+end
+
+-- Defer minimap button creation until PLAYER_LOGIN so the config SV is loaded.
+local mmInit = CreateFrame("Frame")
+mmInit:RegisterEvent("PLAYER_LOGIN")
+mmInit:SetScript("OnEvent", function()
+    minimapBtn = BuildMinimapButton()
+    local angle = (EpochArmoryDB and EpochArmoryDB.config and EpochArmoryDB.config.minimapAngle)
+        or math.rad(15) -- default near top-right of minimap
+    UpdateMinimapPos(angle)
+end)
+
+-- ---------------- Slash hook ----------------
+
 local origHandler = SlashCmdList["EPOCHARMORY"]
 SlashCmdList["EPOCHARMORY"] = function(msg)
     msg = msg or ""
@@ -279,7 +562,10 @@ SlashCmdList["EPOCHARMORY"] = function(msg)
             print(string.format("|cffffaa44EpochArmory|r: no stored snapshot for '%s'", name))
             return
         end
-        Show(player)
+        ShowInspect(player)
+        return
+    elseif lcmd == "browse" or lcmd == "browser" or lcmd == "search" then
+        ToggleBrowser()
         return
     end
     if origHandler then origHandler(msg) end
