@@ -485,6 +485,13 @@ end
 
 local function OnAddonMessage(prefix, body, channel, sender)
     if prefix ~= PREFIX then return end
+    -- Drop our own echoes. Addon messages broadcast on GUILD/PARTY/RAID always
+    -- round-trip back to the sender's client, and when we broadcast to multiple
+    -- channels (e.g. PARTY + GUILD) the payload echoes back once per channel.
+    -- We already direct-ingest our own scans in TryScanSelf / OnInspectReady
+    -- before broadcasting, so these echoes are pure spam — [recv] chunks,
+    -- [store] SKIP, and duplicate [version] self-pings.
+    if sender and sender == UnitName("player") then return end
     if not body or body == "" then return end
     local msgID, idx_s, total_s, data = body:match("^([^%^]+)%^([^%^]+)%^([^%^]+)%^(.*)$")
     local idx = tonumber(idx_s)

@@ -4,6 +4,34 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.11 — Drop self-echoes in `OnAddonMessage` *(2026-04-22)* *(local-only, not released yet)*
+
+Every broadcast we sent was echoing back to our own client — once per channel — and being processed as if it were a real peer scan. The debug log was showing 2x `[recv] new scan from <self>` + 2x `[store] SKIP` per scan, and duplicate `[version] <self> is on vX` pings at T+120s because the ping also hit both PARTY+GUILD. None of it is useful (our own scans and pings are already direct-handled locally before broadcast).
+
+Fix: one line at the top of `OnAddonMessage` drops addon-messages where `sender == UnitName("player")`. Clean exit — no reassembly, no store attempt, no log. Own broadcasts still reach other players normally; they just don't round-trip through our own receive path.
+
+Expected before:
+
+```
+[send] Borna: 3 chunks x 2 channels [PARTY+GUILD]
+[store] OK: Borna (direct ingest)
+[recv] new scan from Defcon (chunk 1/3...)        ← echo 1
+[recv] complete
+[store] SKIP: existing snapshot is newer
+[recv] new scan from Defcon (chunk 1/3...)        ← echo 2
+[recv] complete
+[store] SKIP: existing snapshot is newer
+```
+
+After:
+
+```
+[send] Borna: 3 chunks x 2 channels [PARTY+GUILD]
+[store] OK: Borna (direct ingest)
+```
+
+---
+
 ## EpogArmory v0.10 — Fix `/epogarmory wipe` not re-scanning self *(2026-04-22)* *(local-only, not released yet)*
 
 After `/epogarmory wipe`, the next self-scan would short-circuit because the in-memory `lastSelfFingerprint` (added in v0.9) still held the pre-wipe value — fingerprint matched the current state, so `TryScanSelf` skipped with `[self] skip — unchanged`, and the wiped DB never got the user's own player re-added unless they swapped gear or `/reload`ed.
