@@ -4,6 +4,14 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.10 — Fix `/epogarmory wipe` not re-scanning self *(2026-04-22)* *(local-only, not released yet)*
+
+After `/epogarmory wipe`, the next self-scan would short-circuit because the in-memory `lastSelfFingerprint` (added in v0.9) still held the pre-wipe value — fingerprint matched the current state, so `TryScanSelf` skipped with `[self] skip — unchanged`, and the wiped DB never got the user's own player re-added unless they swapped gear or `/reload`ed.
+
+Fix: the wipe command now also clears `lastSelfFingerprint` and proactively calls `RequestSelfScan()`, so a fresh scan fires within the 2s debounce window. Chat message updated to reflect this: `"wiped players + lastScanned (kept config) — self-scan queued"`.
+
+---
+
 ## EpogArmory v0.9 — Robust talent read + self-scan dedup *(2026-04-22)*
 
 Two fixes: restore working talent reads on Ascension (v0.8 dropped the gate, but we actually want the data), and stop spamming duplicate self-broadcasts every ~15s.

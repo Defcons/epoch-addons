@@ -897,7 +897,12 @@ SlashCmdList["EPOGARMORY"] = function(msg)
     elseif msg == "wipe" then
         local kept = EpogArmoryDB and EpogArmoryDB.config or {}
         EpogArmoryDB = { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = kept }
-        print("|cffffaa44EpogArmory|r: wiped players + lastScanned (kept config)")
+        -- Clear in-memory self-scan dedup state too, otherwise the next scan
+        -- short-circuits on a fingerprint match against the pre-wipe state and
+        -- your own player never gets re-added to the freshly-wiped DB.
+        lastSelfFingerprint = ""
+        RequestSelfScan()
+        print("|cffffaa44EpogArmory|r: wiped players + lastScanned (kept config) — self-scan queued")
     elseif msg == "list" then
         if not EpogArmoryDB or not EpogArmoryDB.players then print("empty") return end
         for guid, p in pairs(EpogArmoryDB.players) do
