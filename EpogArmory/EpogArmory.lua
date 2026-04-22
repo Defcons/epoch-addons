@@ -114,6 +114,21 @@ local CACHE_GIVE_UP        = 15
 
 local function now() return GetTime() end
 
+-- Which of the 3 class talent trees has the most points. 1, 2, or 3. Used as
+-- the per-player set key so a rogue's Assassination/Combat/Subtlety each get
+-- their own gear snapshot. Matches the player's mental model of "spec"; works
+-- regardless of Ascension's GetActiveTalentGroup quirks (which on a classless
+-- client seem to always return 1 and aren't useful as a key here).
+-- Ties break to the lowest index (arbitrary but stable).
+local function DominantTree(spec)
+    if not spec then return 1 end
+    local maxIdx, maxVal = 1, spec[1] or 0
+    for i = 2, 3 do
+        if (spec[i] or 0) > maxVal then maxIdx, maxVal = i, spec[i] or 0 end
+    end
+    return maxIdx
+end
+
 local function dprint(...)
     if EpogArmoryDebug then
         print("|cffffaa44EpogArmory|r", ...)
@@ -317,7 +332,8 @@ local function BuildPayload(unit, guid)
     classFile = classFile or ""
     local level = UnitLevel(unit) or 0
 
-    local s1, s2, s3, activeGroup = ReadSpecPoints(unit)
+    local s1, s2, s3 = ReadSpecPoints(unit)
+    local dominantTree = DominantTree({s1, s2, s3})
 
     local parts = {
         "v" .. PROTO,
@@ -366,10 +382,10 @@ local function BuildPayload(unit, guid)
     if equipped < 10 then
         return nil, string.format("only %d slots equipped (inspect data incomplete?)", equipped)
     end
-    -- Append activeTalentGroup at position 31 (per v0.7 append-only rule).
-    -- Old v0.12 clients parse t[1..30] and ignore this; new v0.13+ clients
-    -- read it for per-spec gear storage. Absent → default to group 1.
-    parts[#parts + 1] = tostring(activeGroup)
+    -- Append dominant-tree index at position 31 (per v0.7 append-only rule).
+    -- v0.14+ receivers actually compute this locally from entry.spec, so the
+    -- field is informational/forward-compat only. Old v0.12 clients ignore it.
+    parts[#parts + 1] = tostring(dominantTree)
     return table.concat(parts, "^"), equipped
 end
 
@@ -529,16 +545,18 @@ local function Ingest(payload, sender)
     EpogArmoryDB = EpogArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
     EpogArmoryDB.players = EpogArmoryDB.players or {}
 
-    local group = entry.talentGroup or 1
+    -- Set key = dominant tree (1=Arms/Assassination/etc, 2=Fury/Combat/..., 3=Prot/Subtlety/...).
+    -- Computed locally from entry.spec, NOT read from wire position 31, so
+    -- we're robust against sender bugs or clients using a different keying.
+    local group = DominantTree(entry.spec)
     local scannedBy = sender or (UnitName("player") or "?")
     local existing = EpogArmoryDB.players[entry.guid]
 
-    -- Per-spec dedup: only this talentGroup's set is compared for staleness.
-    -- A newer scan of a *different* spec set is never skipped here — that's a
-    -- different entry slot, not a conflict.
+    -- Per-spec dedup: only this tree's set is compared for staleness. A newer
+    -- scan of a *different* tree set is never skipped here — different slot.
     if existing and existing.sets and existing.sets[group]
         and (existing.sets[group].scanTime or 0) >= entry.scanTime then
-        dprint(string.format("[store] SKIP: %s (spec %d) — existing set is newer (%s vs %s)",
+        dprint(string.format("[store] SKIP: %s (tree %d) — existing set is newer (%s vs %s)",
             entry.name, group,
             date("%H:%M:%S", existing.sets[group].scanTime or 0),
             date("%H:%M:%S", entry.scanTime)))
@@ -581,7 +599,7 @@ local function Ingest(payload, sender)
     end
 
     EpogArmoryDB.players[entry.guid] = existing
-    dprint(string.format("[store] OK: %s L%d [spec %d / %s] — scanned by %s at %s",
+    dprint(string.format("[store] OK: %s L%d [tree %d / %s] — scanned by %s at %s",
         entry.name, entry.level, group, entry.zone, scannedBy,
         date("%H:%M:%S", entry.scanTime)))
 end
@@ -823,22 +841,15 @@ local lastSelfFingerprint = ""
 
 local function SelfFingerprint()
     local parts = { tostring(UnitLevel("player") or 0) }
-    -- activeGroup included so that switching talent groups changes the
-    -- fingerprint — PLAYER_TALENT_UPDATE → RequestSelfScan → new fp → scan.
-    local s1, s2, s3, activeGroup = ReadSpecPoints("player")
-    parts[#parts + 1] = string.format("%d:%d:%d:%d", s1, s2, s3, activeGroup or 1)
+    -- Spec points change on any talent shift → fingerprint differs → scan.
+    -- No need to also include an "active group" field; the point distribution
+    -- already captures what matters.
+    local s1, s2, s3 = ReadSpecPoints("player")
+    parts[#parts + 1] = string.format("%d:%d:%d", s1, s2, s3)
     for slot = 1, 19 do
         parts[#parts + 1] = ItemStringFromLink(GetInventoryItemLink("player", slot))
     end
     return table.concat(parts, "|")
-end
-
--- Per-spec scanTime lookup. Returns 0 if the active group's set is absent.
-local function SelfSetScanTime(playerGUID, group)
-    if not (EpogArmoryDB and EpogArmoryDB.players) then return 0 end
-    local p = EpogArmoryDB.players[playerGUID]
-    if not (p and p.sets and p.sets[group]) then return 0 end
-    return p.sets[group].scanTime or 0
 end
 
 local function RequestSelfScan(delay)
@@ -867,23 +878,13 @@ local function TryScanSelf()
     -- Silent short-circuit: nothing meaningful has changed since our last
     -- broadcast. UNIT_INVENTORY_CHANGED fires every ~15s on Ascension from
     -- durability/aura noise; unchanged fingerprint → no log, no work.
+    -- Real changes (gear swap, respec, talent shift) bump the fingerprint
+    -- and fall through to the actual scan. v0.13's per-active-group 24h
+    -- gate is dropped — it was blocking legitimate respec scans because
+    -- Ascension's classless GetActiveTalentGroup reports 1 unchanged, so
+    -- the "active group" key never changed on a respec.
     local fp = SelfFingerprint()
     if fp == lastSelfFingerprint then return end
-
-    -- Per-spec 24h rate limit: check *this active group*'s set, not a flat
-    -- per-GUID timestamp. Respeccing to a different talent group triggers a
-    -- fresh scan because the new group's set has its own (stale or absent)
-    -- scanTime, independent of the previous spec's recent broadcast.
-    local _, _, _, activeGroup = ReadSpecPoints("player")
-    activeGroup = activeGroup or 1
-    local setTime = SelfSetScanTime(playerGUID, activeGroup)
-    if setTime > 0 and (time() - setTime) < SCAN_FRESH_WINDOW then
-        local hoursAgo = (time() - setTime) / 3600
-        dprint(string.format("[self] skip — spec %d set scanned %.1fh ago (24h rate limit)",
-            activeGroup, hoursAgo))
-        lastSelfFingerprint = fp
-        return
-    end
 
     local payload, info = BuildPayload("player", playerGUID)
     if not payload then
@@ -899,20 +900,25 @@ local function TryScanSelf()
 end
 
 -- ---------------- Migration ----------------
--- v0.13 reshapes EpogArmoryDB.players[guid] from a flat
---   { name, realm, class, level, spec, gear, scanTime, zone, scannedBy }
--- into
---   { name, realm, class, level, sets = { [talentGroup] = { spec, gear, ... } }, ...mirror }
--- Pre-v0.13 entries have no .sets; wrap their flat fields into sets[1] while
--- keeping the top-level fields as the mirror (so older UI code keeps working
--- until it's updated to read .sets directly).
+-- v0.14 normalizes the per-player data model:
+--   players[guid] = { name, realm, class, level,
+--                     sets = { [dominantTree] = { spec, gear, scanTime, zone, scannedBy } },
+--                     ...top-level mirror of latest set }
+--
+-- This runs once at login and handles two legacy shapes:
+--   (a) Pre-v0.13 flat: { name, realm, class, level, spec, gear, scanTime, zone, scannedBy }
+--       → wrap into sets[DominantTree(spec)].
+--   (b) v0.13 sets keyed by activeTalentGroup (usually always 1 on Ascension)
+--       → re-key by DominantTree(set.spec). If two entries collide, newest wins.
 local function MigratePlayers()
     if not (EpogArmoryDB and EpogArmoryDB.players) then return end
     local migrated = 0
     for _, p in pairs(EpogArmoryDB.players) do
         if p.gear and not p.sets then
+            -- (a) pre-v0.13 flat
+            local tree = DominantTree(p.spec)
             p.sets = {
-                [1] = {
+                [tree] = {
                     spec      = p.spec or { 0, 0, 0 },
                     gear      = p.gear,
                     scanTime  = p.scanTime or 0,
@@ -921,10 +927,26 @@ local function MigratePlayers()
                 }
             }
             migrated = migrated + 1
+        elseif p.sets then
+            -- (b) v0.13 sets → re-key under DominantTree if any entry's key
+            -- disagrees with its spec's dominant tree.
+            local rekeyed = {}
+            local changed = false
+            for oldKey, s in pairs(p.sets) do
+                local newKey = DominantTree(s.spec)
+                if newKey ~= oldKey then changed = true end
+                if (not rekeyed[newKey]) or ((rekeyed[newKey].scanTime or 0) < (s.scanTime or 0)) then
+                    rekeyed[newKey] = s
+                end
+            end
+            if changed then
+                p.sets = rekeyed
+                migrated = migrated + 1
+            end
         end
     end
     if migrated > 0 then
-        dprint(string.format("[migrate] wrapped %d pre-v0.13 players into sets[1]", migrated))
+        dprint(string.format("[migrate] normalized %d player entries to DominantTree keys", migrated))
     end
 end
 

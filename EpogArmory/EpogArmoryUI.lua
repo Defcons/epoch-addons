@@ -237,10 +237,12 @@ local function BuildInspectFrame()
     f.specBtns = {}
     for g = 1, 3 do
         local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        b:SetWidth(62)
+        -- Width 90 fits the longest class-tree names ("Assassination",
+        -- "Beast Mastery", "Marksmanship"). RenderActiveSet sets the text.
+        b:SetWidth(90)
         b:SetHeight(20)
-        b:SetPoint("TOP", f, "TOP", (g - 2) * 68, -82)
-        b:SetText("Spec " .. g)
+        b:SetPoint("TOP", f, "TOP", (g - 2) * 94, -82)
+        b:SetText("Tree " .. g)
         b:SetScript("OnClick", function()
             if f.activePlayer and RenderActiveSet then
                 f.activeGroup = g
@@ -346,18 +348,22 @@ RenderActiveSet = function()
         player.name or "?", player.level or 0, cls))
 
     local specText = FormatSpec(cls, spec)
-    local line2 = string.format("Spec %d · Scanned %s [%s] by %s",
-        group, FormatAge(scanTime), zone, scannedBy)
+    local line2 = string.format("Scanned %s [%s] by %s",
+        FormatAge(scanTime), zone, scannedBy)
     if specText ~= "" then
         inspectFrame.metaText:SetText(specText .. "\n" .. line2)
     else
         inspectFrame.metaText:SetText(line2)
     end
 
-    -- Spec button states: highlight the active group, dim + disable empty groups
+    -- Spec buttons: label = class tree name ("Arms", "Combat", etc.).
+    -- Empty trees (no scan) are dimmed + disabled. Active tree is highlighted.
+    local classTrees = SPEC_TREE[cls]
     for g = 1, 3 do
         local b = inspectFrame.specBtns and inspectFrame.specBtns[g]
         if b then
+            local label = (classTrees and classTrees[g]) or ("Tree " .. g)
+            b:SetText(label)
             local hasSet = player.sets and player.sets[g] ~= nil
             if hasSet then
                 b:Enable()

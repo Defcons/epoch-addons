@@ -4,6 +4,22 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.14 — Dominant-tree set keying + class-tree button labels *(2026-04-22)* *(local-only, not released yet)*
+
+Fixes the core confusion in v0.13: "3 specs per player" meant the 3 class trees (Assassination/Combat/Subtlety for a rogue), not the dual-spec talent groups. v0.13 was keying sets by `GetActiveTalentGroup()`, which on Ascension's classless system always returns `1`, so every scan landed in `sets[1]` and respecs never triggered a fresh scan — the 24h gate always saw `sets[1]` as fresh.
+
+**What changed:**
+
+- **Set key is now `DominantTree(spec)`** — the index (1, 2, or 3) of the talent tab with the most points. A rogue going 51/0/20 → 0/51/20 moves from `sets[1]` to `sets[2]`, which opens the gate and captures the Combat-spec gear separately.
+- **Button labels are class tree names** — `Assassination / Combat / Subtlety` for rogue, `Arms / Fury / Protection` for warrior, etc. Pulled from the existing `SPEC_TREE[classFile]` map in `EpogArmoryUI.lua`. Button width bumped 62 → 90 to fit the longest names ("Assassination", "Beast Mastery").
+- **24h self-scan gate removed** — fingerprint check (v0.9) was already catching the `UNIT_INVENTORY_CHANGED` noise silently. The 24h gate on *real* changes was blocking legitimate respec-triggered rescans. Any real fingerprint change now scans. If spam returns from a different angle we'll add targeted throttling then.
+- **Wire format (position 31) repurposed** — sender now emits `DominantTree` there instead of `GetActiveTalentGroup`. Receivers ignore position 31 entirely and compute the key locally from `entry.spec` — robust to any sender bug. Position 31 is kept on the wire for forward-compat only.
+- **Migration** — runs once on `PLAYER_LOGIN` and handles both pre-v0.13 flat entries (wrap into `sets[DominantTree(spec)]`) and v0.13 sets keyed by `activeTalentGroup` (re-key each entry by `DominantTree(set.spec)`; if two collide on the same new key, newest-scanTime wins). Logs `[migrate] normalized N player entries to DominantTree keys`.
+
+**UI trivia:** the meta-text "Spec N · Scanned…" line dropped the "Spec N" prefix since the currently-active button already shows the tree name.
+
+---
+
 ## EpogArmory v0.13 — Per-spec gear sets + expanded filters + 24h self-scan *(2026-04-22)* *(local-only, not released yet)*
 
 Big feature release. Four things.
