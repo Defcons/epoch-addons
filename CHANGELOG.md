@@ -4,9 +4,13 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
-## EpogArmory v1.6 — Version ping + mesh forward-compat *(2026-04-22)*
+## EpogArmory v1.2 — Version ping + mesh forward-compat + folded post-v1.1 work *(2026-04-22)*
 
-Peer-to-peer new-release notification and a lenient parser so additive mesh changes no longer fragment older clients.
+First public release after v1.1. Bundles everything from the internal post-v1.1 commit sequence (labeled "v1.2..v1.5" in commit messages — those were never released) plus the new version-ping feature and a lenient mesh parser so additive changes no longer fragment older clients.
+
+**Internal work folded in (from commits labeled v1.2–v1.5):** self-scan + chat prefix rename + short retry on transient fails (v1.2), fixed slot borders + minimap button + browser frame (v1.3), item-info cache `EpogItemCacheDB` (v1.4), full rename `EpochArmory` → `EpogArmory` (v1.5). See the older historical entries below for details.
+
+**New in this release:**
 
 **Version ping (`VER^<version>`):**
 - One-shot broadcast at `T+120s` after login on GUILD/PARTY/RAID (whichever channels are available). Deferred 60s at a time if no channel exists yet.
@@ -18,8 +22,7 @@ Peer-to-peer new-release notification and a lenient parser so additive mesh chan
 - Parser gate softened from `t[1] ~= "v1"` to accept `"v<PROTO>"` or `"v<PROTO>.<minor>"`. Reserves `"v2"` for a real breaking change.
 - Documented append-only rule: new fields must go *after* gear slot 19 (position 31+). Old clients read exactly `t[1]..t[30]` and silently drop anything beyond, so future additions (e.g. ilvl, glyphs, enchant hashes) ride the same PROTO without fragmenting the mesh.
 
-**⚠️ Breaking change: addon-message prefix `"EpArmr"` → `"EpogArmory"`.**
-One-time mesh split with pre-v1.6 clients — they listen on the old prefix and won't see v1.6 broadcasts (and vice-versa). The version ping is what nudges holdouts to upgrade. After a couple weeks of adoption this is moot; short-term, v1.5 and v1.6 users effectively run separate meshes.
+**Addon-message prefix renamed `"EpArmr"` → `"EpogArmory"`.** In principle this would fragment the mesh with pre-v1.2 clients, but no prior version was publicly released — so there are no deployed clients listening on the old prefix. Free rename.
 
 **Also folded into this release (previously uncommitted):**
 - Dominant-spec validation in `ShouldStore()` — scans are only accepted when `max(spec) ≥ 31` OR `sum(spec) ≥ 61`, mirroring `warcraftlogs-epog routes/admin.js computePrimaryTree()`. Freshly-dinged 0/0/0 players are now skipped. Hybrid Ascension builds like 25/23/23 still resolve because `sum ≥ 61` covers the 71-points-at-L60 case.
