@@ -53,6 +53,14 @@ local SLOT_POS = {
     [18] = { "BOTTOMRIGHT", -55, 20 }, -- Ranged
 }
 
+-- Fallback tree names, used only when a stored player record has no
+-- player.tabNames (pre-v0.17 scans, or a scanner that couldn't read tab
+-- names for some reason). v0.17+ sends real tab names on the wire from
+-- GetTalentTabInfo, so this map's ordering only matters for un-rescanned
+-- legacy entries. ROGUE is listed in Ascension's actual server order
+-- (Combat, Assassination, Subtlety) since Ascension reorders it vs retail.
+-- Other classes: retail WotLK order. If any turn out to be reordered on
+-- Ascension, they'll self-correct on first v0.17 scan anyway.
 local SPEC_TREE = {
     DEATHKNIGHT = {"Blood", "Frost", "Unholy"},
     DRUID       = {"Balance", "Feral", "Restoration"},
@@ -60,11 +68,20 @@ local SPEC_TREE = {
     MAGE        = {"Arcane", "Fire", "Frost"},
     PALADIN     = {"Holy", "Protection", "Retribution"},
     PRIEST      = {"Discipline", "Holy", "Shadow"},
-    ROGUE       = {"Assassination", "Combat", "Subtlety"},
+    ROGUE       = {"Combat", "Assassination", "Subtlety"},
     SHAMAN      = {"Elemental", "Enhancement", "Restoration"},
     WARLOCK     = {"Affliction", "Demonology", "Destruction"},
     WARRIOR     = {"Arms", "Fury", "Protection"},
 }
+
+-- Resolve the 3-tree name array for a player: prefer the per-player names
+-- captured on the wire (v0.17+), fall back to the class map above.
+local function ResolveTrees(player)
+    if player.tabNames and player.tabNames[1] and player.tabNames[1] ~= "" then
+        return player.tabNames
+    end
+    return SPEC_TREE[player.class or ""]
+end
 
 local function FormatAge(unixTime)
     local d = time() - (unixTime or 0)
@@ -75,8 +92,7 @@ local function FormatAge(unixTime)
     return string.format("%dd ago", math.floor(d / 86400))
 end
 
-local function FormatSpec(class, spec)
-    local trees = SPEC_TREE[class or ""]
+local function FormatSpec(trees, spec)
     if not trees or not spec then return "" end
     local maxIdx, maxVal = 1, spec[1] or 0
     for i = 2, 3 do
@@ -347,7 +363,12 @@ RenderActiveSet = function()
     inspectFrame.nameText:SetText(string.format("%s  (L%d %s)",
         player.name or "?", player.level or 0, cls))
 
-    local specText = FormatSpec(cls, spec)
+    -- Prefer per-player tab names (v0.17+ wire field) over the hardcoded
+    -- SPEC_TREE fallback. This makes Ascension's reordered tabs (e.g.
+    -- rogue Combat/Assassination/Subtlety) render correctly.
+    local classTrees = ResolveTrees(player)
+
+    local specText = FormatSpec(classTrees, spec)
     local line2 = string.format("Scanned %s [%s] by %s",
         FormatAge(scanTime), zone, scannedBy)
     if specText ~= "" then
@@ -356,9 +377,8 @@ RenderActiveSet = function()
         inspectFrame.metaText:SetText(line2)
     end
 
-    -- Spec buttons: label = class tree name ("Arms", "Combat", etc.).
-    -- Empty trees (no scan) are dimmed + disabled. Active tree is highlighted.
-    local classTrees = SPEC_TREE[cls]
+    -- Spec buttons: label = class tree name. Empty trees (no scan) are
+    -- dimmed + disabled. Active tree is highlighted.
     for g = 1, 3 do
         local b = inspectFrame.specBtns and inspectFrame.specBtns[g]
         if b then

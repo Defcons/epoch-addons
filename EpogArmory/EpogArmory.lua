@@ -302,6 +302,23 @@ local function ReadSpecPoints(unit)
     return tabPoints(1), tabPoints(2), tabPoints(3)
 end
 
+-- Read the 3 class talent tabs' display names ("Combat", "Assassination",
+-- "Subtlety" for Ascension's rogue layout). Ascension reorders tabs from
+-- retail WotLK on some classes, so we encode the names per-scan into the
+-- payload rather than relying on a hardcoded SPEC_TREE lookup.
+local function ReadTabNames(unit)
+    local isInspect
+    if not UnitIsUnit(unit, "player") then isInspect = 1 end
+    local n1 = GetTalentTabInfo(1, isInspect) or ""
+    local n2 = GetTalentTabInfo(2, isInspect) or ""
+    local n3 = GetTalentTabInfo(3, isInspect) or ""
+    -- Defensive: strip the '^' separator and '|' (item-link escape) just in
+    -- case a server-custom tab name contains them. Tab names in practice are
+    -- plain words like "Combat" but belt-and-suspenders.
+    local function clean(s) return (s or ""):gsub("[%^|]", "") end
+    return clean(n1), clean(n2), clean(n3)
+end
+
 -- Scan the enchant description lines of an equipped item for blacklisted
 -- patterns (Mithril Spurs etc.). Returns the first matching pattern or nil.
 -- Only called on sender side (BuildPayload) so received broadcasts don't
@@ -335,6 +352,7 @@ local function BuildPayload(unit, guid)
 
     local s1, s2, s3 = ReadSpecPoints(unit)
     local dominantTree = DominantTree({s1, s2, s3})
+    local tab1Name, tab2Name, tab3Name = ReadTabNames(unit)
 
     local parts = {
         "v" .. PROTO,
@@ -387,6 +405,12 @@ local function BuildPayload(unit, guid)
     -- v0.14+ receivers actually compute this locally from entry.spec, so the
     -- field is informational/forward-compat only. Old v0.12 clients ignore it.
     parts[#parts + 1] = tostring(dominantTree)
+    -- Tab names at positions 32/33/34 so receivers can render class-tree
+    -- labels that match the sender's actual client layout (Ascension reorders
+    -- some classes vs retail WotLK). Older clients ignore the trailing fields.
+    parts[#parts + 1] = tab1Name
+    parts[#parts + 1] = tab2Name
+    parts[#parts + 1] = tab3Name
     return table.concat(parts, "^"), equipped
 end
 
@@ -517,6 +541,12 @@ local function ParsePayload(payload)
         talentGroup = tonumber(t[31]) or 1, -- v0.13+: position 31 is active talent group; v0.12 payloads default to 1
     }
     for i = 1, 19 do entry.gear[i] = t[11 + i] or "" end
+    -- v0.17+: positions 32/33/34 carry class tab names ("Combat",
+    -- "Assassination", "Subtlety"). Older payloads: tabNames stays nil and
+    -- the UI falls back to SPEC_TREE[class].
+    if t[32] and t[32] ~= "" then
+        entry.tabNames = { t[32] or "", t[33] or "", t[34] or "" }
+    end
     if entry.name == "" or entry.guid == "" then return nil end
     return entry
 end
@@ -572,6 +602,7 @@ local function Ingest(payload, sender)
     existing.realm = entry.realm
     existing.class = entry.class
     existing.level = entry.level
+    if entry.tabNames then existing.tabNames = entry.tabNames end -- v0.17+
     existing.sets[group] = {
         spec      = entry.spec,
         gear      = entry.gear,

@@ -4,6 +4,25 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.17 — Wire tab names so spec labels match server layout *(2026-04-22)* *(local-only, not released yet)*
+
+The v0.14 fix routed gear into `sets[DominantTree(spec)]` correctly, but the UI labels still came from a hardcoded `SPEC_TREE` map in retail WotLK order. Ascension reorders some classes — rogue is `Combat / Assassination / Subtlety`, not retail's `Assassination / Combat / Subtlety` — so a pure-Combat rogue was getting labeled "Assassination 41/20/0" with the Assassination button highlighted.
+
+Dynamic solution: sender reads the 3 tab names from `GetTalentTabInfo(tab, isInspect)` at scan time, appends them at wire positions 32/33/34 (per v0.7 append-only rule). Receiver stores them as `player.tabNames`. UI uses `ResolveTrees(player)` — prefers `player.tabNames` (matches whatever the server actually serves), falls back to `SPEC_TREE[class]`.
+
+**Fixed:**
+- `ReadTabNames(unit)` — pulls name strings from `GetTalentTabInfo`; strips `^` and `|` defensively
+- Payload positions 32/33/34 now carry tab names
+- `entry.tabNames` populated in `ParsePayload` (absent for pre-v0.17 payloads)
+- `Ingest` stores `existing.tabNames = entry.tabNames` at player level
+- `FormatSpec(trees, spec)` takes the tree array directly instead of looking up by class
+- `RenderActiveSet` resolves trees via `ResolveTrees(player)` for both the "Combat 41/20/0" meta line and the button labels
+- `SPEC_TREE.ROGUE` updated to Ascension order `{"Combat", "Assassination", "Subtlety"}` so fallback is correct for stale pre-v0.17 entries
+
+Other classes still use retail WotLK order in the hardcoded map — if any turn out to be Ascension-reordered, they'll self-correct on the first v0.17 scan because `player.tabNames` overrides the map.
+
+---
+
 ## EpogArmory v0.16 — Fix self `ReadSpecPoints` always returning 0/0/0 *(2026-04-22)* *(local-only, not released yet)*
 
 The bug that's been hiding since v0.3. `ReadSpecPoints` computed the isInspect flag with the idiom:
