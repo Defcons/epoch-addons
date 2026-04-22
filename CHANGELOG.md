@@ -4,6 +4,20 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpochArmory v1.1 — Paperdoll inspect frame from DB *(2026-04-22)*
+New `EpochArmoryUI.lua` adds an in-game paperdoll frame that renders the latest stored snapshot for any player by name, served directly from `EpochArmoryDB`.
+
+- **Slash:** `/epocharmory show <name>` — or `/epocharmory show` with a player targeted
+- **Layout:** 2-column paperdoll (8 slots per column + 3 weapons at bottom), draggable, Escape closes (added to `UISpecialFrames`)
+- **Header:** class-colored name, level, class, detected talent tree (tab with most points) + point distribution `Arms 54/17/0`, scan age (`14h ago [raid]`), scanner who captured it
+- **Slot buttons:** rendered via `GetItemInfo(itemID)` for icon + quality border. Empty → dim slot with "(empty)" tooltip. On hover → full `GameTooltip:SetHyperlink(...)` tooltip (enchants/gems included via itemString). Click → insert item link into open chat edit
+- **Uncached items:** 3.3.5 has no `GET_ITEM_INFO_RECEIVED` event, so when `GetItemInfo` returns nil we force a background fetch via a hidden `GameTooltip:SetHyperlink()` and re-poll at 0.3s intervals for up to 4s, updating icons as they resolve
+- **Slash hook:** UI file wraps the existing `SlashCmdList["EPOCHARMORY"]` handler so all prior commands still work
+
+TOC now loads `EpochArmory.lua` then `EpochArmoryUI.lua` (order matters — UI hook reads the existing slash handler).
+
+---
+
 ## EpochArmory v1.0 — NEW (consolidated from Scanner + Collector) *(2026-04-21)*
 Unified into one addon. Every client does everything: scans groupmates in dungeons/raids, broadcasts chunked gear via `EpArmr` addon prefix, receives + reassembles other clients' broadcasts, stores latest snapshot per GUID. Every participant's `EpochArmoryDB` is a valid upload source.
 

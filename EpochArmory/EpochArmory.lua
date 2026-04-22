@@ -500,6 +500,7 @@ end
 
 local function ShowHelp()
     print("|cffffaa44EpochArmory|r commands:")
+    print("  /epocharmory show <name>   — open paperdoll for a stored player (or target + /epocharmory show)")
     print("  /epocharmory status        — queue / broadcast / storage state")
     print("  /epocharmory debug         — toggle verbose chat logging")
     print("  /epocharmory list          — print every stored player")

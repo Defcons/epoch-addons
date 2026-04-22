@@ -6,3 +6,4 @@
 ## SavedVariables: EpochArmoryDB
 
 EpochArmory.lua
+EpochArmoryUI.lua
