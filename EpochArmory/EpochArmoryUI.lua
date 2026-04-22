@@ -271,12 +271,12 @@ SlashCmdList["EPOCHARMORY"] = function(msg)
     if lcmd == "show" or lcmd == "inspect" then
         local name = (arg and arg ~= "") and arg or (UnitName("target") or "")
         if name == "" then
-            print("|cffffaa44EpArmr|r: usage — /epocharmory show <name>  (or target a player first)")
+            print("|cffffaa44EpochArmory|r: usage — /epocharmory show <name>  (or target a player first)")
             return
         end
         local player = FindPlayer(name)
         if not player then
-            print(string.format("|cffffaa44EpArmr|r: no stored snapshot for '%s'", name))
+            print(string.format("|cffffaa44EpochArmory|r: no stored snapshot for '%s'", name))
             return
         end
         Show(player)

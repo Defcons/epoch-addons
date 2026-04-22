@@ -4,6 +4,15 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpochArmory v1.2 — Self-scan + chat prefix rename + short retry on transient fails *(2026-04-22)*
+
+- **Self-scan:** client now scans its own gear and stores it in `EpochArmoryDB` without needing a NotifyInspect roundtrip. `GetInventoryItemLink("player", slot)` works directly. Triggered by `UNIT_INVENTORY_CHANGED` (debounced 2s so equipping a 19-slot set doesn't fire 19 times) and once on `PLAYER_LOGIN` after a 3s warmup for talent data. Respects the same `requireInstance` + out-of-combat gates as other scans. Also broadcast-published so mesh participants get your updated loadout.
+- **Talent-read fix:** `BuildPayload` now passes `isInspect = nil` for self (no NotifyInspect in flight), `isInspect = 1` for others. Before, self-scan would've read stale or no talent data.
+- **Chat prefix rename:** display prefix in all chat output is now `|cffffaa44EpochArmory|r` (was `EpArmr`). Addon-message `PREFIX = "EpArmr"` constant unchanged — that's the wire protocol, not user-facing.
+- **Transient-failure retry shortened:** `[inspect] DROP` (BuildPayload returned nil — usually "0 slots equipped" when the server's inspect response was incomplete) and `[inspect] TIMEOUT` now mark the GUID with a 30s retry (`OUT_OF_RANGE_COOLDOWN`) instead of the 15-min post-successful-scan cooldown (`INSPECT_COOLDOWN`). Target gets another shot on the next roster tick.
+
+---
+
 ## EpochArmory v1.1 — Paperdoll inspect frame from DB *(2026-04-22)*
 New `EpochArmoryUI.lua` adds an in-game paperdoll frame that renders the latest stored snapshot for any player by name, served directly from `EpochArmoryDB`.
 

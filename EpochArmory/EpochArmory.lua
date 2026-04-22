@@ -1,8 +1,9 @@
 -- EpochArmory.lua
 -- Claude: single-addon mesh gear inspector. Every client runs the same code:
--- scans groupmates in dungeons/raids, broadcasts chunked gear on the "EpArmr"
--- addon prefix, receives other clients' broadcasts, and stores latest gear
--- per GUID in EpochArmoryDB for manual upload to epochlogs.com.
+-- scans self + groupmates in dungeons/raids, broadcasts chunked gear on the
+-- "EpArmr" addon-message prefix (internal identifier, fits the 16-char cap),
+-- receives other clients' broadcasts, and stores latest gear per GUID in
+-- EpochArmoryDB for manual upload to epochlogs.com.
 
 local ADDON = "EpochArmory"
 local PREFIX = "EpArmr"
@@ -61,7 +62,7 @@ local function now() return GetTime() end
 
 local function dprint(...)
     if EpochArmoryDebug then
-        print("|cffffaa44EpArmr|r", ...)
+        print("|cffffaa44EpochArmory|r", ...)
     end
 end
 
@@ -119,9 +120,13 @@ local function BuildPayload(unit, guid)
     classFile = classFile or ""
     local level = UnitLevel(unit) or 0
 
-    local s1 = select(3, GetTalentTabInfo(1, true)) or 0
-    local s2 = select(3, GetTalentTabInfo(2, true)) or 0
-    local s3 = select(3, GetTalentTabInfo(3, true)) or 0
+    -- Claude: GetTalentTabInfo's second arg is the inspect flag — pass 1 when
+    -- reading another unit's talents (after NotifyInspect), nil when reading
+    -- our own talents from a direct "player" scan.
+    local inspectFlag = UnitIsUnit(unit, "player") and nil or 1
+    local s1 = select(3, GetTalentTabInfo(1, inspectFlag)) or 0
+    local s2 = select(3, GetTalentTabInfo(2, inspectFlag)) or 0
+    local s3 = select(3, GetTalentTabInfo(3, inspectFlag)) or 0
 
     local parts = {
         "v" .. PROTO,
@@ -389,9 +394,9 @@ end
 
 local function CheckTimeout()
     if current and (now() - current.startedAt) > INSPECT_TIMEOUT then
-        dprint(string.format("[inspect] TIMEOUT: %s — no INSPECT_TALENT_READY after %ds, moving on",
-            UnitName(current.unit) or "?", INSPECT_TIMEOUT))
-        seen[current.guid] = now()
+        dprint(string.format("[inspect] TIMEOUT: %s — no INSPECT_TALENT_READY after %ds, retry in %ds",
+            UnitName(current.unit) or "?", INSPECT_TIMEOUT, OUT_OF_RANGE_COOLDOWN))
+        markRetryIn(current.guid, OUT_OF_RANGE_COOLDOWN) -- Claude: transient fail, short retry (not 15 min)
         ClearCurrent()
     end
 end
@@ -417,11 +422,62 @@ local function OnInspectReady()
         -- else is in our broadcast channels.
         Ingest(payload, UnitName("player"))
     else
-        seen[c.guid] = now()
-        dprint(string.format("[inspect] DROP: %s L%d — %s", tname, tlvl, info or "unknown"))
+        -- Claude: incomplete inspect data (0-9 slots) is usually transient —
+        -- target moved out mid-response or server was slow. Short retry, not
+        -- the 15-min full cooldown which is reserved for successful scans.
+        markRetryIn(c.guid, OUT_OF_RANGE_COOLDOWN)
+        dprint(string.format("[inspect] DROP: %s L%d — %s (retry in %ds)",
+            tname, tlvl, info or "unknown", OUT_OF_RANGE_COOLDOWN))
     end
     if ClearInspectPlayer then ClearInspectPlayer() end
     ClearCurrent()
+end
+
+-- ---------------- Self-scan ----------------
+-- Claude: scanning yourself is a free fast path — no NotifyInspect required,
+-- GetInventoryItemLink("player", slot) works immediately. Triggered by
+-- UNIT_INVENTORY_CHANGED (debounced 2s so equipping a set doesn't fire 19
+-- times) and once on PLAYER_LOGIN after a 3s warmup for talent data.
+
+local SELF_SCAN_DEBOUNCE = 2
+local SELF_SCAN_LOGIN_DELAY = 3
+
+local selfScanPending = false
+local selfScanAt = 0
+
+local function RequestSelfScan(delay)
+    selfScanPending = true
+    selfScanAt = now() + (delay or SELF_SCAN_DEBOUNCE)
+end
+
+local function TryScanSelf()
+    if not selfScanPending then return end
+    if now() < selfScanAt then return end
+    if requireInstance and not IsInstanceZone() then
+        -- Don't cancel — we want to scan the moment we zone into an instance.
+        -- Just defer the deadline.
+        selfScanAt = now() + SELF_SCAN_DEBOUNCE
+        return
+    end
+    if InCombatLockdown() then
+        selfScanAt = now() + SELF_SCAN_DEBOUNCE
+        return
+    end
+    selfScanPending = false
+
+    local playerGUID = UnitGUID("player")
+    if not playerGUID then return end
+
+    local payload, info = BuildPayload("player", playerGUID)
+    if not payload then
+        dprint(string.format("[self] scan skipped — %s", info or "unknown"))
+        return
+    end
+    dprint(string.format("[self] scanned self — %d slots equipped, payload %d bytes",
+        info, #payload))
+    MarkInspected(playerGUID, floor(time()))
+    EnqueueBroadcast(payload, UnitName("player"))
+    Ingest(payload, UnitName("player"))
 end
 
 -- ---------------- Main loop + events ----------------
@@ -443,6 +499,7 @@ f:SetScript("OnUpdate", function(self, elapsed)
 
     CheckTimeout()
     TryInspect()
+    TryScanSelf()
 
     gcAcc = gcAcc + 0.25
     if gcAcc >= 10 then gcAcc = 0; GCAssembly() end
@@ -454,6 +511,7 @@ f:RegisterEvent("PARTY_MEMBERS_CHANGED")
 f:RegisterEvent("RAID_ROSTER_UPDATE")
 f:RegisterEvent("INSPECT_TALENT_READY")
 f:RegisterEvent("CHAT_MSG_ADDON")
+f:RegisterEvent("UNIT_INVENTORY_CHANGED") -- Claude: self gear changes trigger a rescan of "player"
 
 f:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
@@ -465,12 +523,16 @@ f:SetScript("OnEvent", function(self, event, ...)
             EpochArmoryDB.config.requireInstance = true
         end
         requireInstance = EpochArmoryDB.config.requireInstance
+        RequestSelfScan(SELF_SCAN_LOGIN_DELAY) -- Claude: initial self-scan after talent data warms up
         return
     end
     if event == "CHAT_MSG_ADDON" then
         OnAddonMessage(...)
     elseif event == "INSPECT_TALENT_READY" then
         OnInspectReady()
+    elseif event == "UNIT_INVENTORY_CHANGED" then
+        local unit = ...
+        if unit == "player" then RequestSelfScan() end
     else
         ScanRoster()
     end
@@ -514,10 +576,10 @@ SlashCmdList["EPOCHARMORY"] = function(msg)
     msg = (msg or ""):lower()
     if msg == "debug" then
         EpochArmoryDebug = not EpochArmoryDebug
-        print("|cffffaa44EpArmr|r debug:",
+        print("|cffffaa44EpochArmory|r debug:",
             EpochArmoryDebug and "|cff00ff00ON|r" or "|cffff0000OFF|r")
     elseif msg == "status" then
-        print(string.format("|cffffaa44EpArmr|r stored=%d tracked=%d queue=%d outPending=%d asm=%d currentInspect=%s requireInstance=%s inCombat=%s zone=%s",
+        print(string.format("|cffffaa44EpochArmory|r stored=%d tracked=%d queue=%d outPending=%d asm=%d currentInspect=%s requireInstance=%s inCombat=%s zone=%s",
             CountStored(), CountTracked(), #queue, #outQueue, CountAssembly(),
             current and UnitName(current.unit) or "none",
             tostring(requireInstance),
@@ -528,17 +590,17 @@ SlashCmdList["EPOCHARMORY"] = function(msg)
         EpochArmoryDB = EpochArmoryDB or {}
         EpochArmoryDB.config = EpochArmoryDB.config or {}
         EpochArmoryDB.config.requireInstance = true
-        print("|cffffaa44EpArmr|r: requireInstance = |cff00ff00true|r (scan + store only in dungeon/raid)")
+        print("|cffffaa44EpochArmory|r: requireInstance = |cff00ff00true|r (scan + store only in dungeon/raid)")
     elseif msg == "instance off" or msg == "instance false" then
         requireInstance = false
         EpochArmoryDB = EpochArmoryDB or {}
         EpochArmoryDB.config = EpochArmoryDB.config or {}
         EpochArmoryDB.config.requireInstance = false
-        print("|cffffaa44EpArmr|r: requireInstance = |cffff0000false|r (scan + store everywhere — testing mode)")
+        print("|cffffaa44EpochArmory|r: requireInstance = |cffff0000false|r (scan + store everywhere — testing mode)")
     elseif msg == "wipe" then
         local kept = EpochArmoryDB and EpochArmoryDB.config or {}
         EpochArmoryDB = { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = kept }
-        print("|cffffaa44EpArmr|r: wiped players + lastScanned (kept config)")
+        print("|cffffaa44EpochArmory|r: wiped players + lastScanned (kept config)")
     elseif msg == "list" then
         if not EpochArmoryDB or not EpochArmoryDB.players then print("empty") return end
         for guid, p in pairs(EpochArmoryDB.players) do
