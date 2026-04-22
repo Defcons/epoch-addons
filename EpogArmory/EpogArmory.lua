@@ -302,21 +302,24 @@ local function ReadSpecPoints(unit)
     return tabPoints(1), tabPoints(2), tabPoints(3)
 end
 
--- Read the 3 class talent tabs' display names ("Combat", "Assassination",
--- "Subtlety" for Ascension's rogue layout). Ascension reorders tabs from
--- retail WotLK on some classes, so we encode the names per-scan into the
--- payload rather than relying on a hardcoded SPEC_TREE lookup.
-local function ReadTabNames(unit)
+-- Read the 3 class talent tabs' display names AND icon texture paths.
+-- Ascension reorders tabs from retail WotLK on some classes, so we encode
+-- this info per-scan into the payload rather than relying on a hardcoded
+-- SPEC_TREE lookup. GetTalentTabInfo returns (name, iconTexture, pointsSpent,
+-- background, previewPointsSpent, isUnlocked).
+local function ReadTabInfo(unit)
     local isInspect
     if not UnitIsUnit(unit, "player") then isInspect = 1 end
-    local n1 = GetTalentTabInfo(1, isInspect) or ""
-    local n2 = GetTalentTabInfo(2, isInspect) or ""
-    local n3 = GetTalentTabInfo(3, isInspect) or ""
     -- Defensive: strip the '^' separator and '|' (item-link escape) just in
-    -- case a server-custom tab name contains them. Tab names in practice are
-    -- plain words like "Combat" but belt-and-suspenders.
+    -- case a server-custom tab name or icon path contains them.
     local function clean(s) return (s or ""):gsub("[%^|]", "") end
-    return clean(n1), clean(n2), clean(n3)
+    local names, icons = {}, {}
+    for tab = 1, 3 do
+        local n, i = GetTalentTabInfo(tab, isInspect)
+        names[tab] = clean(n or "")
+        icons[tab] = clean(i or "")
+    end
+    return names, icons
 end
 
 -- Scan the enchant description lines of an equipped item for blacklisted
@@ -352,7 +355,7 @@ local function BuildPayload(unit, guid)
 
     local s1, s2, s3 = ReadSpecPoints(unit)
     local dominantTree = DominantTree({s1, s2, s3})
-    local tab1Name, tab2Name, tab3Name = ReadTabNames(unit)
+    local tabNames, tabIcons = ReadTabInfo(unit)
 
     local parts = {
         "v" .. PROTO,
@@ -408,9 +411,14 @@ local function BuildPayload(unit, guid)
     -- Tab names at positions 32/33/34 so receivers can render class-tree
     -- labels that match the sender's actual client layout (Ascension reorders
     -- some classes vs retail WotLK). Older clients ignore the trailing fields.
-    parts[#parts + 1] = tab1Name
-    parts[#parts + 1] = tab2Name
-    parts[#parts + 1] = tab3Name
+    parts[#parts + 1] = tabNames[1]
+    parts[#parts + 1] = tabNames[2]
+    parts[#parts + 1] = tabNames[3]
+    -- Tab icon paths at positions 35/36/37 (v0.18+) so the inspect-frame
+    -- centerpiece icon exactly matches the server's spec icon.
+    parts[#parts + 1] = tabIcons[1]
+    parts[#parts + 1] = tabIcons[2]
+    parts[#parts + 1] = tabIcons[3]
     return table.concat(parts, "^"), equipped
 end
 
@@ -547,6 +555,11 @@ local function ParsePayload(payload)
     if t[32] and t[32] ~= "" then
         entry.tabNames = { t[32] or "", t[33] or "", t[34] or "" }
     end
+    -- v0.18+: positions 35/36/37 carry tab icon texture paths for rendering
+    -- the centerpiece spec icon in the inspect frame.
+    if t[35] and t[35] ~= "" then
+        entry.tabIcons = { t[35] or "", t[36] or "", t[37] or "" }
+    end
     if entry.name == "" or entry.guid == "" then return nil end
     return entry
 end
@@ -603,6 +616,7 @@ local function Ingest(payload, sender)
     existing.class = entry.class
     existing.level = entry.level
     if entry.tabNames then existing.tabNames = entry.tabNames end -- v0.17+
+    if entry.tabIcons then existing.tabIcons = entry.tabIcons end -- v0.18+
     existing.sets[group] = {
         spec      = entry.spec,
         gear      = entry.gear,

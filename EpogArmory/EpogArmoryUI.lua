@@ -208,16 +208,20 @@ end
 
 -- ---------------- Paperdoll inspect frame ----------------
 
--- Forward declarations: both are defined later in the file but are referenced
--- by the spec-button OnClick handlers created inside BuildInspectFrame. Lua
--- 5.1 resolves unresolved names in closures at compile time, so without the
--- forward `local`, these would bind to globals (= nil at click time).
+-- Forward declarations: defined later in the file but referenced by OnClick
+-- handlers inside BuildInspectFrame / BuildBrowser. Lua 5.1 resolves
+-- unresolved names in closures at compile time, so without the forward
+-- `local`, these would bind to globals (= nil at click time).
 local RenderActiveSet
 local RefreshIcons
+local BackToBrowser   -- inspect → browser navigation (Back button)
+local OpenInspectFor  -- browser row → inspect navigation (swaps in place)
 
 local function BuildInspectFrame()
     local f = CreateFrame("Frame", "EpogArmoryInspectFrame", UIParent)
-    f:SetWidth(290); f:SetHeight(530)
+    -- Width 320 matches the browser frame so swapping between them feels
+    -- like one unified window. Height 540 is unchanged from v0.13.
+    f:SetWidth(320); f:SetHeight(540)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetBackdrop({
@@ -238,6 +242,15 @@ local function BuildInspectFrame()
 
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -4, -4)
+
+    -- Back button: returns to the browser list (preserving the frame's
+    -- on-screen position so it feels like one unified window with two views).
+    local back = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    back:SetWidth(52); back:SetHeight(20)
+    back:SetPoint("TOPLEFT", 14, -15)
+    back:SetText("Back")
+    back:SetScript("OnClick", function() BackToBrowser() end)
+    f.back = back
 
     f.nameText = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.nameText:SetPoint("TOP", 0, -42)
@@ -278,6 +291,22 @@ local function BuildInspectFrame()
         btn:SetPoint(pos[1], f, pos[1], pos[2], pos[3])
         f.slots[slotID] = btn
     end
+
+    -- Centerpiece: class icon above, spec icon below. Fills the empty space
+    -- between the two slot columns so the frame feels less sparse.
+    f.classIcon = f:CreateTexture(nil, "ARTWORK")
+    f.classIcon:SetWidth(64); f.classIcon:SetHeight(64)
+    f.classIcon:SetPoint("TOP", f, "TOP", 0, -220)
+    f.classIconLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.classIconLabel:SetPoint("TOP", f.classIcon, "BOTTOM", 0, -2)
+
+    f.specIcon = f:CreateTexture(nil, "ARTWORK")
+    f.specIcon:SetWidth(56); f.specIcon:SetHeight(56)
+    f.specIcon:SetPoint("TOP", f.classIconLabel, "BOTTOM", 0, -10)
+    -- Keep icons visually tidy by cropping Blizzard's built-in border pixels
+    f.specIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    f.specIconLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.specIconLabel:SetPoint("TOP", f.specIcon, "BOTTOM", 0, -2)
 
     tinsert(UISpecialFrames, "EpogArmoryInspectFrame")
     return f
@@ -400,6 +429,38 @@ RenderActiveSet = function()
         btn.itemString = gear[slotID] or ""
         btn.link = nil
     end
+
+    -- Centerpiece icons. Class icon uses the built-in atlas with per-class
+    -- UV coords; spec icon uses the tab's iconTexture captured at scan time
+    -- (player.tabIcons, v0.18+). Falls back to blank textures if the data
+    -- isn't available yet.
+    if inspectFrame.classIcon then
+        local tc = (CLASS_ICON_TCOORDS or {})[cls]
+        if tc then
+            inspectFrame.classIcon:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
+            inspectFrame.classIcon:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
+            inspectFrame.classIcon:Show()
+        else
+            inspectFrame.classIcon:SetTexture(nil)
+            inspectFrame.classIcon:Hide()
+        end
+        -- Class label below the class icon, e.g. "Rogue"
+        local niceClass = cls:sub(1,1):upper() .. cls:sub(2):lower()
+        inspectFrame.classIconLabel:SetText(niceClass)
+    end
+    if inspectFrame.specIcon then
+        local iconPath = player.tabIcons and player.tabIcons[group]
+        if iconPath and iconPath ~= "" then
+            inspectFrame.specIcon:SetTexture(iconPath)
+            inspectFrame.specIcon:Show()
+        else
+            inspectFrame.specIcon:SetTexture(nil)
+            inspectFrame.specIcon:Hide()
+        end
+        -- Spec label below the spec icon, e.g. "Combat"
+        local treeName = classTrees and classTrees[group] or ""
+        inspectFrame.specIconLabel:SetText(treeName)
+    end
 end
 
 local function ShowInspect(player, group)
@@ -430,13 +491,15 @@ end
 
 -- ---------------- Browser frame (searchable list) ----------------
 
-local BROWSER_ROWS = 18
+-- Browser + inspect share the same size (320x540) and swap in place so
+-- navigating between them feels like one unified frame with two views.
+local BROWSER_ROWS = 24
 local BROWSER_ROW_HEIGHT = 18
 
 local function BuildBrowser()
     local f = CreateFrame("Frame", "EpogArmoryBrowserFrame", UIParent)
-    f:SetWidth(320); f:SetHeight(450)
-    f:SetPoint("CENTER", UIParent, "CENTER", -180, 0)
+    f:SetWidth(320); f:SetHeight(540)
+    f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -498,7 +561,7 @@ local function BuildBrowser()
         row.hl:SetAllPoints()
 
         row:SetScript("OnClick", function(self)
-            if self.player then ShowInspect(self.player) end
+            if self.player and OpenInspectFor then OpenInspectFor(self.player) end
         end)
 
         f.rows[i] = row
@@ -565,16 +628,49 @@ end
 
 local function ToggleBrowser()
     if not browserFrame then browserFrame = BuildBrowser() end
-    if browserFrame:IsShown() then
-        browserFrame:Hide()
+    if browserFrame:IsShown() or (inspectFrame and inspectFrame:IsShown()) then
+        if browserFrame:IsShown() then browserFrame:Hide() end
+        if inspectFrame and inspectFrame:IsShown() then inspectFrame:Hide() end
     else
         browserFrame:Show()
     end
 end
 
+-- Copy the on-screen position of one frame to another so the hide/show pair
+-- reads as a single frame that changed contents, not two separate frames.
+-- WoW stores a frame's position as its first SetPoint tuple; we read that
+-- and replay it on the target.
+local function CopyFramePosition(src, dst)
+    if not (src and dst) then return end
+    local p, rel, relP, x, y = src:GetPoint(1)
+    if not p then return end
+    dst:ClearAllPoints()
+    dst:SetPoint(p, rel or UIParent, relP or p, x or 0, y or 0)
+end
+
+-- Inspect → browser (the Back button on the inspect frame).
+BackToBrowser = function()
+    if not browserFrame then browserFrame = BuildBrowser() end
+    if inspectFrame then
+        CopyFramePosition(inspectFrame, browserFrame)
+        inspectFrame:Hide()
+    end
+    browserFrame:Show()
+end
+
+-- Browser row → inspect. Swap in place, preserving any user drag.
+OpenInspectFor = function(player)
+    if not inspectFrame then inspectFrame = BuildInspectFrame() end
+    if browserFrame and browserFrame:IsShown() then
+        CopyFramePosition(browserFrame, inspectFrame)
+        browserFrame:Hide()
+    end
+    ShowInspect(player)
+end
+
 -- ---------------- Minimap button ----------------
 
-local MINIMAP_ICON = "Interface\\Icons\\Achievement_Character_Human_Male"
+local MINIMAP_ICON = "Interface\\Icons\\INV_Shield_06"
 local minimapBtn
 
 local function UpdateMinimapPos(angle)
@@ -675,7 +771,7 @@ SlashCmdList["EPOGARMORY"] = function(msg)
             print(string.format("|cffffaa44EpogArmory|r: no stored snapshot for '%s'", name))
             return
         end
-        ShowInspect(player)
+        OpenInspectFor(player)
         return
     elseif lcmd == "browse" or lcmd == "browser" or lcmd == "search" then
         ToggleBrowser()

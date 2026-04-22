@@ -4,6 +4,32 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.18 — Shield minimap icon + unified browser/inspect + centerpiece icons *(2026-04-22)* *(local-only, not released yet)*
+
+Three UX changes in one release, plus a small wire-format addition.
+
+**Shield minimap icon.** `MINIMAP_ICON` changed from the stock human-male achievement icon to `INV_Shield_06`. Better signals "armory" at a glance.
+
+**Unified browser + inspect view.** Previously two separate frames (`EpogArmoryBrowserFrame` 320×450 and `EpogArmoryInspectFrame` 290×530) that floated around independently. Now both frames share the same dimensions (320×540) and the navigation helpers `OpenInspectFor(player)` / `BackToBrowser()` copy the on-screen anchor from one to the other on swap, so it reads as a single window with two views.
+
+- Minimap click / `/epogarmory browse` → browser view
+- Click a row in browser → inspect view (same position, no jump)
+- New **Back** button top-left of the inspect frame → returns to browser view (same position)
+- Close button (X) on either → hides everything
+- `/epogarmory show <name>` also routes through `OpenInspectFor` so the swap works if browser is already open
+
+Browser row count bumped from 18 → 24 to use the extra vertical space.
+
+**Centerpiece icons in inspect view.** The empty area between the two slot columns now holds:
+- **Class icon** (64×64) using the built-in `UI-Classes-Circles` atlas with `CLASS_ICON_TCOORDS` — works for every class without any per-class asset lookup
+- **Spec icon** (56×56) using the currently-displayed tree's `iconTexture` from `GetTalentTabInfo` — swaps when you click a different spec button
+
+Wire format addition (v0.7 append-only rule): positions 35/36/37 carry the 3 tab icon texture paths. Old clients (v0.17 and earlier) ignore them; `player.tabIcons` stays nil and the spec icon simply hides until the player is re-scanned.
+
+**Stats summary (#4 in the original request)** deferred to a follow-up. Estimated ~2-3 hours: needs tooltip-scanning each of the 19 slots per viewed player, regex-matching ~20 common stat patterns (`"+52 Stamina"`, `"+39 Strength"`, `"+2% Hit"`, etc.), summing across slots. Enchants and gems come along for free because `SetHyperlink` renders the full enchanted-link tooltip. Moderate work; happy to do it when you want.
+
+---
+
 ## EpogArmory v0.17 — Wire tab names so spec labels match server layout *(2026-04-22)* *(local-only, not released yet)*
 
 The v0.14 fix routed gear into `sets[DominantTree(spec)]` correctly, but the UI labels still came from a hardcoded `SPEC_TREE` map in retail WotLK order. Ascension reorders some classes — rogue is `Combat / Assassination / Subtlety`, not retail's `Assassination / Combat / Subtlety` — so a pure-Combat rogue was getting labeled "Assassination 41/20/0" with the Assassination button highlighted.
