@@ -1,5 +1,5 @@
 -- EpogArmoryUI.lua
--- Claude: in-game UI for EpogArmoryDB:
+-- in-game UI for EpogArmoryDB:
 --   * Paperdoll inspect frame for a single stored player (/epogarmory show)
 --   * Browser frame with search-filtered list of all stored players
 --   * Minimap button that toggles the browser
@@ -18,7 +18,7 @@ local SLOT_LABELS = {
     [15]="Back",[16]="Main Hand",[17]="Off Hand",[18]="Ranged",[19]="Tabard",
 }
 
--- Claude: map each slotID to the Blizzard empty-slot texture name.
+-- map each slotID to the Blizzard empty-slot texture name.
 -- Used as the dim background showing which slot is which when empty.
 local SLOT_BG_MAP = {
     [1]="Head", [2]="Neck", [3]="Shoulder", [4]="Shirt", [5]="Chest",
@@ -100,7 +100,7 @@ local function FindPlayer(name)
     return nil
 end
 
--- Claude: hidden tooltip used to force the client to cache item data for
+-- hidden tooltip used to force the client to cache item data for
 -- uncached itemIDs. GetItemInfo returns nil until the client has seen the
 -- item; SetHyperlink triggers the background fetch.
 local cacheTip = CreateFrame("GameTooltip", "EpogArmoryCacheTip", UIParent, "GameTooltipTemplate")
