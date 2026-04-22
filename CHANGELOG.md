@@ -4,13 +4,9 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
-## EpogArmory v1.2 — Version ping + mesh forward-compat + folded post-v1.1 work *(2026-04-22)*
+## EpogArmory v0.7 — Version ping + mesh forward-compat *(2026-04-22)*
 
-First public release after v1.1. Bundles everything from the internal post-v1.1 commit sequence (labeled "v1.2..v1.5" in commit messages — those were never released) plus the new version-ping feature and a lenient mesh parser so additive changes no longer fragment older clients.
-
-**Internal work folded in (from commits labeled v1.2–v1.5):** self-scan + chat prefix rename + short retry on transient fails (v1.2), fixed slot borders + minimap button + browser frame (v1.3), item-info cache `EpogItemCacheDB` (v1.4), full rename `EpochArmory` → `EpogArmory` (v1.5). See the older historical entries below for details.
-
-**New in this release:**
+Peer-to-peer new-release notification plus a lenient mesh parser so additive wire-format changes no longer fragment older clients.
 
 **Version ping (`VER^<version>`):**
 - One-shot broadcast at `T+120s` after login on GUILD/PARTY/RAID (whichever channels are available). Deferred 60s at a time if no channel exists yet.
@@ -22,15 +18,15 @@ First public release after v1.1. Bundles everything from the internal post-v1.1 
 - Parser gate softened from `t[1] ~= "v1"` to accept `"v<PROTO>"` or `"v<PROTO>.<minor>"`. Reserves `"v2"` for a real breaking change.
 - Documented append-only rule: new fields must go *after* gear slot 19 (position 31+). Old clients read exactly `t[1]..t[30]` and silently drop anything beyond, so future additions (e.g. ilvl, glyphs, enchant hashes) ride the same PROTO without fragmenting the mesh.
 
-**Addon-message prefix renamed `"EpArmr"` → `"EpogArmory"`.** In principle this would fragment the mesh with pre-v1.2 clients, but no prior version was publicly released — so there are no deployed clients listening on the old prefix. Free rename.
+**Addon-message prefix renamed `"EpArmr"` → `"EpogArmory"`.** No deployed users yet, so this is a free rename — brings the wire prefix in line with the addon name.
 
-**Also folded into this release (previously uncommitted):**
+**Also in this release (previously uncommitted when the session started):**
 - Dominant-spec validation in `ShouldStore()` — scans are only accepted when `max(spec) ≥ 31` OR `sum(spec) ≥ 61`, mirroring `warcraftlogs-epog routes/admin.js computePrimaryTree()`. Freshly-dinged 0/0/0 players are now skipped. Hybrid Ascension builds like 25/23/23 still resolve because `sum ≥ 61` covers the 71-points-at-L60 case.
 - TOC `Author: Defcon`.
 
 ---
 
-## EpogArmory v1.5 — Rename EpochArmory → EpogArmory (brand consistency with epoglogs.com) *(2026-04-22)*
+## EpogArmory v0.6 — Rename EpochArmory → EpogArmory (brand consistency with epoglogs.com) *(2026-04-22)*
 
 Full rename across the project and sibling web repos for branding consistency with epoglogs.com:
 
@@ -55,11 +51,11 @@ Full rename across the project and sibling web repos for branding consistency wi
 - Game install path `epoch_live/`
 - In-game asset filenames like `inv_misc_coin_epoch_titan` (Ascension's own server content)
 - In-game spell titles like "Title: Of Epoch"
-- Historical CHANGELOG entries for v1.0..v1.4 (they describe what happened under the old name)
+- Historical CHANGELOG entries for v0.1..v0.5 (they describe what happened under the old name)
 
 ---
 
-## EpochArmory v1.4 — Item-info cache (GetItemInfo → SavedVariable) *(2026-04-22)*
+## EpochArmory v0.5 — Item-info cache (GetItemInfo → SavedVariable) *(2026-04-22)*
 
 New `EpochItemCacheDB` SavedVariable that persists `GetItemInfo()` results for every itemID seen in any scan (local or received via mesh gossip). Populated with:
 
@@ -82,7 +78,7 @@ This closes the last data gap — Ascension's custom items aren't in Wowhead or 
 
 ---
 
-## EpochArmory v1.3 — Fixed slot borders + minimap button + browser frame *(2026-04-22)*
+## EpochArmory v0.4 — Fixed slot borders + minimap button + browser frame *(2026-04-22)*
 
 - **Slot button redesign:** each slot now uses the Blizzard paperdoll empty-slot texture (`Interface\PaperDoll\UI-PaperDoll-Slot-<Head|Neck|...>`) as a dim background so users can see which slot is which even when empty. Replaced the glowy offset `UI-ActionButton-Border` with 4 thin vertex-colored rectangles (via the white `ChatFrameBackground` texture) that frame the slot exactly. Quality colors (green/blue/purple/orange) now sit flush against the icon instead of bleeding past it.
 - **Minimap button:** added `EpochArmoryMinimapButton`. Click → toggles the browser. Drag around the minimap edge → persisted in `EpochArmoryDB.config.minimapAngle` so the position survives reloads. Created lazily on `PLAYER_LOGIN` so the saved angle is available.
@@ -92,7 +88,7 @@ This closes the last data gap — Ascension's custom items aren't in Wowhead or 
 
 ---
 
-## EpochArmory v1.2 — Self-scan + chat prefix rename + short retry on transient fails *(2026-04-22)*
+## EpochArmory v0.3 — Self-scan + chat prefix rename + short retry on transient fails *(2026-04-22)*
 
 - **Self-scan:** client now scans its own gear and stores it in `EpochArmoryDB` without needing a NotifyInspect roundtrip. `GetInventoryItemLink("player", slot)` works directly. Triggered by `UNIT_INVENTORY_CHANGED` (debounced 2s so equipping a 19-slot set doesn't fire 19 times) and once on `PLAYER_LOGIN` after a 3s warmup for talent data. Respects the same `requireInstance` + out-of-combat gates as other scans. Also broadcast-published so mesh participants get your updated loadout.
 - **Talent-read fix:** `BuildPayload` now passes `isInspect = nil` for self (no NotifyInspect in flight), `isInspect = 1` for others. Before, self-scan would've read stale or no talent data.
@@ -101,7 +97,7 @@ This closes the last data gap — Ascension's custom items aren't in Wowhead or 
 
 ---
 
-## EpochArmory v1.1 — Paperdoll inspect frame from DB *(2026-04-22)*
+## EpochArmory v0.2 — Paperdoll inspect frame from DB *(2026-04-22)*
 New `EpochArmoryUI.lua` adds an in-game paperdoll frame that renders the latest stored snapshot for any player by name, served directly from `EpochArmoryDB`.
 
 - **Slash:** `/epocharmory show <name>` — or `/epocharmory show` with a player targeted
@@ -115,7 +111,7 @@ TOC now loads `EpochArmory.lua` then `EpochArmoryUI.lua` (order matters — UI h
 
 ---
 
-## EpochArmory v1.0 — NEW (consolidated from Scanner + Collector) *(2026-04-21)*
+## EpochArmory v0.1 — NEW (consolidated from Scanner + Collector) *(2026-04-21)*
 Unified into one addon. Every client does everything: scans groupmates in dungeons/raids, broadcasts chunked gear via `EpArmr` addon prefix, receives + reassembles other clients' broadcasts, stores latest snapshot per GUID. Every participant's `EpochArmoryDB` is a valid upload source.
 
 **Why consolidated:** the original split (lightweight scanner + heavyweight collector) was designed to spare "scanners" from storing the DB. In practice the DB is tiny (~1-2MB for thousands of players) so the split only added code duplication and an awkward ACK-less mesh where only Collectors captured data. Making every client both sender and receiver eliminates the "is a collector online?" question, removes the need for a persist-until-delivered ACK protocol, and means any participant can export for upload.

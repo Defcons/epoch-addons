@@ -27,7 +27,7 @@ local ROSTER_TICK           = 10
 local MIN_INSPECT_LEVEL     = 60
 local MIN_STORE_LEVEL       = 60
 local MIN_STORE_EQUIPPED    = 10
--- (v1.1): dominant-tree rule mirroring the server-side validator in
+-- (v0.7): dominant-tree rule mirroring the server-side validator in
 -- warcraftlogs-epog routes/admin.js computePrimaryTree(). A scan is only accepted
 -- when the player has meaningfully committed to a spec — either the max tree has
 -- the 31-point capstone unlocked OR they have ≥61 total points (Ascension gives
@@ -315,7 +315,7 @@ local function ShouldStore(entry)
     if requireInstance and entry.zone ~= "party" and entry.zone ~= "raid" then
         return false, string.format("zone=%s (requireInstance on)", tostring(entry.zone))
     end
-    -- (v1.1): reject scans without a committed spec. Matches the server-side
+    -- (v0.7): reject scans without a committed spec. Matches the server-side
     -- validator in warcraftlogs-epog routes/admin.js — 31+ in max tree OR 61+ total.
     local s1 = (entry.spec and entry.spec[1]) or 0
     local s2 = (entry.spec and entry.spec[2]) or 0
