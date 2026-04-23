@@ -73,7 +73,15 @@ local MIN_INSPECT_LEVEL     = 60
 local MIN_STORE_LEVEL       = 60
 local MIN_STORE_EQUIPPED    = 10
 local ASSEMBLY_TIMEOUT      = 60
-local SCAN_FRESH_WINDOW     = 86400  -- 24h — skip re-inspecting a player anyone in the mesh scanned recently
+-- v0.34: reduced from 24h to 4h. AddUnit only ever fires for groupmates
+-- (called from ScanRoster's party/raid iteration), so this window controls
+-- how often we re-inspect teammates to catch spec / gear / PvP-trinket swaps
+-- that happen mid-session. Still shared mesh-wide via lastScanned, so when
+-- one client inspects and broadcasts, every peer's window restarts together
+-- and traffic converges to "one inspect per target per 4h across the mesh".
+-- Traffic impact: ~6x v0.33, which in a 40-player raid is roughly 6 × 12s
+-- of per-target broadcast drain ≈ 1 minute per target per day. Acceptable.
+local SCAN_FRESH_WINDOW     = 14400
 
 -- Runtime config, persisted in EpogArmoryDB.config on logout.
 local requireInstance = true

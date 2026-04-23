@@ -4,6 +4,22 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.34 — Shorter inspect cooldown for groupmates (4h) *(2026-04-23)* *(local-only, not released yet)*
+
+v0.33 added PvP set detection, but the pre-existing 24h per-GUID inspect cooldown meant an in-raid swap from Combat PvE → Insignia PvP wouldn't be captured until the next day. For raid leaders checking who's mid-swap, that's too slow.
+
+Fix: **`SCAN_FRESH_WINDOW` reduced from 86400 (24h) to 14400 (4h).** Since `AddUnit` is only called from `ScanRoster`'s party/raid iteration, every candidate is already a groupmate by definition — so shortening this one constant is exactly the "group-only 4h refresh" behavior with no extra bookkeeping.
+
+**Traffic:** ~6× previous (one inspect per target per 4h instead of per 24h). The shared mesh-wide `lastScanned` still coordinates between clients — when one installer inspects Bob, every peer's 4h timer resets in sync, so traffic converges to "one broadcast per target per 4h across the whole mesh". For a 40-player raid where everyone gets re-inspected, that's roughly ~1 minute of per-target per-day broadcast drain. Acceptable and well under the addon-message throttle.
+
+**Why not per-client tracking?** I originally sketched a separate `lastLocalInspect[guid]` table but realized it'd make every new installer trigger a fresh full scan of all mesh-known targets (their local timer starts empty). That's an O(N) traffic spike per installer join. The shared `lastScanned` path is strictly better — same coverage, traffic scales with activity not with installer count.
+
+**Self-scan unchanged.** Your own character still uses fingerprint dedup; this only affects inspecting other players.
+
+**Resets unchanged:** `/epogarmory wipe` still clears the whole `lastScanned` table; the per-player Delete button still clears `lastScanned[guid]` for that player.
+
+---
+
 ## EpogArmory v0.33 — PvP loadout detection + 4th spec button *(2026-04-23)* *(local-only, not released yet)*
 
 Insignia trinkets have been rejected entirely since v0.13 (utility-loadout filter). That's been correct for "don't let a PvP scan clobber the PvE gear" but wrong for "this is my actual combat loadout and deserves its own row in the armory". v0.33 flips the behavior:
