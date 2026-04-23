@@ -124,7 +124,10 @@ local CACHE_GIVE_UP        = 15
 -- v5: + tooltipExtras array carrying raw "Chance on hit:" / "Use:" lines
 --     verbatim, so the site's armory tooltip can render item flavor text
 --     (procs, use-effects) that don't reduce to numeric stats. v0.28.
-local CACHE_SCHEMA = 5
+-- v6: + setBonuses array carrying each "Set:" / "(N) Set:" line as a
+--     structured { pieces, text } entry so the armory tooltip can render
+--     the full set bonus block. Previously filtered out entirely. v0.29.
+local CACHE_SCHEMA = 6
 
 -- Tooltip-text patterns for percent-based stats that predate the rating
 -- system and aren't in GetItemStats' enum. Keys are plain uppercase tokens
@@ -189,13 +192,31 @@ local TOOLTIP_EXTRA_PREFIXES = {
     "Use:",
 }
 
+-- Parse a possible set-bonus line. Returns (pieces, description) if the line
+-- is a set bonus, or nil if it's not. Handles three formats seen in the wild:
+--   "Set: <desc>"               — no piece count (Ascension's Darkmantle etc.)
+--   "(N) Set: <desc>"           — N pieces required (Eskhandar's)
+--   "(N/M) Set: <desc>"         — N of M pieces active (some servers)
+local function ParseSetBonusLine(text)
+    if not text then return nil end
+    -- Try "(N/M) Set: ..." and "(N) Set: ..." — leading digits captured, any
+    -- trailing "/M" consumed by [/%d]*
+    local pieces, desc = text:match("^%((%d+)[/%d]*%)%s*Set:%s*(.+)$")
+    if pieces then return tonumber(pieces) or 0, desc end
+    -- Plain "Set: ..." format, no piece count
+    desc = text:match("^Set:%s*(.+)$")
+    if desc then return 0, desc end
+    return nil
+end
+
 local tooltipScanTip
--- Scan an item's tooltip once and return (stats, extras):
---   stats  — percent-based / pre-rating stat table keyed by TOOLTIP_STAT_PATTERNS
---   extras — array of raw tooltip lines matching TOOLTIP_EXTRA_PREFIXES
--- Either may be nil if nothing matched.
+-- Scan an item's tooltip once and return (stats, extras, setBonuses):
+--   stats       — percent-based / pre-rating stat table keyed by TOOLTIP_STAT_PATTERNS
+--   extras      — array of raw tooltip lines matching TOOLTIP_EXTRA_PREFIXES
+--   setBonuses  — array of { pieces, text } set-bonus entries
+-- Any may be nil if nothing matched in that category.
 local function ScanTooltip(link)
-    if not link then return nil, nil end
+    if not link then return nil, nil, nil end
     if not tooltipScanTip then
         tooltipScanTip = CreateFrame("GameTooltip", "EpogArmoryTooltipStatsTip", UIParent, "GameTooltipTemplate")
     end
@@ -203,49 +224,48 @@ local function ScanTooltip(link)
     tooltipScanTip:ClearLines()
     tooltipScanTip:SetHyperlink(link)
 
-    local stats, extras = nil, nil
+    local stats, extras, setBonuses = nil, nil, nil
     for i = 2, tooltipScanTip:NumLines() do
         local fs = _G["EpogArmoryTooltipStatsTipTextLeft" .. i]
         local text = fs and fs:GetText()
-        -- Skip set-bonus lines. Two formats:
-        --   "Set: <description>"         (when no set is equipped yet)
-        --   "(N) Set: <description>"     (when N pieces are active)
-        -- Also "(N/M) Set: ..." on some server versions.
-        local isSetBonus = text and (
-            text:find("^Set:") or
-            text:find("^%(") and text:find("Set:", 1, true)
-        )
-        if text and not isSetBonus then
-            -- First try stat patterns. Matches accumulate into the stats
-            -- table; the line is then "consumed" and not considered for
-            -- extras.
-            local matched = false
-            for _, pat in ipairs(TOOLTIP_STAT_PATTERNS) do
-                local n = text:match(pat[1])
-                if n then
-                    n = tonumber(n)
-                    if n and n ~= 0 then
-                        stats = stats or {}
-                        stats[pat[2]] = (stats[pat[2]] or 0) + n
-                        matched = true
-                        break
+        if text then
+            -- Set-bonus lines: captured structurally, not filtered.
+            local pieces, desc = ParseSetBonusLine(text)
+            if desc then
+                setBonuses = setBonuses or {}
+                setBonuses[#setBonuses + 1] = { pieces = pieces, text = desc }
+            else
+                -- First try stat patterns. Matches accumulate into the stats
+                -- table; the line is then "consumed" and not considered for
+                -- extras.
+                local matched = false
+                for _, pat in ipairs(TOOLTIP_STAT_PATTERNS) do
+                    local n = text:match(pat[1])
+                    if n then
+                        n = tonumber(n)
+                        if n and n ~= 0 then
+                            stats = stats or {}
+                            stats[pat[2]] = (stats[pat[2]] or 0) + n
+                            matched = true
+                            break
+                        end
                     end
                 end
-            end
-            -- If the line didn't resolve to a stat, check whether it's a
-            -- special-effect line worth preserving verbatim.
-            if not matched then
-                for _, prefix in ipairs(TOOLTIP_EXTRA_PREFIXES) do
-                    if text:find("^" .. prefix, 1, true) then
-                        extras = extras or {}
-                        extras[#extras + 1] = text
-                        break
+                -- If the line didn't resolve to a stat, check whether it's a
+                -- special-effect line worth preserving verbatim.
+                if not matched then
+                    for _, prefix in ipairs(TOOLTIP_EXTRA_PREFIXES) do
+                        if text:find("^" .. prefix, 1, true) then
+                            extras = extras or {}
+                            extras[#extras + 1] = text
+                            break
+                        end
                     end
                 end
             end
         end
     end
-    return stats, extras
+    return stats, extras, setBonuses
 end
 
 local function now() return GetTime() end
@@ -394,18 +414,22 @@ local function CacheItemInfo(itemID, itemLink)
         end
     end
 
-    -- v0.26+: tooltip-scan. Returns two tables:
+    -- v0.26+: tooltip-scan. Returns three tables:
     --   tooltipStats  — percent-based / pre-rating stats (Darkmantle "+1%
     --                   crit", Rival's "+3% player damage") that GetItemStats
     --                   doesn't expose in its enum.
     --   tooltipExtras — raw flavor/proc lines like Eskhandar's "Chance on
     --                   hit: Slows enemy's movement by 60%..." which aren't
     --                   numeric stats but belong on the armory tooltip.
-    -- Either may be nil if nothing matched; site's ingest handles both
-    -- in separate display paths.
-    local tooltipStats, tooltipExtras = ScanTooltip(link)
+    --   setBonuses    — each "Set:" / "(N) Set:" line as { pieces, text }.
+    --                   Same bonus block appears on every item in the set;
+    --                   site-side can dedup by itemSet later.
+    -- Any may be nil if nothing matched; site's ingest handles each in its
+    -- own display path.
+    local tooltipStats, tooltipExtras, setBonuses = ScanTooltip(link)
     if tooltipStats  then entry.tooltipStats  = tooltipStats  end
     if tooltipExtras then entry.tooltipExtras = tooltipExtras end
+    if setBonuses    then entry.setBonuses    = setBonuses    end
 
     EpogItemCacheDB[itemID] = entry
     return true

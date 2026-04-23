@@ -4,6 +4,38 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.29 — Capture `setBonuses` structured *(2026-04-23)* *(local-only, not released yet)*
+
+The original briefing said to skip set-bonus lines because epoglogs planned a separate `data/item_sets.json` keyed by `setID`. In practice `GetItemInfo` on 3.3.5 doesn't return setID and we have no robust way to key by set, so Darkmantle / Eskhandar / etc. bonus text was being dropped on the floor — the armory tooltip had no set-bonus block at all.
+
+v0.29 captures set bonuses structurally:
+
+```lua
+entry.setBonuses = {
+    { pieces = 0, text = "Reduces the damage you take from area of effect attacks by 15%." },
+    { pieces = 0, text = "Increases the attack speed gained from Slice and Dice by 5%." },
+    { pieces = 0, text = "Reduces the Energy cost of your Sinister Strike, Backstab, and Mutilate abilities by 5." },
+}
+```
+
+**Formats handled** — the parser recognizes three tooltip shapes:
+
+| Tooltip line | `pieces` | `text` |
+|---|---|---|
+| `"Set: Reduces..."` | `0` (unknown, no prefix) | `"Reduces..."` |
+| `"(4) Set: 1% chance..."` | `4` | `"1% chance..."` |
+| `"(2/8) Set: ..."` | `2` (the N) | `"..."` |
+
+`pieces = 0` signals "couldn't determine piece count from tooltip" rather than "0 pieces required" — the site should treat 0 as unknown and display the bonus line verbatim. For tooltips that DO include the piece-count prefix, the site can group bonuses by requirement and show them as `Set Bonus (N):`.
+
+**Important caveat on redundancy:** every item in a set carries the SAME set-bonus block in its tooltip. Darkmantle's 8 pieces will each store the same 3 bonus entries. ~200 bytes × 8 pieces = ~1.6 KB duplication per set per user. Site-side can dedup by matching bonus-text sets across items. A future addon release could detect set membership and skip the redundant per-item storage — tracking that as a v0.30+ optimization.
+
+**Schema bump to v6** so v5-cached items re-fetch and pick up the `setBonuses` field. Run `/epogarmory cachewipe && cachebuild` on upgrade.
+
+**Server-side:** epoglogs ingest needs a handler for `setBonuses`. Array of `{pieces, text}` objects; group by `pieces` (treating 0 as "unknown / show verbatim") when rendering the set-bonus block on the armory tooltip.
+
+---
+
 ## EpogArmory v0.28 — `tooltipExtras` for proc / use lines *(2026-04-23)* *(local-only, not released yet)*
 
 Items like Eskhandar's Left Claw have special tooltip lines that aren't numeric stats — e.g. `"Chance on hit: Slows enemy's movement by 60% and causes them to bleed for 225 damage over 30 sec."`. These are item flavor / proc descriptions that belong on the armory tooltip but don't fit the `stats` / `tooltipStats` model.
