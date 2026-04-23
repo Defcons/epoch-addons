@@ -610,7 +610,8 @@ local function Ingest(payload, sender)
     -- Create or merge the player record, preserving sets for the other talent
     -- groups. Top-level `name/realm/class/level` always reflect the latest scan.
     existing = existing or { sets = {} }
-    existing.sets = existing.sets or {}
+    existing.sets  = existing.sets or {}
+    existing.guid  = entry.guid -- v0.20: store guid on the record so the UI can pass it to DeletePlayer
     existing.name  = entry.name
     existing.realm = entry.realm
     existing.class = entry.class
@@ -960,7 +961,10 @@ end
 local function MigratePlayers()
     if not (EpogArmoryDB and EpogArmoryDB.players) then return end
     local migrated = 0
-    for _, p in pairs(EpogArmoryDB.players) do
+    for guid, p in pairs(EpogArmoryDB.players) do
+        -- v0.20: backfill guid on the record. Pre-v0.20 entries didn't store
+        -- it, so the UI's Delete button had nothing to pass to DeletePlayer.
+        if not p.guid then p.guid = guid end
         if p.gear and not p.sets then
             -- (a) pre-v0.13 flat
             local tree = DominantTree(p.spec)

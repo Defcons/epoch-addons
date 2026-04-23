@@ -4,6 +4,26 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.20 — Fix Delete + reposition + persistent frame position *(2026-04-23)* *(local-only, not released yet)*
+
+**Delete bug fix.** When I refactored `Ingest` in v0.13 to use the per-spec `sets[tree]` model, I built a fresh `existing` table without copying `entry.guid` onto it. So every player record in `EpogArmoryDB.players[guid]` had `name/realm/class/level/sets/...` but no `guid` field. The Delete button passed `p.guid` (nil) into the popup, the OnAccept handler called `DeletePlayer(nil)`, and the `if not guid then return end` guard short-circuited silently — the entry stayed forever.
+
+Fix:
+- `Ingest` now sets `existing.guid = entry.guid` on every store
+- `MigratePlayers` backfills `p.guid = guid` for any existing record missing it (runs once on `PLAYER_LOGIN` after upgrade)
+
+**Delete button moved.** Was right of `Back` (cramped header). Now stacked directly below `Back`, same width, so the top-left has a clean `[Back] / [Delete]` column.
+
+**Frame title normalized.** Browser used to read `EpogArmory Browser` and inspect read `EpogArmory`, so the title flickered when swapping. Both now read `EpogArmory` so the swap reads as a single frame's content changing.
+
+**Persistent frame position.** `EpogArmoryDB.config.framePos` stores the last-dragged position (point + relative-point + x/y). Both browser and inspect:
+- `OnDragStop` writes the new position to SavedVariables
+- `OnShow` applies the stored position before rendering
+
+So drag once, the frame stays there across `/reload` and logout. Both views share one slot since they're meant to look like the same window.
+
+---
+
 ## EpogArmory v0.19 — "Made by Defcon" in TOC + per-player Delete button *(2026-04-23)* *(local-only, not released yet)*
 
 **TOC byline.** `Notes` now leads with `"Made by Defcon."` so the credit shows up in the in-game addon list tooltip. Also added `## X-Credits: Made by Defcon` as a custom TOC field for any tool that reads credits separately.

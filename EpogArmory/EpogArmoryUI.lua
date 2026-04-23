@@ -254,7 +254,8 @@ local function BuildInspectFrame()
     f:SetMovable(true); f:EnableMouse(true)
     f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); SaveFramePosition(self) end)
+    f:SetScript("OnShow", function(self) ApplySavedPosition(self) end)
     f:Hide()
 
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -274,11 +275,12 @@ local function BuildInspectFrame()
     f.back = back
 
     -- Delete button: removes the currently-viewed player from this client's
-    -- local DB. Confirmation popup prevents accidental wipes. Red-tinted text
-    -- to signal a destructive action.
+    -- local DB. Stacked directly below Back (same width) so it doesn't
+    -- crowd the header row. Red-tinted text to signal destructive action;
+    -- confirmation popup prevents accidental clicks.
     local delete = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    delete:SetWidth(60); delete:SetHeight(20)
-    delete:SetPoint("LEFT", back, "RIGHT", 6, 0)
+    delete:SetWidth(52); delete:SetHeight(20)
+    delete:SetPoint("TOPLEFT", back, "BOTTOMLEFT", 0, -4)
     delete:SetText("Delete")
     local dtext = delete:GetFontString()
     if dtext then dtext:SetTextColor(1, 0.4, 0.4) end
@@ -548,12 +550,12 @@ local function BuildBrowser()
     f:SetMovable(true); f:EnableMouse(true)
     f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); SaveFramePosition(self) end)
     f:Hide()
 
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     f.title:SetPoint("TOP", 0, -16)
-    f.title:SetText("EpogArmory Browser")
+    f.title:SetText("EpogArmory")
 
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -4, -4)
@@ -656,7 +658,7 @@ local function BuildBrowser()
         FauxScrollFrame_OnVerticalScroll(self, o, BROWSER_ROW_HEIGHT, Update)
     end)
     search:SetScript("OnTextChanged", Update)
-    f:SetScript("OnShow", Update)
+    f:SetScript("OnShow", function(self) ApplySavedPosition(self); Update() end)
 
     f.Refresh = Update
 
@@ -684,6 +686,27 @@ local function CopyFramePosition(src, dst)
     if not p then return end
     dst:ClearAllPoints()
     dst:SetPoint(p, rel or UIParent, relP or p, x or 0, y or 0)
+end
+
+-- Persist the frame's on-screen position to SavedVariables so dragging
+-- survives /reload and logout. Stored as { point, relativePoint, x, y }
+-- relative to UIParent. Both browser and inspect read/write the same slot
+-- since they're meant to look like one unified frame.
+local function SaveFramePosition(frame)
+    if not frame then return end
+    local p, _, rp, x, y = frame:GetPoint(1)
+    if not p then return end
+    EpogArmoryDB = EpogArmoryDB or {}
+    EpogArmoryDB.config = EpogArmoryDB.config or {}
+    EpogArmoryDB.config.framePos = { p, rp or p, x or 0, y or 0 }
+end
+
+local function ApplySavedPosition(frame)
+    if not frame then return end
+    local fp = EpogArmoryDB and EpogArmoryDB.config and EpogArmoryDB.config.framePos
+    if not fp then return end
+    frame:ClearAllPoints()
+    frame:SetPoint(fp[1], UIParent, fp[2], fp[3], fp[4])
 end
 
 -- Inspect → browser (the Back button on the inspect frame).
