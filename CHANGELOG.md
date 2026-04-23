@@ -4,6 +4,38 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.32 — Filter stat-like `Equip:` lines + codify compat rules *(2026-04-23)* *(local-only, not released yet)*
+
+Two things:
+
+**1. Stop duplicating flat stats into `tooltipExtras`.**
+
+After v0.31 fixed the prefix-check bug, `Equip:`-prefixed lines started flowing into `tooltipExtras` as intended — but the fall-through rule (accept any unmatched `Equip:` line) was too broad. Hand of Justice was landing with `stats.ITEM_MOD_ATTACK_POWER_SHORT = 20` AND `tooltipExtras = { "Equip: +20 Attack Power." }` — the same +20 AP would render twice on the site's armory tooltip (once from `stats`, once from the verbatim extras line).
+
+Added `IsStatLikeEquipLine(text)` filter. `Equip:` lines matching any of these shapes get skipped:
+
+- `"Equip: +N <stat>..."` (e.g. `"+20 Attack Power."`)
+- `"Equip: Increases [your] <stat> by N."`
+- `"Equip: Decreases your <stat> by N."`
+- `"Equip: Restores N <resource> per 5 sec."`
+
+Proc/effect lines don't match any of these shapes (they contain `"chance"` / `"on hit"` / `"for N sec"` / etc.), so they continue to flow through to extras unchanged. Hand of Justice's `"Equip: 2% chance on melee hit to gain 1 extra attack."` still lands in `tooltipExtras` as expected.
+
+**Schema bump to v9** so v8-cached items re-fetch and the duplicated stat-like Equip lines drop out of their `tooltipExtras`.
+
+**2. Documented the forward-compatibility contract in-code.**
+
+Added a comment block at the top of `EpogArmory.lua` (just above `PROTO` declaration) codifying:
+
+- The three guarantees: append-only wire format, PROTO leniency, item data is local/not transmitted
+- The three rules: never reorder positions, never change field semantics, never remove fields
+- The escape hatch: PROTO bump with dual-broadcast transition window for genuinely-breaking changes
+- Pointers to `MigratePlayers` for `EpogArmoryDB` shape changes and `CACHE_SCHEMA` for `EpogItemCacheDB`
+
+This is for future-me and any future contributors. The rules have all been followed so far, but having them written down in the code near the wire-format definitions makes it obvious where the landmines are before anyone touches them.
+
+---
+
 ## EpogArmory v0.31 — Fix broken `tooltipExtras` prefix check *(2026-04-23)* *(local-only, not released yet)*
 
 Fresh bug — the `tooltipExtras` prefix filter was a no-op. User reported Hand of Justice and Felstriker had `stats` + `damage` + `speed` populated correctly but `tooltipExtras` was absent entirely, even though both items have obvious proc lines (`"Equip: 2% chance on melee hit to gain 1 extra attack."` and `"Chance on hit: All attacks are guaranteed to land..."`).

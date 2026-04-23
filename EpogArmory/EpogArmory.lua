@@ -7,11 +7,50 @@
 
 local ADDON = "EpogArmory"
 local PREFIX = "EpogArmory"
--- Wire protocol family. Bump only for breaking schema changes (field reorder /
--- semantic shift). Receivers accept any payload beginning with "v" .. PROTO and
--- ignore trailing tokens they don't understand, so additive changes (new fields
--- after gear slot 19, i.e. positions 31+) ride the same PROTO without breaking
--- older clients.
+
+-- ============================================================================
+-- FORWARD COMPATIBILITY — READ BEFORE EDITING THE WIRE FORMAT OR DB SHAPES
+-- ============================================================================
+-- The mesh must accept any version of the addon talking to any other. The
+-- protections:
+--
+-- 1. APPEND-ONLY WIRE FORMAT. Positions 1..30 of the caret-delimited payload
+--    are frozen forever (proto tag, name, realm, class, level, guid, spec,
+--    scanTime, zone, gear slots 1..19). New fields land at position 31+.
+--    Receivers silently drop unknown trailing tokens, so old clients never
+--    reject new payloads — they just miss fields they don't know.
+--
+-- 2. PROTO LENIENCY. ParsePayload accepts "v<PROTO>" exactly AND
+--    "v<PROTO>.<minor>". Lets us nudge the protocol subtly without breaking
+--    old parsers (e.g. "v1.2" won't be rejected by a "v1"-only reader).
+--
+-- 3. ITEM DATA IS LOCAL, NOT TRANSMITTED. stats / tooltipStats / setBonuses /
+--    damage / speed / tooltipExtras are all computed locally from
+--    GetItemStats and tooltip scans — they never cross the mesh. Adding new
+--    captured fields does NOT require mesh coordination. Each client resolves
+--    items independently from its own live game data.
+--
+-- Rules (never break these):
+--   a. Never reorder existing wire positions. Only append at position 31+.
+--   b. Never change a field's semantics. If ITEM_MOD_STRENGTH_SHORT is
+--      strength today, it's strength forever. Add new fields instead.
+--   c. Never remove fields — old clients may read them. Set to nil, let
+--      absence signal unavailable.
+--
+-- ESCAPE HATCH: if a change is genuinely impossible additively, bump
+-- PROTO = "1" to "2". The new client emits BOTH v1 and v2 payloads during a
+-- transition window (months); v2 receivers prefer v2, fall back to v1. After
+-- widespread adoption, drop v1 emit. Much later, drop v1 receive. No public
+-- release has needed this yet.
+--
+-- ON-DISK MIGRATIONS:
+--   * EpogArmoryDB — MigratePlayers() runs every PLAYER_LOGIN and reshapes
+--     older per-player records idempotently. Add new migration branches
+--     there when changing the record shape.
+--   * EpogItemCacheDB — every entry carries `v = CACHE_SCHEMA`. Bump the
+--     constant when the entry shape changes; stale entries re-fetch on next
+--     touch. See CACHE_SCHEMA's own comment block for the schema version log.
+-- ============================================================================
 local PROTO = "1"
 local ADDON_VERSION = GetAddOnMetadata(ADDON, "Version") or "0"
 local RELEASES_URL = "https://github.com/Defcons/epogarmory-addon/releases/"
@@ -136,7 +175,13 @@ local CACHE_GIVE_UP        = 15
 --     (plain=true disables pattern metacharacters). No extras were being
 --     captured since v0.28. Fixed with sub-and-equal compare. Schema bump
 --     forces re-fetch of v7 entries that silently captured nothing. v0.31.
-local CACHE_SCHEMA = 8
+-- v9: + IsStatLikeEquipLine filter — Equip lines that describe pure stats
+--     already captured by GetItemStats ("Equip: +20 Attack Power." /
+--     "Equip: Increases critical strike rating by 20.") no longer land in
+--     tooltipExtras. Avoids rendering the same stat twice on the site.
+--     Proc lines with "chance" / "on hit" / "for N sec" / etc. are NOT
+--     stat-like and continue to be preserved. v0.32.
+local CACHE_SCHEMA = 9
 
 -- Tooltip-text patterns for percent-based stats that predate the rating
 -- system and aren't in GetItemStats' enum. Keys are plain uppercase tokens
@@ -194,20 +239,32 @@ local TOOLTIP_STAT_PATTERNS = {
 -- Prefixes that mark "special" tooltip lines worth preserving verbatim into
 -- entry.tooltipExtras — procs, activated trinket effects, and other flavor
 -- text the site's armory tooltip renders as-is.
---
--- "Equip:" added v0.30: proc-style lines like Hand of Justice's "2% chance
--- on a successful melee attack to increase your attack power by 300 for 15
--- sec." weren't being captured anywhere. The scanner runs stat patterns
--- first; any Equip line consumed there (e.g. "+1% melee crit") never reaches
--- the extras check. Lines that fall through (procs, uncharted-in-stats
--- effects) now get preserved. Some flat-stat Equip lines ("Increases attack
--- power by 15.") will also fall through and duplicate into extras — that's
--- accepted per briefing; site-side can dedup.
 local TOOLTIP_EXTRA_PREFIXES = {
     "Chance on hit:",
     "Use:",
-    "Equip:",
+    "Equip:", -- v0.30: catch proc-style Equip lines (Hand of Justice etc.)
 }
+
+-- v0.32: stat-like Equip lines (e.g. "Equip: +20 Attack Power." or
+-- "Equip: Increases attack power by 20.") describe numeric stats that
+-- GetItemStats already captured into entry.stats. Including them in
+-- tooltipExtras would render the stat twice on the site's armory tooltip.
+-- This filter skips them; actual procs (containing "chance" / "on hit" /
+-- "for N sec" / etc.) do NOT match these patterns and still land in extras.
+local EQUIP_STAT_LINE_PATTERNS = {
+    "^Equip: %+%-?%d+ ",                        -- "Equip: +20 Attack Power."
+    "^Equip: Increases [%w ]+by %-?%d+%.?$",    -- "Equip: Increases attack power by 20."
+    "^Equip: Increases your [%w ]+by %-?%d+%.?$", -- "Equip: Increases your crit rating by 20."
+    "^Equip: Decreases your [%w ]+by %-?%d+%.?$", -- rare but possible
+    "^Equip: Restores %d+ [%w ]+per 5 sec%.?$",   -- "Equip: Restores 10 mana per 5 sec."
+}
+local function IsStatLikeEquipLine(text)
+    if not text then return false end
+    for _, pat in ipairs(EQUIP_STAT_LINE_PATTERNS) do
+        if text:match(pat) then return true end
+    end
+    return false
+end
 
 -- Parse a possible set-bonus line. Returns (pieces, description) if the line
 -- is a set bonus, or nil if it's not. Handles three formats seen in the wild:
@@ -318,8 +375,14 @@ local function ScanTooltip(link)
                 if not matched then
                     for _, prefix in ipairs(TOOLTIP_EXTRA_PREFIXES) do
                         if text:sub(1, #prefix) == prefix then
-                            extras = extras or {}
-                            extras[#extras + 1] = text
+                            -- v0.32: skip Equip lines that are pure stat
+                            -- descriptions — GetItemStats already captured
+                            -- the numeric value into entry.stats; duplicating
+                            -- the raw text would double-render on the site.
+                            if not (prefix == "Equip:" and IsStatLikeEquipLine(text)) then
+                                extras = extras or {}
+                                extras[#extras + 1] = text
+                            end
                             break
                         end
                     end
