@@ -193,6 +193,16 @@ local versionPingAt      = 0
 local versionPingSent    = false
 local versionNotified    = false
 
+-- Admin sync protocol (v0.35): a targeted peer can request another peer's
+-- recent stored scans for bulk-catch-up. Hidden slash command:
+--   /epogarmory syncfrom <playerName> [days]
+-- Receiver broadcasts a SYNCREQ; the named target replays their stored
+-- set.rawPayload blobs back through the normal outQueue. Other guildmates
+-- ingest the replays too (free benefit — their DBs also catch up).
+local SYNC_RESPONSE_COOLDOWN     = 3600 -- 1h per requester
+local SYNC_MAX_SETS_PER_RESPONSE = 200  -- cap drain at ~20min even for huge DBs
+local lastSyncResponseTo         = {}   -- in-memory: requesterName -> time() of last response
+
 -- item-info cache. EpogItemCacheDB is the persistent half; pendingCache
 -- is the in-memory retry queue for items the client hasn't fetched yet.
 local pendingCache = {} -- itemID -> firstSeenTime
@@ -1029,11 +1039,16 @@ local function Ingest(payload, sender)
     if entry.tabNames then existing.tabNames = entry.tabNames end -- v0.17+
     if entry.tabIcons then existing.tabIcons = entry.tabIcons end -- v0.18+
     existing.sets[group] = {
-        spec      = entry.spec,
-        gear      = entry.gear,
-        scanTime  = entry.scanTime,
-        zone      = entry.zone,
-        scannedBy = scannedBy,
+        spec       = entry.spec,
+        gear       = entry.gear,
+        scanTime   = entry.scanTime,
+        zone       = entry.zone,
+        scannedBy  = scannedBy,
+        -- v0.35: stash the raw wire payload so an admin running
+        -- /epogarmory syncfrom <us> can replay it verbatim without
+        -- having to reconstruct the wire format from structured fields.
+        -- Keeps the sync protocol drift-proof as BuildPayload evolves.
+        rawPayload = payload,
     }
 
     -- Mirror the most-recently-scanned set to top-level fields for
@@ -1119,6 +1134,64 @@ local function TrySendVersionPing()
         ADDON_VERSION, table.concat(channels, "+")))
 end
 
+-- v0.35: handle an incoming SYNCREQ. Only responds if:
+--   1. The request targets this client specifically (by name match)
+--   2. Arrived on GUILD channel (so we're not responding to random whispers)
+--   3. We haven't responded to this requester within SYNC_RESPONSE_COOLDOWN
+-- When responding, we iterate stored sets with scanTime > sinceTS and replay
+-- their raw wire payloads via the outQueue — bounded to
+-- SYNC_MAX_SETS_PER_RESPONSE to cap drain duration. The normal 2s broadcast
+-- stagger paces these so the guild channel isn't saturated.
+local function HandleSyncRequest(payload, sender, channel)
+    if channel ~= "GUILD" then
+        dprint(string.format("[sync] ignore request from %s — not on GUILD (%s)", sender or "?", channel or "?"))
+        return
+    end
+    local tag, requester, target, sinceStr = strsplit("^", payload)
+    if tag ~= "SYNCREQ" then return end
+    if not target or target == "" then return end
+    if target ~= UnitName("player") then
+        -- Request is for someone else; silently ignore.
+        return
+    end
+    -- Rate-limit per requester to prevent abuse.
+    local last = lastSyncResponseTo[requester or ""] or 0
+    if (time() - last) < SYNC_RESPONSE_COOLDOWN then
+        dprint(string.format("[sync] decline %s — responded %.1fh ago (cooldown 1h)",
+            requester or "?", (time() - last) / 3600))
+        return
+    end
+    local sinceTS = tonumber(sinceStr) or 0
+    if not (EpogArmoryDB and EpogArmoryDB.players) then return end
+
+    local queued = 0
+    for _, p in pairs(EpogArmoryDB.players) do
+        if queued >= SYNC_MAX_SETS_PER_RESPONSE then break end
+        if p.sets then
+            for _, set in pairs(p.sets) do
+                if queued >= SYNC_MAX_SETS_PER_RESPONSE then break end
+                if set.rawPayload and (set.scanTime or 0) > sinceTS then
+                    -- Chunk + enqueue with a fresh msgID so receivers see
+                    -- this as a new broadcast (different assembly key).
+                    msgCounter = msgCounter + 1
+                    local msgID = string.format("%x%x",
+                        math.floor(now() * 10) % 0xffff, msgCounter % 0xffff)
+                    local chunks = MakeChunks(set.rawPayload, msgID)
+                    for _, chunk in ipairs(chunks) do
+                        outQueue[#outQueue + 1] = { ch = "GUILD", body = chunk }
+                    end
+                    queued = queued + 1
+                end
+            end
+        end
+    end
+    lastSyncResponseTo[requester or ""] = time()
+    dprint(string.format("[sync] responding to %s: queued %d sets since %s (max %d)",
+        requester or "?", queued,
+        sinceTS > 0 and date("%Y-%m-%d %H:%M", sinceTS) or "epoch",
+        SYNC_MAX_SETS_PER_RESPONSE))
+end
+
 local function OnAddonMessage(prefix, body, channel, sender)
     if prefix ~= PREFIX then return end
     -- Drop our own echoes. Addon messages broadcast on GUILD/PARTY/RAID always
@@ -1160,6 +1233,8 @@ local function OnAddonMessage(prefix, body, channel, sender)
         -- framing but decode to a different shape.
         if full:sub(1, 4) == "VER^" then
             HandleVersionPing(full, sender)
+        elseif full:sub(1, 8) == "SYNCREQ^" then
+            HandleSyncRequest(full, sender, channel)
         else
             Ingest(full, sender)
         end
@@ -1689,6 +1764,35 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         local s1, s2, s3 = ReadSpecPoints("player")
         print(string.format("  ReadSpecPoints(player) = %d / %d / %d → DominantTree = %d",
             s1, s2, s3, DominantTree({s1, s2, s3})))
+    elseif msg:sub(1, 8) == "syncfrom" then
+        -- Hidden admin command: request another peer to replay their recent
+        -- stored scans over the guild channel. Usage:
+        --   /epogarmory syncfrom <playerName>         (default: last 7 days)
+        --   /epogarmory syncfrom <playerName> 30      (last 30 days)
+        --   /epogarmory syncfrom <playerName> 0       (everything the peer has)
+        -- NOT listed in /epogarmory help on purpose — this is for admins
+        -- catching up their own DB before uploading to epoglogs.com.
+        local argStr = msg:sub(10) -- everything after "syncfrom "
+        local name, daysStr = argStr:match("^%s*(%S+)%s*(%S*)%s*$")
+        if not name or name == "" then
+            print("|cffffaa44EpogArmory|r: usage — /epogarmory syncfrom <playerName> [days]")
+            return
+        end
+        -- Canonical name casing (peer compares UnitName("player") == name exactly)
+        name = name:sub(1, 1):upper() .. name:sub(2):lower()
+        local days = tonumber(daysStr) or 7
+        local sinceTS = days > 0 and (time() - days * 86400) or 0
+        if not IsInGuild() then
+            print("|cffffaa44EpogArmory|r: sync requires being in a guild (request is sent via GUILD channel)")
+            return
+        end
+        msgCounter = msgCounter + 1
+        local msgID = string.format("S%x", msgCounter % 0xffff)
+        local body = string.format("%s^1^1^SYNCREQ^%s^%s^%d",
+            msgID, UnitName("player") or "?", name, sinceTS)
+        outQueue[#outQueue + 1] = { ch = "GUILD", body = body }
+        print(string.format("|cffffaa44EpogArmory|r: requested sync from |cff00ff00%s|r (last %d days). Responses will trickle in — it can take 10-20 minutes.",
+            name, days))
     elseif msg:sub(1, 9) == "dumpstats" then
         -- Diagnostic: print GetItemStats + tooltip lines for equipped slots.
         -- Lets us see exactly which keys Ascension's client returns for a

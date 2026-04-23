@@ -4,6 +4,58 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.35 — Hidden admin sync (`/epogarmory syncfrom`) *(2026-04-23)* *(local-only, not released yet)*
+
+The mesh is gossip-only — guildies' accumulated DBs never replay to you after a break. Problem for the admin who uploads SavedVariables to epoglogs: they need everyone's data in their own local DB, but the mesh only feeds them live scans.
+
+**New hidden slash command:**
+
+```
+/epogarmory syncfrom <playerName>           — request last 7 days from a peer
+/epogarmory syncfrom <playerName> 30        — last 30 days
+/epogarmory syncfrom <playerName> 0         — everything the peer has
+```
+
+Not listed in `/epogarmory help` — this is an admin tool, not a general feature.
+
+**Protocol:**
+
+- Requester broadcasts `SYNCREQ^<requesterName>^<targetName>^<sinceTimestamp>` over the GUILD channel (single chunk).
+- Every peer receives the request. Most ignore it (the target name doesn't match their character). The named target checks:
+  - Request arrived on `GUILD` channel (not PARTY/RAID/whisper — prevents cross-channel abuse)
+  - They haven't already responded to this requester within the last hour (`SYNC_RESPONSE_COOLDOWN = 3600`)
+- If both checks pass, the target iterates their stored `players[].sets[].rawPayload`, filters by `scanTime > sinceTS`, and replays up to 200 payloads (`SYNC_MAX_SETS_PER_RESPONSE`) through the normal outQueue.
+- At the standard 2s broadcast stagger × 3 chunks per payload, 200 payloads drain in ~20 minutes. Cap prevents multi-hour drains even for huge DBs.
+- Other guildmates ingest the replays too — free benefit: their DBs catch up alongside the admin's.
+
+**Storage change:** each set now carries `set.rawPayload` — the verbatim wire payload we received. Using the raw string instead of reconstructing via a sibling `BuildPayloadFromStored` helper avoids drift as the wire format evolves. Every new Ingest stamps it; legacy v0.34- sets without `rawPayload` won't be replayed on sync (but will fill in on next re-scan).
+
+**Rate-limiting protections:**
+
+- Per-requester cooldown (1h) on the target side prevents one requester from looping sync requests
+- 200-set cap bounds any single response
+- Guild-channel-only gate prevents someone whispering a SYNCREQ and triggering response via a private channel
+
+**Typical admin flow for pre-upload sync:**
+
+```
+/epogarmory syncfrom Alice          -- start with your most active guildie
+  ... wait ~20 min for drain ...
+/epogarmory syncfrom Bob 30         -- another peer, last 30 days
+  ... wait ...
+/epogarmory syncfrom Charlie 0      -- fetch everything Charlie has
+  ... wait ...
+/epogarmory cachebuild              -- warm the item cache across all new entries
+/logout                             -- flush SavedVariables to disk
+# then upload WTF/Account/<ACCT>/SavedVariables/EpogArmory.lua to epoglogs.com
+```
+
+Not a full history replay (gated by the 200-set cap and the per-peer `rawPayload` availability), but good enough for an admin to stay near-current without needing file-copy coordination.
+
+**Local impact on peers:** a typical response fully drains the responder's outQueue for ~20 minutes. Their own legitimate scan broadcasts queue up behind the sync replay and go out after. No data loss, just delayed delivery during the sync window. Peers should see a single `[sync]` debug line when they respond (if they have debug on), otherwise silent.
+
+---
+
 ## EpogArmory v0.34 — Shorter inspect cooldown for groupmates (4h) *(2026-04-23)* *(local-only, not released yet)*
 
 v0.33 added PvP set detection, but the pre-existing 24h per-GUID inspect cooldown meant an in-raid swap from Combat PvE → Insignia PvP wouldn't be captured until the next day. For raid leaders checking who's mid-swap, that's too slow.
