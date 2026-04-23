@@ -227,13 +227,15 @@ end
 -- ---------------- Paperdoll inspect frame ----------------
 
 -- Forward declarations: defined later in the file but referenced by OnClick
--- handlers inside BuildInspectFrame / BuildBrowser. Lua 5.1 resolves
--- unresolved names in closures at compile time, so without the forward
--- `local`, these would bind to globals (= nil at click time).
+-- / OnShow / OnDragStop closures inside BuildInspectFrame / BuildBrowser.
+-- Lua 5.1 resolves unresolved names in closures at compile time, so without
+-- the forward `local`, these would bind to globals (= nil at runtime).
 local RenderActiveSet
 local RefreshIcons
-local BackToBrowser   -- inspect → browser navigation (Back button)
-local OpenInspectFor  -- browser row → inspect navigation (swaps in place)
+local BackToBrowser     -- inspect → browser navigation (Back button)
+local OpenInspectFor    -- browser row → inspect navigation (swaps in place)
+local SaveFramePosition -- write frame position to SavedVariables on drag-stop
+local ApplySavedPosition-- read frame position from SavedVariables on show
 
 -- Confirmation popup for the Delete button. The deleted entry is gone from
 -- THIS client's DB only; any peer with it still holds their copy, and a
@@ -745,7 +747,9 @@ end
 -- survives /reload and logout. Stored as { point, relativePoint, x, y }
 -- relative to UIParent. Both browser and inspect read/write the same slot
 -- since they're meant to look like one unified frame.
-local function SaveFramePosition(frame)
+-- (Forward-declared above so OnDragStop / OnShow closures inside the Build
+-- functions can resolve the upvalue at compile time.)
+SaveFramePosition = function(frame)
     if not frame then return end
     local p, _, rp, x, y = frame:GetPoint(1)
     if not p then return end
@@ -754,7 +758,7 @@ local function SaveFramePosition(frame)
     EpogArmoryDB.config.framePos = { p, rp or p, x or 0, y or 0 }
 end
 
-local function ApplySavedPosition(frame)
+ApplySavedPosition = function(frame)
     if not frame then return end
     local fp = EpogArmoryDB and EpogArmoryDB.config and EpogArmoryDB.config.framePos
     if not fp then return end

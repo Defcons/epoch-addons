@@ -4,6 +4,21 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.23 — Fix `ApplySavedPosition`/`SaveFramePosition` upvalue scoping *(2026-04-23)* *(local-only, not released yet)*
+
+Runtime error opening the browser:
+```
+EpogArmoryUI.lua:706: attempt to call global 'ApplySavedPosition' (a nil value)
+```
+
+Same Lua 5.1 upvalue-scoping gotcha as the earlier `RefreshIcons` / `RenderActiveSet` / `BackToBrowser` fixes. v0.20 introduced `SaveFramePosition` and `ApplySavedPosition` as `local function` declarations *after* `BuildBrowser` and `BuildInspectFrame`. The OnShow / OnDragStop closures inside those Build functions reference them — at compile time those names had no matching local in scope yet, so Lua resolved them to globals. At runtime, no global existed → nil → crash on first frame Show.
+
+Fix: forward-declare both at the top of the file (with `RenderActiveSet`, `RefreshIcons`, `BackToBrowser`, `OpenInspectFor`) and change the function definitions from `local function X(...)` to plain `X = function(...) ... end` so they assign to the forward-declared local rather than shadow it.
+
+No behavior change beyond not crashing.
+
+---
+
 ## EpogArmory v0.22 — Capture per-item stats via GetItemStats *(2026-04-23)* *(local-only, not released yet)*
 
 The epoglogs armory tooltip already has plumbing for item stats but no data to render. TrinityCore TDB covers stats for retail WotLK items, but Ascension modifies stats on most items, and server-custom items aren't in TDB at all. The only authoritative source is the game client's `GetItemStats(itemLink)` API — which returns the server-supplied stat table with all Ascension changes applied.
