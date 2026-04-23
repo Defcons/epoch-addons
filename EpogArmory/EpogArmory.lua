@@ -202,7 +202,11 @@ end
 
 -- returns true if GetItemInfo succeeded and we wrote to the cache,
 -- false if still pending (client hasn't resolved the item yet).
-local function CacheItemInfo(itemID)
+-- itemLink (optional): the full "item:itemID:enchantID:gem1:..." string. Used
+-- by GetItemStats below to capture Ascension's modified stat values. If
+-- omitted, falls back to a bare "item:itemID" link which still returns the
+-- base item's stats.
+local function CacheItemInfo(itemID, itemLink)
     if not itemID or itemID <= 0 then return false end
     EpogItemCacheDB = EpogItemCacheDB or {}
     if EpogItemCacheDB[itemID] then return true end -- already cached, skip re-query
@@ -218,21 +222,47 @@ local function CacheItemInfo(itemID)
         icon = texture:match("([^\\/]+)$") or texture
         icon = icon:lower()
     end
-    EpogItemCacheDB[itemID] = {
+    local entry = {
         name = name,
         quality = quality or 0,
         itemLevel = itemLevel or 0,
         icon = icon,
         ts = floor(time()),
     }
+
+    -- v0.22: capture per-item stats via GetItemStats. Ascension modifies stats
+    -- on most retail items and adds entirely server-custom items not in any
+    -- TDB extract — the client API is the only authoritative source. Stored
+    -- with the original ITEM_MOD_* keys so the site's ingest can map them
+    -- via the same enum used for TDB merging. Random suffix variants are
+    -- ignored per spec — first roll wins for a given itemID.
+    if GetItemStats then
+        local link = itemLink or ("item:" .. itemID)
+        local stats = GetItemStats(link)
+        if stats then
+            local serial = {}
+            for k, v in pairs(stats) do
+                if type(v) == "number" and v ~= 0 then
+                    serial[k] = v
+                end
+            end
+            -- Skip empty {} for shirts/tabards etc. so a missing field reads
+            -- as "no data captured" rather than "captured but empty".
+            if next(serial) then
+                entry.stats = serial
+            end
+        end
+    end
+
+    EpogItemCacheDB[itemID] = entry
     return true
 end
 
-local function MarkPendingCache(itemID)
+local function MarkPendingCache(itemID, itemLink)
     if not itemID or itemID <= 0 then return end
     if EpogItemCacheDB and EpogItemCacheDB[itemID] then return end
     if not pendingCache[itemID] then
-        pendingCache[itemID] = now()
+        pendingCache[itemID] = { firstSeen = now(), link = itemLink }
         TriggerItemFetch(itemID)
     end
 end
@@ -240,16 +270,18 @@ end
 local function TryCachePending()
     if not next(pendingCache) then return end
     local nowT = now()
-    for iid, firstSeen in pairs(pendingCache) do
-        if CacheItemInfo(iid) then
+    for iid, info in pairs(pendingCache) do
+        if CacheItemInfo(iid, info.link) then
             pendingCache[iid] = nil
-        elseif (nowT - firstSeen) > CACHE_GIVE_UP then
+        elseif (nowT - info.firstSeen) > CACHE_GIVE_UP then
             pendingCache[iid] = nil -- server never responded; try again on next scan
         end
     end
 end
 
 -- iterate gear slots, ensure every itemID is either cached or queued.
+-- Passes the full itemstring as the hyperlink so GetItemStats can include
+-- suffix-variant stats on the first scan that lands.
 local function CachePayloadItems(entry)
     if not entry or not entry.gear then return end
     for slot = 1, 19 do
@@ -257,7 +289,8 @@ local function CachePayloadItems(entry)
         if raw and raw ~= "" then
             local iid = tonumber(raw:match("^(%d+)"))
             if iid and iid > 0 then
-                if not CacheItemInfo(iid) then MarkPendingCache(iid) end
+                local link = "item:" .. raw
+                if not CacheItemInfo(iid, link) then MarkPendingCache(iid, link) end
             end
         end
     end
@@ -1141,23 +1174,34 @@ end
 local function CacheBuildAll()
     if not EpogArmoryDB or not EpogArmoryDB.players then return 0, 0, 0 end
     local tried, hit, pended = 0, 0, 0
-    for _, p in pairs(EpogArmoryDB.players) do
-        if p.gear then
-            for slot = 1, 19 do
-                local raw = p.gear[slot]
-                if raw and raw ~= "" then
-                    local iid = tonumber(raw:match("^(%d+)"))
-                    if iid and iid > 0 then
-                        tried = tried + 1
-                        if CacheItemInfo(iid) then
-                            hit = hit + 1
-                        else
-                            MarkPendingCache(iid)
-                            pended = pended + 1
-                        end
+    local function processGear(gear)
+        for slot = 1, 19 do
+            local raw = gear[slot]
+            if raw and raw ~= "" then
+                local iid = tonumber(raw:match("^(%d+)"))
+                if iid and iid > 0 then
+                    tried = tried + 1
+                    local link = "item:" .. raw
+                    if CacheItemInfo(iid, link) then
+                        hit = hit + 1
+                    else
+                        MarkPendingCache(iid, link)
+                        pended = pended + 1
                     end
                 end
             end
+        end
+    end
+    for _, p in pairs(EpogArmoryDB.players) do
+        -- v0.22: walk per-spec sets so stats get captured for every loadout,
+        -- not just the latest-mirror p.gear. The CacheItemInfo dedup makes
+        -- redundant calls cheap (early-out on EpogItemCacheDB[itemID]).
+        if p.sets then
+            for _, s in pairs(p.sets) do
+                if s.gear then processGear(s.gear) end
+            end
+        elseif p.gear then
+            processGear(p.gear)
         end
     end
     return tried, hit, pended

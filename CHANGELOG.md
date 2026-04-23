@@ -4,6 +4,52 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.22 — Capture per-item stats via GetItemStats *(2026-04-23)* *(local-only, not released yet)*
+
+The epoglogs armory tooltip already has plumbing for item stats but no data to render. TrinityCore TDB covers stats for retail WotLK items, but Ascension modifies stats on most items, and server-custom items aren't in TDB at all. The only authoritative source is the game client's `GetItemStats(itemLink)` API — which returns the server-supplied stat table with all Ascension changes applied.
+
+This release captures those stats alongside the existing `GetItemInfo` data:
+
+```lua
+EpogItemCacheDB[itemID] = {
+    name = "Valorous Dreadnaught Faceguard",
+    quality = 4,
+    itemLevel = 213,
+    icon = "inv_helmet_93",
+    ts = 1713900000,
+    stats = {                                    -- v0.22+
+        ITEM_MOD_STRENGTH_SHORT   = 59,
+        ITEM_MOD_STAMINA_SHORT    = 88,
+        ITEM_MOD_HIT_RATING_SHORT = 18,
+        ITEM_MOD_CRIT_RATING_SHORT = 52,
+    },
+}
+```
+
+Keys are exactly what `GetItemStats` returns — the site's ingest translates them to display names via the same enum already used for TDB merging. Net effect: addon-captured stats override TDB stats per-item on the site, so every scanned piece of gear shows correct Ascension values; TDB covers everything that hasn't been mesh-scanned yet.
+
+**Function signature changes:**
+- `CacheItemInfo(itemID, itemLink)` — second arg optional; if absent, falls back to a bare `"item:" .. itemID` link (which still returns base item stats)
+- `MarkPendingCache(itemID, itemLink)` — stores the link with the pending entry so retries pass it back through
+- `TryCachePending` — passes `info.link` back to `CacheItemInfo` on retry
+- `CachePayloadItems` — constructs `"item:" .. raw` from each gear slot's full itemstring (preserves enchant/gem/suffix context for the first scan that lands; subsequent scans early-out on the dedup)
+
+**`/epogarmory cachebuild`** also walks per-spec sets (`p.sets[*].gear`) instead of only the legacy `p.gear` mirror, so stats get captured across every stored loadout per player. The dedup makes redundant calls free.
+
+**Wire format unchanged.** Stats are computed locally per receiving client against their own client's item cache. Nothing new crosses the addon-message channel — zero mesh-bandwidth impact.
+
+**File-size impact:**
+- Old entry: ~160 bytes
+- With stats (4-6 typical): ~350-450 bytes
+- 500 cached items: ~200 KB
+- 5000 cached items: ~2 MB
+
+Empty `stats = {}` is suppressed for items genuinely without stats (shirts, tabards), so a missing `stats` field reads as "no data captured" rather than "captured but empty".
+
+Random-suffix variants ignored per spec — first roll wins for a given itemID. Fine for raid gear; BoE drops with random rolls might be slightly off but it's a rounding error.
+
+---
+
 ## EpogArmory v0.21 — Pre-release polish pass *(2026-04-23)* *(local-only, not released yet)*
 
 Seven small quality-of-life changes to round out the addon before its first public release.
