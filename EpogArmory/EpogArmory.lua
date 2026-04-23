@@ -131,7 +131,12 @@ local CACHE_GIVE_UP        = 15
 --     only exposes DPS, not min/max or speed), and "Equip:" added to the
 --     tooltipExtras prefix whitelist so proc-style Equip lines (Hand of
 --     Justice etc.) get captured as flavor text. v0.30.
-local CACHE_SCHEMA = 7
+-- v8: bug fix — the tooltipExtras prefix check used string.find with the
+--     plain=true flag combined with a `^` anchor, which doesn't anchor
+--     (plain=true disables pattern metacharacters). No extras were being
+--     captured since v0.28. Fixed with sub-and-equal compare. Schema bump
+--     forces re-fetch of v7 entries that silently captured nothing. v0.31.
+local CACHE_SCHEMA = 8
 
 -- Tooltip-text patterns for percent-based stats that predate the rating
 -- system and aren't in GetItemStats' enum. Keys are plain uppercase tokens
@@ -304,10 +309,15 @@ local function ScanTooltip(link)
                     end
                 end
                 -- If the line didn't resolve to a stat, check whether it's a
-                -- special-effect line worth preserving verbatim.
+                -- special-effect line worth preserving verbatim. We use a
+                -- direct prefix compare instead of string.find with a `^`
+                -- anchor — combining `^` with plain=true doesn't anchor
+                -- (plain=true disables pattern metacharacters) and combining
+                -- `^` without plain=true requires escaping `-` / `(` / `)`
+                -- in the prefix strings. sub-and-equal is simpler and right.
                 if not matched then
                     for _, prefix in ipairs(TOOLTIP_EXTRA_PREFIXES) do
-                        if text:find("^" .. prefix, 1, true) then
+                        if text:sub(1, #prefix) == prefix then
                             extras = extras or {}
                             extras[#extras + 1] = text
                             break

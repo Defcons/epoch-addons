@@ -4,6 +4,42 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.31 — Fix broken `tooltipExtras` prefix check *(2026-04-23)* *(local-only, not released yet)*
+
+Fresh bug — the `tooltipExtras` prefix filter was a no-op. User reported Hand of Justice and Felstriker had `stats` + `damage` + `speed` populated correctly but `tooltipExtras` was absent entirely, even though both items have obvious proc lines (`"Equip: 2% chance on melee hit to gain 1 extra attack."` and `"Chance on hit: All attacks are guaranteed to land..."`).
+
+Root cause — classic Lua-pattern confusion. The check was:
+
+```lua
+if text:find("^" .. prefix, 1, true) then
+```
+
+The `plain = true` 4th arg tells `string.find` to treat the pattern as a literal substring, which disables metacharacters — so the `^` stopped being a start-anchor and became a literal caret character. The search was looking for `"^Chance on hit:"` (8 chars including `^`) anywhere in the tooltip, which never matches anything.
+
+Silent since v0.28 because the control flow was "if the check matches, add to extras", and the check never matched, so we just never captured extras. All v5, v6, v7 schema entries that should have had extras have none. Every Eskhandar / HoJ / Felstriker / trinket with a proc was missing its flavor text.
+
+Fix: replace with `text:sub(1, #prefix) == prefix` — plain substring compare, no pattern-escape concerns, unambiguously anchored at position 1.
+
+**Schema bump to v8** so all v7-cached items (which have the bug-empty extras field) get re-fetched and pick up the correct capture. `/epogarmory cachewipe && cachebuild` recommended for immediate fix-up across all stored items.
+
+Expected post-v0.31 cache for Hand of Justice:
+
+```lua
+[11815] = {
+    v = 8,
+    name = "Hand of Justice",
+    stats = { ITEM_MOD_ATTACK_POWER_SHORT = 20 },
+    tooltipExtras = {
+        "Equip: Increases attack power by 20.",
+        "Equip: 2% chance on melee hit to gain 1 extra attack.",
+    },
+}
+```
+
+(Note the duplication of AP between `stats.ITEM_MOD_ATTACK_POWER_SHORT = 20` and the first `Equip:` line — this is the accepted side effect of the v0.30 fall-through rule. Site-side can dedup.)
+
+---
+
 ## EpogArmory v0.30 — Weapon damage + speed + `Equip:` extras *(2026-04-23)* *(local-only, not released yet)*
 
 Two gaps surfaced from epoglogs v0.28.1 real-user testing:
