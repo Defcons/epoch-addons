@@ -4,6 +4,28 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.27 — Ascension PvP percent patterns + set-bonus filter fix *(2026-04-23)* *(local-only, not released yet)*
+
+v0.26 dumpstats turned up two more pattern categories from Rival's gear and Eskhandar's set:
+
+- **Rival's** (Ascension's mid-tier PvP set) uses custom per-player-damage stats — "Increases your damage dealt against other players by 3%" and "Decreases your damage taken from other players by 1%". Not in `GetItemStats` enum; added patterns `DAMAGE_VS_PLAYERS_PCT` / `DAMAGE_REDUCTION_VS_PLAYERS_PCT`.
+- **Eskhandar's** set-bonus lines use the `"(N) Set: ..."` format (with piece-count prefix) rather than plain `"Set:"`. The v0.26 filter only caught the plain prefix, so parenthesized variants could potentially match a stat pattern. Tightened the filter to catch `"(N) Set: ..."` and `"(N/M) Set: ..."` as well. No observed false positives in practice but hygienic.
+
+**New patterns (added to the end of `TOOLTIP_STAT_PATTERNS`):**
+
+| Key | Source tooltip pattern |
+|---|---|
+| `DAMAGE_VS_PLAYERS_PCT` | "damage dealt against other players by N%" |
+| `DAMAGE_REDUCTION_VS_PLAYERS_PCT` | "damage taken from other players by N%" |
+
+Values stored as positive integers; sign meaning is implicit in the key name (both are player buffs, regardless of whether the tooltip verb is "Increases" or "Decreases").
+
+**Schema bump to v4** so v3-cached items (v0.26) get re-fetched and pick up the new patterns. Run `/epogarmory cachewipe && cachebuild` to force-refresh on upgrade, or let natural scan traffic do it gradually.
+
+Eskhandar's Left Claw correctly renders with v3 schema, `stats` populated, no `tooltipStats` — the item legitimately has no percent-based tooltip bonuses (only a "Chance on hit" proc, which is an effect not a stat). Confirms the scan path is behaving correctly for items with no matches.
+
+---
+
 ## EpogArmory v0.26 — Tooltip-scan for percent-based pre-rating stats *(2026-04-23)* *(local-only, not released yet)*
 
 v0.25 dumpstats confirmed `GetItemStats` genuinely does not return percent-based bonuses on pre-rating-system items — Darkmantle Gloves list `"+1% melee/ranged crit"` as tooltip text but the API's enum has no key for flat-percent crit. These TBC-era set items got grandfathered into WotLK with their original tooltip-only bonuses instead of being converted to rating.

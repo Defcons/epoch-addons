@@ -117,11 +117,11 @@ local CACHE_GIVE_UP        = 15
 -- v1: name/quality/itemLevel/icon/ts
 -- v2: + stats (v0.22)
 -- v3: + tooltipStats for percent-based bonuses on old (pre-rating)
---     items like Darkmantle — e.g. "Improves your chance to get a critical
---     strike with melee and ranged attacks by 1%". GetItemStats doesn't
---     return these because Blizzard never added an enum key for flat
---     percent crit/hit/etc.
-local CACHE_SCHEMA = 3
+--     items like Darkmantle. v0.26 release.
+-- v4: + Ascension PvP percent patterns (DAMAGE_VS_PLAYERS_PCT etc.) +
+--     hardened Set-bonus filter that catches "(N) Set:" piece-count lines
+--     in addition to plain "Set:" prefixes. v0.27 release.
+local CACHE_SCHEMA = 4
 
 -- Tooltip-text patterns for percent-based stats that predate the rating
 -- system and aren't in GetItemStats' enum. Keys are plain uppercase tokens
@@ -168,6 +168,12 @@ local TOOLTIP_STAT_PATTERNS = {
     { "Increased Defense %+(%d+)",                                   "DEFENSE_FLAT" },
     { "Spell Penetration %+(%d+)",                                   "SPELL_PENETRATION_FLAT" },
     { "Increases the block value of your shield by (%d+)",           "BLOCK_VALUE_FLAT" },
+    -- ---------- PvP-specific percent (Ascension "Rival's" gear etc.) ----------
+    -- Values stored as the positive raw number. Sign is implicit in the key
+    -- name: DAMAGE_VS_PLAYERS increases outgoing; DAMAGE_REDUCTION reduces
+    -- incoming (both are player buffs even though the tooltip verb differs).
+    { "damage dealt against other players by (%-?%d+)%%",            "DAMAGE_VS_PLAYERS_PCT" },
+    { "damage taken from other players by (%-?%d+)%%",               "DAMAGE_REDUCTION_VS_PLAYERS_PCT" },
 }
 
 local tooltipScanTip
@@ -183,8 +189,16 @@ local function ScanTooltipStats(link)
     for i = 2, tooltipScanTip:NumLines() do
         local fs = _G["EpogArmoryTooltipStatsTipTextLeft" .. i]
         local text = fs and fs:GetText()
-        -- Skip set-bonus lines explicitly — per briefing we ignore set bonuses.
-        if text and not text:find("^Set:") then
+        -- Skip set-bonus lines. Two formats:
+        --   "Set: <description>"         (when no set is equipped yet)
+        --   "(N) Set: <description>"     (when N pieces are active)
+        -- Also "(N/M) Set: ..." on some server versions. All are caught by
+        -- checking for "Set:" after an optional leading "(...)".
+        local isSetBonus = text and (
+            text:find("^Set:") or
+            text:find("^%(") and text:find("Set:", 1, true)
+        )
+        if text and not isSetBonus then
             for _, pat in ipairs(TOOLTIP_STAT_PATTERNS) do
                 local n = text:match(pat[1])
                 if n then
