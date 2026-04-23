@@ -127,7 +127,11 @@ local CACHE_GIVE_UP        = 15
 -- v6: + setBonuses array carrying each "Set:" / "(N) Set:" line as a
 --     structured { pieces, text } entry so the armory tooltip can render
 --     the full set bonus block. Previously filtered out entirely. v0.29.
-local CACHE_SCHEMA = 6
+-- v7: + damage range { min, max, school } + speed for weapons (GetItemStats
+--     only exposes DPS, not min/max or speed), and "Equip:" added to the
+--     tooltipExtras prefix whitelist so proc-style Equip lines (Hand of
+--     Justice etc.) get captured as flavor text. v0.30.
+local CACHE_SCHEMA = 7
 
 -- Tooltip-text patterns for percent-based stats that predate the rating
 -- system and aren't in GetItemStats' enum. Keys are plain uppercase tokens
@@ -184,12 +188,20 @@ local TOOLTIP_STAT_PATTERNS = {
 
 -- Prefixes that mark "special" tooltip lines worth preserving verbatim into
 -- entry.tooltipExtras — procs, activated trinket effects, and other flavor
--- text the site's armory tooltip renders as-is. Deliberately excludes
--- "Equip:" since those are almost always stat lines already captured by
--- GetItemStats or the tooltip stat patterns above.
+-- text the site's armory tooltip renders as-is.
+--
+-- "Equip:" added v0.30: proc-style lines like Hand of Justice's "2% chance
+-- on a successful melee attack to increase your attack power by 300 for 15
+-- sec." weren't being captured anywhere. The scanner runs stat patterns
+-- first; any Equip line consumed there (e.g. "+1% melee crit") never reaches
+-- the extras check. Lines that fall through (procs, uncharted-in-stats
+-- effects) now get preserved. Some flat-stat Equip lines ("Increases attack
+-- power by 15.") will also fall through and duplicate into extras — that's
+-- accepted per briefing; site-side can dedup.
 local TOOLTIP_EXTRA_PREFIXES = {
     "Chance on hit:",
     "Use:",
+    "Equip:",
 }
 
 -- Parse a possible set-bonus line. Returns (pieces, description) if the line
@@ -209,14 +221,40 @@ local function ParseSetBonusLine(text)
     return nil
 end
 
+-- Parse a weapon damage line. Three shapes:
+--   "9 - 17 Damage"              — plain physical
+--   "12 - 19 Holy Damage"        — pure elemental weapon
+--   "9 - 17 Damage\n+5 Fire"     — physical with elemental bonus (two lines;
+--                                   we capture the main range only)
+-- Returns (min, max, school) or nil. school is nil for plain physical.
+local function ParseDamageLine(text)
+    if not text then return nil end
+    local dmin, dmax, school = text:match("^(%d+)%s*%-%s*(%d+)%s+(%a*)%s*Damage$")
+    if not dmin then return nil end
+    dmin, dmax = tonumber(dmin), tonumber(dmax)
+    if not (dmin and dmax) then return nil end
+    if school == "" then school = nil end
+    return dmin, dmax, school
+end
+
+-- Parse a weapon speed line. The tooltip puts speed on the equip-slot line
+-- (e.g. "Main Hand<tab>Speed 2.80") or on its own. Capture the decimal.
+local function ParseSpeedLine(text)
+    if not text then return nil end
+    local s = text:match("Speed%s+(%d+%.?%d*)")
+    return s and tonumber(s) or nil
+end
+
 local tooltipScanTip
--- Scan an item's tooltip once and return (stats, extras, setBonuses):
+-- Scan an item's tooltip once and return (stats, extras, setBonuses, damage, speed):
 --   stats       — percent-based / pre-rating stat table keyed by TOOLTIP_STAT_PATTERNS
 --   extras      — array of raw tooltip lines matching TOOLTIP_EXTRA_PREFIXES
 --   setBonuses  — array of { pieces, text } set-bonus entries
+--   damage      — { min, max, school? } for weapons (nil for armor)
+--   speed       — attack speed in seconds, e.g. 2.8 (nil for non-weapons)
 -- Any may be nil if nothing matched in that category.
 local function ScanTooltip(link)
-    if not link then return nil, nil, nil end
+    if not link then return nil, nil, nil, nil, nil end
     if not tooltipScanTip then
         tooltipScanTip = CreateFrame("GameTooltip", "EpogArmoryTooltipStatsTip", UIParent, "GameTooltipTemplate")
     end
@@ -224,11 +262,25 @@ local function ScanTooltip(link)
     tooltipScanTip:ClearLines()
     tooltipScanTip:SetHyperlink(link)
 
-    local stats, extras, setBonuses = nil, nil, nil
+    local stats, extras, setBonuses, damage, speed = nil, nil, nil, nil, nil
     for i = 2, tooltipScanTip:NumLines() do
         local fs = _G["EpogArmoryTooltipStatsTipTextLeft" .. i]
         local text = fs and fs:GetText()
+        -- Also scan the right-column text since weapons put Speed there,
+        -- aligned with the equip-slot label on the left.
+        local fsR = _G["EpogArmoryTooltipStatsTipTextRight" .. i]
+        local textR = fsR and fsR:GetText()
         if text then
+            -- Weapon damage + speed: captured once per scan. Speed can
+            -- appear in either column depending on server/client layout.
+            if not damage then
+                local dmin, dmax, school = ParseDamageLine(text)
+                if dmin then damage = { min = dmin, max = dmax, school = school } end
+            end
+            if not speed then
+                speed = ParseSpeedLine(text) or ParseSpeedLine(textR)
+            end
+
             -- Set-bonus lines: captured structurally, not filtered.
             local pieces, desc = ParseSetBonusLine(text)
             if desc then
@@ -265,7 +317,7 @@ local function ScanTooltip(link)
             end
         end
     end
-    return stats, extras, setBonuses
+    return stats, extras, setBonuses, damage, speed
 end
 
 local function now() return GetTime() end
@@ -414,7 +466,7 @@ local function CacheItemInfo(itemID, itemLink)
         end
     end
 
-    -- v0.26+: tooltip-scan. Returns three tables:
+    -- v0.26+: tooltip-scan. Returns five fields:
     --   tooltipStats  — percent-based / pre-rating stats (Darkmantle "+1%
     --                   crit", Rival's "+3% player damage") that GetItemStats
     --                   doesn't expose in its enum.
@@ -424,12 +476,18 @@ local function CacheItemInfo(itemID, itemLink)
     --   setBonuses    — each "Set:" / "(N) Set:" line as { pieces, text }.
     --                   Same bonus block appears on every item in the set;
     --                   site-side can dedup by itemSet later.
-    -- Any may be nil if nothing matched; site's ingest handles each in its
-    -- own display path.
-    local tooltipStats, tooltipExtras, setBonuses = ScanTooltip(link)
+    --   damage        — weapon damage range { min, max, school? } (GetItemStats
+    --                   only exposes DPS; the min/max and elemental school
+    --                   live only in tooltip text).
+    --   speed         — weapon attack speed as a decimal (e.g. 2.8).
+    -- Any may be nil if not applicable to the item; site's ingest handles
+    -- each in its own display path.
+    local tooltipStats, tooltipExtras, setBonuses, damage, speed = ScanTooltip(link)
     if tooltipStats  then entry.tooltipStats  = tooltipStats  end
     if tooltipExtras then entry.tooltipExtras = tooltipExtras end
     if setBonuses    then entry.setBonuses    = setBonuses    end
+    if damage        then entry.damage        = damage        end
+    if speed         then entry.speed         = speed         end
 
     EpogItemCacheDB[itemID] = entry
     return true

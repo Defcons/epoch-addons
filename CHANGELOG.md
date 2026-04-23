@@ -4,6 +4,36 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.30 — Weapon damage + speed + `Equip:` extras *(2026-04-23)* *(local-only, not released yet)*
+
+Two gaps surfaced from epoglogs v0.28.1 real-user testing:
+
+**1. Weapon damage range + speed.** `GetItemStats` exposes DPS (`ITEM_MOD_DAMAGE_PER_SECOND_SHORT`) but not min/max damage range or attack speed. Armory tooltip was rendering `(40.0 damage per second)` with no `X - Y Damage` or speed line above it — the core of any weapon tooltip was missing.
+
+Added tooltip-line parsers:
+
+```lua
+entry.damage = { min = 9,  max = 17 }               -- plain physical
+entry.damage = { min = 12, max = 19, school = "Holy" }  -- elemental
+entry.speed = 2.80                                   -- seconds between swings
+```
+
+`ParseDamageLine` matches `^(%d+)%s*%-%s*(%d+)%s+(%a*)%s*Damage$` — handles both `"9 - 17 Damage"` and `"12 - 19 Holy Damage"`. `school` is nil for plain physical.
+
+`ParseSpeedLine` matches `Speed%s+(%d+%.?%d*)` anywhere in the line — WoW renders speed on either column (next to the equip-slot label), so the scanner checks both left and right text of each tooltip line.
+
+**2. `Equip:` proc lines falling through.** `Chance on hit:` and `Use:` were already captured to `tooltipExtras`, but the most common proc carrier — `Equip:` — was deliberately excluded in v0.28 to avoid duplicating stat lines like `"Equip: Increases attack power by 15."` into extras.
+
+That exclusion was too aggressive. Real-user items affected: Hand of Justice ("Equip: 2% chance on a successful melee attack to increase your attack power by 300 for 15 sec."), Eskhandar's Collar, Eskhandar's Razor, Deathbringer's Will. Fix: add `"Equip:"` to the `TOOLTIP_EXTRA_PREFIXES` whitelist. The existing fall-through guard (`if not matched`) still applies — stat lines consumed by `TOOLTIP_STAT_PATTERNS` don't reach the extras check.
+
+Accepted side effect: items with Equip-prefixed flat stats ("Equip: Increases attack power by 15." — caught by GetItemStats but not by my tooltip patterns) will have their raw text duplicated into `tooltipExtras`. Site-side can dedup by matching the numeric value against `stats`.
+
+**Schema bump to v7** so v6-cached items re-fetch and pick up `damage`, `speed`, and the expanded `tooltipExtras`. `/epogarmory cachewipe && cachebuild` on upgrade for eager refresh.
+
+**Server-side ready.** epoglogs v0.28.1 already consumes `damage` (currently stopgap'd from TDB retail) and `tooltipExtras` (renders any string the addon emits). `speed` is a new field — needs a one-line addition to `buildItemMeta`. Otherwise fully transparent: once addon-captured fields land in the upload, they override TDB automatically via the existing priority pattern.
+
+---
+
 ## EpogArmory v0.29 — Capture `setBonuses` structured *(2026-04-23)* *(local-only, not released yet)*
 
 The original briefing said to skip set-bonus lines because epoglogs planned a separate `data/item_sets.json` keyed by `setID`. In practice `GetItemInfo` on 3.3.5 doesn't return setID and we have no robust way to key by set, so Darkmantle / Eskhandar / etc. bonus text was being dropped on the floor — the armory tooltip had no set-bonus block at all.
