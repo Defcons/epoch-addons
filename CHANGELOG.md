@@ -4,6 +4,31 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.33 — PvP loadout detection + 4th spec button *(2026-04-23)* *(local-only, not released yet)*
+
+Insignia trinkets have been rejected entirely since v0.13 (utility-loadout filter). That's been correct for "don't let a PvP scan clobber the PvE gear" but wrong for "this is my actual combat loadout and deserves its own row in the armory". v0.33 flips the behavior:
+
+**Detection:** an item with `"Insignia"` in the name equipped in slot 13 or 14 flags the whole scan as a PvP loadout. Both sender (`UnitLooksPvP`) and receiver (`EntryGearLooksPvP`) run the same check independently — robust against version mismatch between peers.
+
+**Storage:** the scan lands in `player.sets["pvp"]` alongside the existing `sets[1]` / `sets[2]` / `sets[3]` dominant-tree keys. Same shape, just a new key type (string instead of integer). No DB migration needed — existing entries keep their talent-tree sets, new PvP scans fill in the `"pvp"` slot.
+
+**UI:** inspect frame now has 4 spec buttons instead of 3. Layout tightened from width=90 to width=72 per button to fit 4 across in the 320-wide frame; class-tree names longer than 10 chars auto-truncate with a trailing dot (`"Assassination"` → `"Assassinat."`). The PvP button always reads `"PvP"` — no class-dependent label. When the PvP set is rendered, the centerpiece spec icon switches to the same `INV_Shield_06` the minimap uses.
+
+**Filter change:** `UTILITY_ITEM_NAMES_BY_SLOT` no longer rejects Insignia — the filter kept catching real PvP combat loadouts people wanted archived. Other filters unchanged (fishing poles, mount-speed enchants, Rugged Sandle, etc. still reject).
+
+**Wire format:** position 31 now carries a string group key — `"1"` / `"2"` / `"3"` for class trees or `"pvp"` for PvP. Receivers ignore the wire value and compute their own group locally (per the forward-compat rules), so the wire field is informational. Old receivers (v0.32-) still reject Insignia scans on the old utility filter — they won't ingest PvP scans from new senders. That's acceptable: eventual consistency as users upgrade via the version-ping nudge.
+
+**Schema unchanged** — `EpogItemCacheDB` shape is the same (no v9→v10 bump). The only data-model change is in `EpogArmoryDB.players[guid].sets` where the key set expands from `{1,2,3}` to `{1,2,3,"pvp"}`. Lua tables handle mixed numeric/string keys natively.
+
+**Tested scenarios:**
+- Player with only PvE gear in all three trees → 3 buttons lit, PvP dimmed
+- Player with only PvP gear scanned → only PvP button lit, 3 trees dimmed
+- Player with Combat PvE + PvP → 2 buttons lit (Combat, PvP), Assassination/Subtlety dimmed
+- Player wearing Insignia and scanned in a raid instance → set routes to PvP, not sets[DominantTree]
+- Pre-v0.33 cached player scanned under the old filter → no PvP data yet; next scan while wearing Insignia fills sets["pvp"]
+
+---
+
 ## EpogArmory v0.32 — Filter stat-like `Equip:` lines + codify compat rules *(2026-04-23)* *(local-only, not released yet)*
 
 Two things:

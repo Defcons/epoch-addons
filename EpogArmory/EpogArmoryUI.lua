@@ -320,21 +320,27 @@ local function BuildInspectFrame()
     f.metaText:SetWidth(270)
     f.metaText:SetJustifyH("CENTER")
 
-    -- Spec switcher: 3 buttons between the meta text and the first slot row.
-    -- Each button toggles which talent-group's set is rendered in the slots.
-    -- Empty sets (no scan yet for that group) keep their button disabled.
+    -- Spec switcher: 4 buttons between the meta text and the first slot row.
+    -- Three for the class talent trees (keys 1, 2, 3) plus one for PvP
+    -- (key "pvp" — scan detected as PvP when an Insignia trinket was
+    -- equipped). Button labels are set in RenderActiveSet once we know the
+    -- class. Empty sets (no scan yet for that key) stay disabled.
+    --
+    -- Width 72 is tight but fits in the 320-wide frame. Class-tree names
+    -- longer than ~10 chars get auto-shortened ("Assassination" → "Assassina.")
+    -- in RenderActiveSet.
+    local SPEC_BUTTON_KEYS = { 1, 2, 3, "pvp" }
     f.specBtns = {}
-    for g = 1, 3 do
+    for i, key in ipairs(SPEC_BUTTON_KEYS) do
         local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        -- Width 90 fits the longest class-tree names ("Assassination",
-        -- "Beast Mastery", "Marksmanship"). RenderActiveSet sets the text.
-        b:SetWidth(90)
+        b:SetWidth(72)
         b:SetHeight(20)
-        b:SetPoint("TOP", f, "TOP", (g - 2) * 94, -82)
-        b:SetText("Tree " .. g)
+        -- Offsets from TOP center: -114, -38, +38, +114 (center-to-center 76)
+        b:SetPoint("TOP", f, "TOP", (i - 2.5) * 76, -82)
+        b:SetText(key == "pvp" and "PvP" or ("Tree " .. i))
         b:SetScript("OnClick", function()
             if f.activePlayer and RenderActiveSet then
-                f.activeGroup = g
+                f.activeGroup = key
                 RenderActiveSet()
                 -- Re-render icons for the newly-selected set. Any uncached
                 -- items get picked up by the ticker loop started in ShowInspect;
@@ -342,7 +348,7 @@ local function BuildInspectFrame()
                 RefreshIcons()
             end
         end)
-        f.specBtns[g] = b
+        f.specBtns[key] = b
     end
 
     f.slots = {}
@@ -466,14 +472,24 @@ RenderActiveSet = function()
         inspectFrame.metaText:SetText(line2)
     end
 
-    -- Spec buttons: label = class tree name. Empty trees (no scan) are
-    -- dimmed + disabled. Active tree is highlighted.
-    for g = 1, 3 do
-        local b = inspectFrame.specBtns and inspectFrame.specBtns[g]
+    -- Spec buttons: 3 class-tree keys + "pvp" key. Empty sets (no scan for
+    -- that key yet) stay dimmed and disabled. Active set highlighted.
+    local function fitLabel(text, max)
+        if text and #text > max then return text:sub(1, max - 1) .. "." end
+        return text
+    end
+    for _, key in ipairs({1, 2, 3, "pvp"}) do
+        local b = inspectFrame.specBtns and inspectFrame.specBtns[key]
         if b then
-            local label = (classTrees and classTrees[g]) or ("Tree " .. g)
+            local label
+            if key == "pvp" then
+                label = "PvP"
+            else
+                label = (classTrees and classTrees[key]) or ("Tree " .. tostring(key))
+                label = fitLabel(label, 11) -- "Assassination" → "Assassinat."
+            end
             b:SetText(label)
-            local hasSet = player.sets and player.sets[g] ~= nil
+            local hasSet = player.sets and player.sets[key] ~= nil
             if hasSet then
                 b:Enable()
                 b:SetAlpha(1.0)
@@ -481,7 +497,7 @@ RenderActiveSet = function()
                 b:Disable()
                 b:SetAlpha(0.4)
             end
-            if g == group then b:LockHighlight() else b:UnlockHighlight() end
+            if key == group then b:LockHighlight() else b:UnlockHighlight() end
         end
     end
 
@@ -509,17 +525,25 @@ RenderActiveSet = function()
         inspectFrame.classIconLabel:SetText(niceClass)
     end
     if inspectFrame.specIcon then
-        local iconPath = player.tabIcons and player.tabIcons[group]
-        if iconPath and iconPath ~= "" then
-            inspectFrame.specIcon:SetTexture(iconPath)
+        if group == "pvp" then
+            -- PvP set: no per-class tab icon — show the same shield glyph
+            -- the minimap uses, consistent branding.
+            inspectFrame.specIcon:SetTexture("Interface\\Icons\\INV_Shield_06")
             inspectFrame.specIcon:Show()
+            inspectFrame.specIconLabel:SetText("PvP")
         else
-            inspectFrame.specIcon:SetTexture(nil)
-            inspectFrame.specIcon:Hide()
+            local iconPath = player.tabIcons and player.tabIcons[group]
+            if iconPath and iconPath ~= "" then
+                inspectFrame.specIcon:SetTexture(iconPath)
+                inspectFrame.specIcon:Show()
+            else
+                inspectFrame.specIcon:SetTexture(nil)
+                inspectFrame.specIcon:Hide()
+            end
+            -- Spec label below the spec icon, e.g. "Combat"
+            local treeName = classTrees and classTrees[group] or ""
+            inspectFrame.specIconLabel:SetText(treeName)
         end
-        -- Spec label below the spec icon, e.g. "Combat"
-        local treeName = classTrees and classTrees[group] or ""
-        inspectFrame.specIconLabel:SetText(treeName)
     end
 end
 

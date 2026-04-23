@@ -111,11 +111,51 @@ local UTILITY_ITEM_NAMES_ANY_SLOT = {
 }
 
 -- Slot-restricted name patterns. Applied only when the item is in the listed
--- equipment slots. Keyed by slot index (13, 14 = trinket slots).
+-- equipment slots. v0.33: Insignia patterns moved out — an Insignia trinket
+-- no longer rejects the scan; instead it marks the scan as a PvP loadout
+-- and routes gear into sets["pvp"] alongside the talent-tree sets.
 local UTILITY_ITEM_NAMES_BY_SLOT = {
-    [13] = { "Insignia" }, -- PvP trinkets: "Insignia of the Alliance/Horde" etc.
-    [14] = { "Insignia" },
+    -- (empty for now — future slot-specific utility patterns go here)
 }
+
+-- PvP loadout detection: an Insignia trinket in slot 13 or 14 flags the
+-- whole equipped set as a PvP loadout. Scanned as a distinct set keyed
+-- sets["pvp"] on the player record.
+local PVP_TRINKET_NAME_PATTERNS = { "Insignia" }
+local TRINKET_SLOTS = { 13, 14 }
+
+local function GearLooksPvP(gearLookup)
+    for _, slot in ipairs(TRINKET_SLOTS) do
+        local itemName = gearLookup(slot)
+        if itemName then
+            for _, pat in ipairs(PVP_TRINKET_NAME_PATTERNS) do
+                if itemName:find(pat, 1, true) then return true end
+            end
+        end
+    end
+    return false
+end
+
+-- Live-unit variant: queries GetInventoryItemLink + GetItemInfo. Used in
+-- BuildPayload when we're the scanner.
+local function UnitLooksPvP(unit)
+    return GearLooksPvP(function(slot)
+        local link = GetInventoryItemLink(unit, slot)
+        return link and GetItemInfo(link) or nil
+    end)
+end
+
+-- Gear-table variant: reads itemstrings from a parsed payload. Used in
+-- Ingest when we're the receiver.
+local function EntryGearLooksPvP(gear)
+    if not gear then return false end
+    return GearLooksPvP(function(slot)
+        local str = gear[slot]
+        if not str or str == "" then return nil end
+        local iid = tonumber(str:match("^(%d+)"))
+        return iid and GetItemInfo(iid) or nil
+    end)
+end
 
 -- Enchant-name patterns matched by tooltip text on specific slots. Used when
 -- an enchant doesn't have a stable SpellItemEnchantment.dbc ID we can rely on
@@ -700,6 +740,12 @@ local function BuildPayload(unit, guid)
     local s1, s2, s3 = ReadSpecPoints(unit)
     local dominantTree = DominantTree({s1, s2, s3})
     local tabNames, tabIcons = ReadTabInfo(unit)
+    -- v0.33: PvP loadouts (Insignia trinket equipped) get routed to
+    -- sets["pvp"] on the player record instead of sets[dominantTree].
+    -- Group key is stringified: "1" / "2" / "3" / "pvp". Receivers compute
+    -- their own group locally from entry.gear, so the wire value is mostly
+    -- informational/forward-compat.
+    local groupKey = UnitLooksPvP(unit) and "pvp" or tostring(dominantTree)
 
     local parts = {
         "v" .. PROTO,
@@ -751,7 +797,7 @@ local function BuildPayload(unit, guid)
     -- Append dominant-tree index at position 31 (per v0.7 append-only rule).
     -- v0.14+ receivers actually compute this locally from entry.spec, so the
     -- field is informational/forward-compat only. Old v0.12 clients ignore it.
-    parts[#parts + 1] = tostring(dominantTree)
+    parts[#parts + 1] = groupKey -- v0.33: "1"/"2"/"3" or "pvp" (was dominantTree numeric)
     -- Tab names at positions 32/33/34 so receivers can render class-tree
     -- labels that match the sender's actual client layout (Ascension reorders
     -- some classes vs retail WotLK). Older clients ignore the trailing fields.
@@ -890,7 +936,12 @@ local function ParsePayload(payload)
         scanTime    = tonumber(t[10]) or 0,
         zone        = t[11] or "",
         gear        = {},
-        talentGroup = tonumber(t[31]) or 1, -- v0.13+: position 31 is active talent group; v0.12 payloads default to 1
+        -- Position 31 — v0.13+ carries the sender's group key. Value is
+        -- numeric "1"/"2"/"3" for class trees or "pvp" for PvP loadouts
+        -- (v0.33+). Kept as a string here for forward-compat; Ingest
+        -- computes its own group key locally from entry.gear + spec, so
+        -- this field is informational only.
+        groupKey    = t[31] or "1",
     }
     for i = 1, 19 do entry.gear[i] = t[11 + i] or "" end
     -- v0.17+: positions 32/33/34 carry class tab names ("Combat",
@@ -933,10 +984,17 @@ local function Ingest(payload, sender)
     EpogArmoryDB = EpogArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
     EpogArmoryDB.players = EpogArmoryDB.players or {}
 
-    -- Set key = dominant tree (1=Arms/Assassination/etc, 2=Fury/Combat/..., 3=Prot/Subtlety/...).
-    -- Computed locally from entry.spec, NOT read from wire position 31, so
-    -- we're robust against sender bugs or clients using a different keying.
-    local group = DominantTree(entry.spec)
+    -- Set key — computed locally, NOT read from wire position 31, so we're
+    -- robust against sender bugs and older clients that key differently.
+    -- If the scanned player has an Insignia trinket equipped (slot 13/14)
+    -- the loadout is a PvP set and routes to sets["pvp"]. Otherwise it goes
+    -- to sets[DominantTree(spec)] for 1/2/3 class-tree keying.
+    local group
+    if EntryGearLooksPvP(entry.gear) then
+        group = "pvp"
+    else
+        group = DominantTree(entry.spec)
+    end
     local scannedBy = sender or (UnitName("player") or "?")
     local existing = EpogArmoryDB.players[entry.guid]
 
