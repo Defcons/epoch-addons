@@ -4,7 +4,31 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
-## EpogArmory v0.24 — Cache-schema versioning (re-fetch stats for pre-v0.22 items) *(2026-04-23)* *(local-only, not released yet)*
+## EpogArmory v0.25 — `/epogarmory dumpstats` diagnostic *(2026-04-23)* *(local-only, not released yet)*
+
+User reported that some percent-based stats (expertise, melee crit%, melee hit%) on Ascension items don't seem to land in the captured stats table, and that some stats show up under unusual keys like `RESISTANCE0_NAME`. Need to see actual `GetItemStats` output to know which: missing entirely, present under unrecognized keys, or present with small rating values the site's display map doesn't handle.
+
+Added a diagnostic:
+
+```
+/epogarmory dumpstats        — dump all 19 slots
+/epogarmory dumpstats 10     — dump a specific slot (hands = 10)
+```
+
+For each equipped slot it prints:
+- The item name
+- Every `GetItemStats` key/value the API returns
+- Tooltip lines matching common stat patterns (`%`, `rating`, `increases`, `reduces`, `improves`, `+N...`) for comparison
+
+Run this on an item known to have the missing percent-based stats and compare the `GetItemStats` output vs tooltip lines — tells us whether Ascension serves those stats through the standard enum, custom keys, or purely via tooltip text.
+
+No behavior change to normal addon operation.
+
+---
+
+## EpogArmory v0.24 — Cache-schema versioning (re-fetch stats for pre-v0.22 items) *(2026-04-23)*
+
+(Released publicly as v0.24 on github.com/Defcons/epogarmory-addon/releases/tag/v0.24 — first public release after v0.7.)
 
 Reported from the epoglogs side: items cached before v0.22 (which added `stats`) have `stats_json = NULL` on the server, so their tooltips fall back to TDB — wrong for Ascension-modified items, missing for server-custom items. The addon's `CacheItemInfo` short-circuited on plain presence (`if EpogItemCacheDB[itemID] then return`), so those stale entries never got re-fetched.
 

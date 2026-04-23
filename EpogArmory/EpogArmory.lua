@@ -1326,6 +1326,51 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         local s1, s2, s3 = ReadSpecPoints("player")
         print(string.format("  ReadSpecPoints(player) = %d / %d / %d → DominantTree = %d",
             s1, s2, s3, DominantTree({s1, s2, s3})))
+    elseif msg:sub(1, 9) == "dumpstats" then
+        -- Diagnostic: print GetItemStats + tooltip lines for equipped slots.
+        -- Lets us see exactly which keys Ascension's client returns for a
+        -- problem item (e.g. items with percent-based custom stats that might
+        -- or might not be in the standard ITEM_MOD_* enum). Usage:
+        --   /epogarmory dumpstats        → all 19 slots
+        --   /epogarmory dumpstats 10     → just hands
+        local arg = msg:match("^dumpstats%s+(%d+)")
+        local target = tonumber(arg)
+        local slots = target and { target } or {1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19} -- skip 4=shirt
+        local tip = CreateFrame("GameTooltip", "EpogArmoryDumpStatsTip", UIParent, "GameTooltipTemplate")
+        tip:SetOwner(UIParent, "ANCHOR_NONE")
+        for _, slot in ipairs(slots) do
+            local link = GetInventoryItemLink("player", slot)
+            if link then
+                local name = GetItemInfo(link) or "?"
+                print(string.format("|cffffaa44EpogArmory|r slot %d [%s]", slot, name))
+                local stats = GetItemStats and GetItemStats(link)
+                if stats then
+                    local anyKey = false
+                    for k, v in pairs(stats) do
+                        anyKey = true
+                        print(string.format("    GetItemStats: %s = %s", tostring(k), tostring(v)))
+                    end
+                    if not anyKey then print("    GetItemStats: <empty table>") end
+                else
+                    print("    GetItemStats: <nil>")
+                end
+                -- Tooltip-line scan for comparison. Captures lines that
+                -- include a percent or a common stat keyword.
+                tip:ClearLines()
+                tip:SetHyperlink(link)
+                local dumped = 0
+                for i = 2, tip:NumLines() do -- skip line 1 (item name, already printed)
+                    local fs = _G["EpogArmoryDumpStatsTipTextLeft" .. i]
+                    local text = fs and fs:GetText() or ""
+                    if text ~= "" and (text:find("%%") or text:lower():find("rating") or text:lower():find("increas") or text:lower():find("reduc") or text:lower():find("improv") or text:find("^%+%d")) then
+                        print(string.format("    tip%2d: %s", i, text))
+                        dumped = dumped + 1
+                    end
+                end
+                if dumped == 0 then print("    tooltip: <no stat-like lines matched>") end
+            end
+        end
+        tip:Hide()
     else
         ShowHelp()
     end
