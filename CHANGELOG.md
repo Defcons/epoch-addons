@@ -4,6 +4,36 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.21 — Pre-release polish pass *(2026-04-23)* *(local-only, not released yet)*
+
+Seven small quality-of-life changes to round out the addon before its first public release.
+
+**1. Help text cleanup.** Dropped the `/epogarmory dumpspec` line from the user-visible help (kept the command itself for future Ascension API debugging — just not advertised). Added a `Source + releases: github.com/Defcons/epogarmory-addon` footer line so users know where to report bugs.
+
+**2. Browser auto-refresh.** When `Ingest` stores a new scan, it calls `_G.EpogArmory.OnPlayerChanged(guid)` — the UI registers a no-op-when-hidden callback that calls `browserFrame.Refresh()` if the browser is open. Live updates land without close + reopen.
+
+**3. Empty-state hint.** When `EpogArmoryDB.players` is empty, the browser now shows a centered hint instead of a bare `0 players stored` footer:
+> No players stored yet.
+>
+> Join a group in a dungeon or raid — this client will inspect groupmates and store their gear here. Or type `/epogarmory show <name>` if you've scanned someone already.
+
+Hides automatically as soon as any scan lands.
+
+**4. Per-row scan-age coloring.** Browser rows used to render the age column in flat gray. Now color-coded:
+- **Green** if scanned within the last hour
+- **Yellow** if today but >1h
+- **Gray** if older than 24h
+
+Visual cue for which entries are stale.
+
+**5. Slot-tooltip "Loading..." state.** Hovering a slot whose itemID isn't in the client's cache yet (`GetItemInfo` returns nil) used to render a half-empty tooltip. Now shows `Loading item info...` + `Hover again in a moment.` and kicks off a background `SetHyperlink` fetch via the cache tip. Second hover (~1s later) renders the full tooltip with stats/enchants/gems.
+
+**6. Minimap right-click menu.** Right-clicking the shield icon now opens a `UIDropDownMenu` with: Open Armory · Status · Toggle Debug · Help · Wipe DB · Cancel. Left-click still toggles the browser. Tooltip updated to advertise both interactions.
+
+**7. Updated minimap tooltip** — three lines: left-click action, right-click action, drag note.
+
+---
+
 ## EpogArmory v0.20 — Fix Delete + reposition + persistent frame position *(2026-04-23)* *(local-only, not released yet)*
 
 **Delete bug fix.** When I refactored `Ingest` in v0.13 to use the per-spec `sets[tree]` model, I built a fresh `existing` table without copying `entry.guid` onto it. So every player record in `EpogArmoryDB.players[guid]` had `name/realm/class/level/sets/...` but no `guid` field. The Delete button passed `p.guid` (nil) into the popup, the OnAccept handler called `DeletePlayer(nil)`, and the `if not guid then return end` guard short-circuited silently — the entry stayed forever.

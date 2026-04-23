@@ -649,6 +649,13 @@ local function Ingest(payload, sender)
     dprint(string.format("[store] OK: %s L%d [tree %d / %s] — scanned by %s at %s",
         entry.name, entry.level, group, entry.zone, scannedBy,
         date("%H:%M:%S", entry.scanTime)))
+
+    -- v0.21: notify the UI so an open browser list refreshes without the
+    -- user having to close + reopen. Registered as a field on the shared
+    -- namespace table; nil-safe if UI hasn't wired it up yet.
+    if _G.EpogArmory and _G.EpogArmory.OnPlayerChanged then
+        _G.EpogArmory.OnPlayerChanged(entry.guid)
+    end
 end
 
 -- Numeric-tuple semver compare. Returns 1 if a > b, -1 if a < b, 0 equal.
@@ -1169,7 +1176,8 @@ local function ShowHelp()
     print("  /epogarmory cache         — show item-info cache size")
     print("  /epogarmory cachebuild    — fill the cache from all stored players' gear (names/quality/ilvl)")
     print("  /epogarmory cachewipe     — clear the item-info cache")
-    print("  /epogarmory dumpspec      — diagnostic: print every talent-API variant's read for each of your 3 tabs")
+    print("|cff888888  Source + releases: github.com/Defcons/epogarmory-addon|r")
+    -- dumpspec left in place but not advertised — internal diagnostic.
 end
 
 SLASH_EPOGARMORY1 = "/epogarmory"

@@ -177,7 +177,25 @@ local function MakeSlotButton(parent, slotID)
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if self.itemString and self.itemString ~= "" then
-            GameTooltip:SetHyperlink("item:" .. self.itemString)
+            -- Check if the client has resolved this itemID yet. If not,
+            -- SetHyperlink would show a half-empty tooltip; show a friendly
+            -- "Loading..." placeholder instead and trigger the fetch.
+            local iid = tonumber(self.itemString:match("^(%d+)"))
+            local resolved = iid and GetItemInfo(iid)
+            if resolved then
+                GameTooltip:SetHyperlink("item:" .. self.itemString)
+            else
+                GameTooltip:SetText(SLOT_LABELS[self.slotID] or "?")
+                GameTooltip:AddLine("|cffffdd44Loading item info...|r", 1, 1, 0.3)
+                GameTooltip:AddLine("Hover again in a moment.", 0.7, 0.7, 0.7)
+                -- Kick off the fetch via hidden tooltip; the cache will
+                -- populate over the next ~1s and next hover will succeed.
+                if iid then
+                    cacheTip:ClearLines()
+                    cacheTip:SetHyperlink("item:" .. iid)
+                    cacheTip:Hide()
+                end
+            end
         else
             GameTooltip:SetText(SLOT_LABELS[self.slotID] or "?")
             GameTooltip:AddLine("(empty)", 0.7, 0.7, 0.7)
@@ -610,6 +628,26 @@ local function BuildBrowser()
     f.countLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.countLabel:SetPoint("BOTTOM", 0, 18)
 
+    -- First-time / empty-DB hint. Shown only when the user has nothing
+    -- stored yet. Sits over the scroll frame area so it reads as "here's
+    -- where your data will appear" rather than a random floating message.
+    f.emptyHint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    f.emptyHint:SetPoint("TOP", scroll, "TOP", 0, -40)
+    f.emptyHint:SetWidth(260)
+    f.emptyHint:SetJustifyH("CENTER")
+    f.emptyHint:SetText("No players stored yet.\n\n|cffaaaaaaJoin a group in a dungeon or raid — this client will inspect groupmates and store their gear here. Or type|r |cffffaa44/epogarmory show <name>|r |cffaaaaaaif you've scanned someone already.|r")
+    f.emptyHint:Hide()
+
+    -- Pick an age-tinted color for a given scanTime. Green = fresh (<1h),
+    -- yellow = today (<24h), gray = stale. Helps the user spot which
+    -- entries are worth trusting at a glance.
+    local function AgeColor(t)
+        local d = time() - (t or 0)
+        if d < 3600 then return "|cff00ff55" end   -- fresh green
+        if d < 86400 then return "|cffffdd44" end  -- today yellow
+        return "|cff888888"                         -- stale gray
+    end
+
     local function Update()
         local list = {}
         if EpogArmoryDB and EpogArmoryDB.players then
@@ -633,8 +671,9 @@ local function BuildBrowser()
             if p then
                 local colorStr = ClassColorStr(p.class)
                 local age = FormatAge(p.scanTime)
-                row.text:SetText(string.format("%s%s|r  |cff888888L%d %s|r  |cffaaaaaa%s|r",
-                    colorStr, p.name or "?", p.level or 0, p.class or "", age))
+                local ageColor = AgeColor(p.scanTime)
+                row.text:SetText(string.format("%s%s|r  |cff888888L%d %s|r  %s%s|r",
+                    colorStr, p.name or "?", p.level or 0, p.class or "", ageColor, age))
                 row.player = p
                 row:Show()
             else
@@ -647,10 +686,16 @@ local function BuildBrowser()
         if EpogArmoryDB and EpogArmoryDB.players then
             for _ in pairs(EpogArmoryDB.players) do total = total + 1 end
         end
-        if #list == total then
-            f.countLabel:SetText(string.format("%d players stored", total))
+        if total == 0 then
+            f.emptyHint:Show()
+            f.countLabel:SetText("")
         else
-            f.countLabel:SetText(string.format("%d of %d match", #list, total))
+            f.emptyHint:Hide()
+            if #list == total then
+                f.countLabel:SetText(string.format("%d players stored", total))
+            else
+                f.countLabel:SetText(string.format("%d of %d match", #list, total))
+            end
         end
     end
 
@@ -663,6 +708,14 @@ local function BuildBrowser()
     f.Refresh = Update
 
     tinsert(UISpecialFrames, "EpogArmoryBrowserFrame")
+
+    -- Auto-refresh when Ingest stores a new scan. Only does work if the
+    -- browser is actually visible, so no cost when the window is closed.
+    _G.EpogArmory = _G.EpogArmory or {}
+    _G.EpogArmory.OnPlayerChanged = function()
+        if f:IsShown() and f.Refresh then f.Refresh() end
+    end
+
     return f
 end
 
@@ -764,10 +817,34 @@ local function BuildMinimapButton()
     b.border:SetWidth(54); b.border:SetHeight(54)
     b.border:SetPoint("TOPLEFT")
 
+    -- UIDropDownMenu used for the right-click context menu. Created lazily
+    -- so we don't pay for the frame allocation on clients that never use it.
+    local minimapMenu = CreateFrame("Frame", "EpogArmoryMinimapMenu", UIParent, "UIDropDownMenuTemplate")
+    local function InitMinimapMenu(self, level)
+        local function add(text, fn, isTitle)
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = text
+            info.notCheckable = true   -- 3.3.5: required for plain action items
+            if isTitle then
+                info.isTitle = true
+            else
+                info.func = fn
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+        add("EpogArmory", nil, true)
+        add("Open Armory",  function() ToggleBrowser() end)
+        add("Status",       function() SlashCmdList["EPOGARMORY"]("status") end)
+        add("Toggle Debug", function() SlashCmdList["EPOGARMORY"]("debug") end)
+        add("Help",         function() SlashCmdList["EPOGARMORY"]("") end)
+        add("Wipe DB",      function() SlashCmdList["EPOGARMORY"]("wipe") end)
+        add("Cancel",       function() CloseDropDownMenus() end)
+    end
+
     b:SetScript("OnClick", function(self, button)
         if button == "RightButton" then
-            -- Right click also toggles for accessibility
-            ToggleBrowser()
+            UIDropDownMenu_Initialize(minimapMenu, InitMinimapMenu, "MENU")
+            ToggleDropDownMenu(1, nil, minimapMenu, "cursor", 0, 0)
         else
             ToggleBrowser()
         end
@@ -776,8 +853,9 @@ local function BuildMinimapButton()
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:SetText("EpogArmory")
-        GameTooltip:AddLine("Click to open the armory browser", 1, 1, 1)
-        GameTooltip:AddLine("Drag to reposition around the minimap", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Left-click: open the armory browser", 1, 1, 1)
+        GameTooltip:AddLine("Right-click: menu (status, debug, wipe...)", 1, 1, 1)
+        GameTooltip:AddLine("Drag: reposition around the minimap", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
