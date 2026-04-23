@@ -4,6 +4,41 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.28 — `tooltipExtras` for proc / use lines *(2026-04-23)* *(local-only, not released yet)*
+
+Items like Eskhandar's Left Claw have special tooltip lines that aren't numeric stats — e.g. `"Chance on hit: Slows enemy's movement by 60% and causes them to bleed for 225 damage over 30 sec."`. These are item flavor / proc descriptions that belong on the armory tooltip but don't fit the `stats` / `tooltipStats` model.
+
+New: `entry.tooltipExtras = { "raw tooltip line 1", "raw tooltip line 2", ... }` — captures lines matching the prefix whitelist `{"Chance on hit:", "Use:"}` verbatim, in order. The site's armory tooltip renders these as-is below the stat block.
+
+Deliberately excludes `"Equip:"` since those are almost always stat lines already covered by `GetItemStats` or the `tooltipStats` pattern list — avoids duplicating the same info in two fields.
+
+The scanner was refactored to do one pass over the tooltip returning both tables (`ScanTooltip(link)` → `stats, extras`). Stats-matched lines are "consumed" and not considered for extras; unmatched lines fall through to the prefix check.
+
+**Schema bump to v5** so v4-cached items re-fetch and pick up the new field. `/epogarmory cachebuild` to force-refresh eagerly, or let scan traffic do it gradually.
+
+Example post-v0.28 cache entry for Eskhandar's Left Claw:
+
+```lua
+[18202] = {
+    v = 5,
+    name = "Eskhandar's Left Claw",
+    quality = 4,
+    itemLevel = 66,
+    icon = "inv_misc_monsterclaw_04",
+    stats = {
+        ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 48,
+        ITEM_MOD_AGILITY_SHORT = 7,
+    },
+    tooltipExtras = {
+        "Chance on hit: Slows enemy's movement by 60% and causes them to bleed for 225 damage over 30 sec.",
+    },
+}
+```
+
+**Server-side:** the epoglogs ingest needs a handler for `tooltipExtras` — treat each array entry as a raw text line and render below the stat block. Additive field; nothing existing breaks.
+
+---
+
 ## EpogArmory v0.27 — Ascension PvP percent patterns + set-bonus filter fix *(2026-04-23)* *(local-only, not released yet)*
 
 v0.26 dumpstats turned up two more pattern categories from Rival's gear and Eskhandar's set:

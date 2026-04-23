@@ -121,7 +121,10 @@ local CACHE_GIVE_UP        = 15
 -- v4: + Ascension PvP percent patterns (DAMAGE_VS_PLAYERS_PCT etc.) +
 --     hardened Set-bonus filter that catches "(N) Set:" piece-count lines
 --     in addition to plain "Set:" prefixes. v0.27 release.
-local CACHE_SCHEMA = 4
+-- v5: + tooltipExtras array carrying raw "Chance on hit:" / "Use:" lines
+--     verbatim, so the site's armory tooltip can render item flavor text
+--     (procs, use-effects) that don't reduce to numeric stats. v0.28.
+local CACHE_SCHEMA = 5
 
 -- Tooltip-text patterns for percent-based stats that predate the rating
 -- system and aren't in GetItemStats' enum. Keys are plain uppercase tokens
@@ -176,45 +179,73 @@ local TOOLTIP_STAT_PATTERNS = {
     { "damage taken from other players by (%-?%d+)%%",               "DAMAGE_REDUCTION_VS_PLAYERS_PCT" },
 }
 
+-- Prefixes that mark "special" tooltip lines worth preserving verbatim into
+-- entry.tooltipExtras — procs, activated trinket effects, and other flavor
+-- text the site's armory tooltip renders as-is. Deliberately excludes
+-- "Equip:" since those are almost always stat lines already captured by
+-- GetItemStats or the tooltip stat patterns above.
+local TOOLTIP_EXTRA_PREFIXES = {
+    "Chance on hit:",
+    "Use:",
+}
+
 local tooltipScanTip
-local function ScanTooltipStats(link)
-    if not link then return nil end
+-- Scan an item's tooltip once and return (stats, extras):
+--   stats  — percent-based / pre-rating stat table keyed by TOOLTIP_STAT_PATTERNS
+--   extras — array of raw tooltip lines matching TOOLTIP_EXTRA_PREFIXES
+-- Either may be nil if nothing matched.
+local function ScanTooltip(link)
+    if not link then return nil, nil end
     if not tooltipScanTip then
         tooltipScanTip = CreateFrame("GameTooltip", "EpogArmoryTooltipStatsTip", UIParent, "GameTooltipTemplate")
     end
     tooltipScanTip:SetOwner(UIParent, "ANCHOR_NONE")
     tooltipScanTip:ClearLines()
     tooltipScanTip:SetHyperlink(link)
-    local out = nil
+
+    local stats, extras = nil, nil
     for i = 2, tooltipScanTip:NumLines() do
         local fs = _G["EpogArmoryTooltipStatsTipTextLeft" .. i]
         local text = fs and fs:GetText()
         -- Skip set-bonus lines. Two formats:
         --   "Set: <description>"         (when no set is equipped yet)
         --   "(N) Set: <description>"     (when N pieces are active)
-        -- Also "(N/M) Set: ..." on some server versions. All are caught by
-        -- checking for "Set:" after an optional leading "(...)".
+        -- Also "(N/M) Set: ..." on some server versions.
         local isSetBonus = text and (
             text:find("^Set:") or
             text:find("^%(") and text:find("Set:", 1, true)
         )
         if text and not isSetBonus then
+            -- First try stat patterns. Matches accumulate into the stats
+            -- table; the line is then "consumed" and not considered for
+            -- extras.
+            local matched = false
             for _, pat in ipairs(TOOLTIP_STAT_PATTERNS) do
                 local n = text:match(pat[1])
                 if n then
                     n = tonumber(n)
                     if n and n ~= 0 then
-                        out = out or {}
-                        -- Sum in case two lines target the same key (defensive;
-                        -- rarely happens in practice).
-                        out[pat[2]] = (out[pat[2]] or 0) + n
-                        break -- one match per line is enough
+                        stats = stats or {}
+                        stats[pat[2]] = (stats[pat[2]] or 0) + n
+                        matched = true
+                        break
+                    end
+                end
+            end
+            -- If the line didn't resolve to a stat, check whether it's a
+            -- special-effect line worth preserving verbatim.
+            if not matched then
+                for _, prefix in ipairs(TOOLTIP_EXTRA_PREFIXES) do
+                    if text:find("^" .. prefix, 1, true) then
+                        extras = extras or {}
+                        extras[#extras + 1] = text
+                        break
                     end
                 end
             end
         end
     end
-    return out
+    return stats, extras
 end
 
 local function now() return GetTime() end
@@ -363,16 +394,18 @@ local function CacheItemInfo(itemID, itemLink)
         end
     end
 
-    -- v0.26: tooltip-scan for percent-based bonuses (+1% crit / hit / dodge /
-    -- parry / etc.) that pre-date the rating system. Vanilla/TBC-era set
-    -- items like Darkmantle list these as flat tooltip text; GetItemStats
-    -- doesn't return them because there's no enum key for "flat percent
-    -- crit". Stored under entry.tooltipStats so the site's ingest can
-    -- handle them in a separate display path from the GetItemStats data.
-    local tooltipStats = ScanTooltipStats(link)
-    if tooltipStats then
-        entry.tooltipStats = tooltipStats
-    end
+    -- v0.26+: tooltip-scan. Returns two tables:
+    --   tooltipStats  — percent-based / pre-rating stats (Darkmantle "+1%
+    --                   crit", Rival's "+3% player damage") that GetItemStats
+    --                   doesn't expose in its enum.
+    --   tooltipExtras — raw flavor/proc lines like Eskhandar's "Chance on
+    --                   hit: Slows enemy's movement by 60%..." which aren't
+    --                   numeric stats but belong on the armory tooltip.
+    -- Either may be nil if nothing matched; site's ingest handles both
+    -- in separate display paths.
+    local tooltipStats, tooltipExtras = ScanTooltip(link)
+    if tooltipStats  then entry.tooltipStats  = tooltipStats  end
+    if tooltipExtras then entry.tooltipExtras = tooltipExtras end
 
     EpogItemCacheDB[itemID] = entry
     return true
