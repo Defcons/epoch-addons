@@ -4,6 +4,91 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.26 — Tooltip-scan for percent-based pre-rating stats *(2026-04-23)* *(local-only, not released yet)*
+
+v0.25 dumpstats confirmed `GetItemStats` genuinely does not return percent-based bonuses on pre-rating-system items — Darkmantle Gloves list `"+1% melee/ranged crit"` as tooltip text but the API's enum has no key for flat-percent crit. These TBC-era set items got grandfathered into WotLK with their original tooltip-only bonuses instead of being converted to rating.
+
+Fix: tooltip-scan items for known percent patterns during `CacheItemInfo` and store matches in a new `entry.tooltipStats` field, separate from the `GetItemStats`-sourced `entry.stats`.
+
+**Patterns captured** (matched from tooltip line text; more-specific patterns win via ordered first-match-break):
+
+*Percent-based (crit / hit / dodge / parry / block / expertise):*
+
+| Key | Source tooltip pattern |
+|---|---|
+| `CRIT_MELEE_RANGED_PCT` | "critical strike with melee and ranged attacks by N%" |
+| `CRIT_SPELL_PCT` | "critical strike with spells by N%" |
+| `CRIT_PCT` | "critical strike chance by N%" / "critical strike by N%" |
+| `HIT_MELEE_RANGED_PCT` | "hit with melee and ranged attacks by N%" |
+| `HIT_SPELL_PCT` | "hit with spells by N%" |
+| `HIT_PCT` | "Improves your chance to hit by N%" |
+| `EXPERTISE_PCT` | "be dodged or parried by N%" |
+| `DODGE_PCT` | "chance to dodge an attack by N%" |
+| `PARRY_PCT` | "chance to parry an attack by N%" |
+| `BLOCK_PCT` | "chance to block an attack by N%" |
+
+*Flat regen (pre-rating):*
+
+| Key | Source tooltip pattern |
+|---|---|
+| `MP5` | "Restores N mana per 5 sec" |
+| `HP5` | "Restores N health per 5 sec" |
+
+*Flat spell power / healing (TBC-era unified and pre-unified):*
+
+| Key | Source tooltip pattern |
+|---|---|
+| `SPELL_POWER_FLAT` | "damage and healing done by magical spells [and effects] by up to N" |
+| `HEALING_FLAT` | "healing done by magical spells [and effects] by up to N" |
+| `SPELL_DAMAGE_FLAT` | "damage done by magical spells [and effects] by up to N" |
+| `SPELL_DAMAGE_ARCANE` | "damage done by Arcane spells and effects by up to N" |
+| `SPELL_DAMAGE_FIRE` | "damage done by Fire spells and effects by up to N" |
+| `SPELL_DAMAGE_FROST` | "damage done by Frost spells and effects by up to N" |
+| `SPELL_DAMAGE_NATURE` | "damage done by Nature spells and effects by up to N" |
+| `SPELL_DAMAGE_SHADOW` | "damage done by Shadow spells and effects by up to N" |
+| `SPELL_DAMAGE_HOLY` | "damage done by Holy spells and effects by up to N" |
+
+*Other pre-rating flats:*
+
+| Key | Source tooltip pattern |
+|---|---|
+| `DEFENSE_FLAT` | "Increased Defense +N" |
+| `SPELL_PENETRATION_FLAT` | "Spell Penetration +N" |
+| `BLOCK_VALUE_FLAT` | "Increases the block value of your shield by N" |
+
+Keys deliberately plain uppercase (no `ITEM_MOD_` prefix) to signal they're a separate source from the GetItemStats enum — the site's ingest adds a new handler for them instead of shoehorning into the existing ITEM_MOD_* display map.
+
+**Set-bonus lines skipped** (explicit `^Set:` prefix match), per the original briefing.
+
+**Schema bump to v3** so existing v2 entries (with `stats` but no `tooltipStats`) fall through the cache short-circuit and re-run the full capture pass on next touch. Users can run `/epogarmory cachebuild` once after upgrading to eagerly refresh all stored items; otherwise it happens gradually as new scans come in.
+
+**Server-side work needed:** the epoglogs ingest needs to handle `tooltipStats` alongside `stats` when building the armory tooltip. Separate field, different display logic, additive — nothing existing breaks.
+
+Example post-v0.26 cache entry for Darkmantle Tunic:
+
+```lua
+[31180] = {
+    v = 3,
+    name = "Darkmantle Tunic",
+    quality = 3,
+    itemLevel = 60,
+    icon = "inv_chest_chain_13",
+    ts = 1713900000,
+    stats = {
+        ITEM_MOD_STAMINA_SHORT = 27,
+        ITEM_MOD_AGILITY_SHORT = 25,
+        RESISTANCE0_NAME = 154,           -- armor
+    },
+    tooltipStats = {
+        CRIT_MELEE_RANGED_PCT = 1,
+        HIT_MELEE_RANGED_PCT = 1,
+        DODGE_PCT = 1,
+    },
+}
+```
+
+---
+
 ## EpogArmory v0.25 — `/epogarmory dumpstats` diagnostic *(2026-04-23)* *(local-only, not released yet)*
 
 User reported that some percent-based stats (expertise, melee crit%, melee hit%) on Ascension items don't seem to land in the captured stats table, and that some stats show up under unusual keys like `RESISTANCE0_NAME`. Need to see actual `GetItemStats` output to know which: missing entirely, present under unrecognized keys, or present with small rating values the site's display map doesn't handle.

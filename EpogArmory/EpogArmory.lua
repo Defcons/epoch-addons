@@ -113,11 +113,95 @@ local CACHE_RETRY_INTERVAL = 0.5
 local CACHE_GIVE_UP        = 15
 -- Cache schema version. Bumped when the shape of EpogItemCacheDB[itemID]
 -- changes in a way that requires re-fetching. Entries with a lower (or
--- missing) .v are treated as stale on the next touch, so pre-v0.22 entries
--- (no stats field) get a fresh GetItemStats call.
+-- missing) .v are treated as stale on the next touch.
 -- v1: name/quality/itemLevel/icon/ts
 -- v2: + stats (v0.22)
-local CACHE_SCHEMA = 2
+-- v3: + tooltipStats for percent-based bonuses on old (pre-rating)
+--     items like Darkmantle — e.g. "Improves your chance to get a critical
+--     strike with melee and ranged attacks by 1%". GetItemStats doesn't
+--     return these because Blizzard never added an enum key for flat
+--     percent crit/hit/etc.
+local CACHE_SCHEMA = 3
+
+-- Tooltip-text patterns for percent-based stats that predate the rating
+-- system and aren't in GetItemStats' enum. Keys are plain uppercase tokens
+-- (deliberately NOT ITEM_MOD_* prefixed — the site's ingest maps these in
+-- a separate handler from the GetItemStats fields). Order matters: more
+-- specific patterns come first so they match before the generic fallbacks.
+-- Ordering matters here — more-specific patterns come first so they win the
+-- first-match break. Example: "damage and healing done by magical spells"
+-- must be tried before "healing done by magical spells" so a line with both
+-- concepts maps to SPELL_POWER_FLAT instead of HEALING_FLAT.
+local TOOLTIP_STAT_PATTERNS = {
+    -- ---------- Percent-based offensive (crit / hit) ----------
+    { "critical strike with melee and ranged attacks by (%-?%d+)%%", "CRIT_MELEE_RANGED_PCT" },
+    { "critical strike with spells by (%-?%d+)%%",                   "CRIT_SPELL_PCT" },
+    { "critical strike chance by (%-?%d+)%%",                        "CRIT_PCT" },
+    { "critical strike by (%-?%d+)%%",                               "CRIT_PCT" },
+    { "hit with melee and ranged attacks by (%-?%d+)%%",             "HIT_MELEE_RANGED_PCT" },
+    { "hit with spells by (%-?%d+)%%",                               "HIT_SPELL_PCT" },
+    { "Improves your chance to hit by (%-?%d+)%%",                   "HIT_PCT" },
+    { "be dodged or parried by (%-?%d+)%%",                          "EXPERTISE_PCT" },
+    -- ---------- Percent-based defensive (dodge / parry / block) ----------
+    { "chance to dodge an attack by (%-?%d+)%%",                     "DODGE_PCT" },
+    { "chance to parry an attack by (%-?%d+)%%",                     "PARRY_PCT" },
+    { "chance to block an attack by (%-?%d+)%%",                     "BLOCK_PCT" },
+    -- ---------- Flat regen (pre-rating) ----------
+    { "Restores (%d+) mana per 5 sec",                               "MP5" },
+    { "Restores (%d+) health per 5 sec",                             "HP5" },
+    -- ---------- Flat spell power / damage / healing (TBC-era items) ----------
+    -- "damage and healing" beats "healing" / "damage" alone.
+    { "damage and healing done by magical spells and effects by up to (%d+)", "SPELL_POWER_FLAT" },
+    { "damage and healing done by magical spells by up to (%d+)",    "SPELL_POWER_FLAT" },
+    { "healing done by magical spells and effects by up to (%d+)",   "HEALING_FLAT" },
+    { "healing done by magical spells by up to (%d+)",               "HEALING_FLAT" },
+    { "damage done by magical spells and effects by up to (%d+)",    "SPELL_DAMAGE_FLAT" },
+    { "damage done by magical spells by up to (%d+)",                "SPELL_DAMAGE_FLAT" },
+    -- Per-school (rare on WotLK gear but still present on some TBC drops)
+    { "damage done by Arcane spells and effects by up to (%d+)",     "SPELL_DAMAGE_ARCANE" },
+    { "damage done by Fire spells and effects by up to (%d+)",       "SPELL_DAMAGE_FIRE" },
+    { "damage done by Frost spells and effects by up to (%d+)",      "SPELL_DAMAGE_FROST" },
+    { "damage done by Nature spells and effects by up to (%d+)",     "SPELL_DAMAGE_NATURE" },
+    { "damage done by Shadow spells and effects by up to (%d+)",     "SPELL_DAMAGE_SHADOW" },
+    { "damage done by Holy spells and effects by up to (%d+)",       "SPELL_DAMAGE_HOLY" },
+    -- ---------- Other pre-rating flats ----------
+    { "Increased Defense %+(%d+)",                                   "DEFENSE_FLAT" },
+    { "Spell Penetration %+(%d+)",                                   "SPELL_PENETRATION_FLAT" },
+    { "Increases the block value of your shield by (%d+)",           "BLOCK_VALUE_FLAT" },
+}
+
+local tooltipScanTip
+local function ScanTooltipStats(link)
+    if not link then return nil end
+    if not tooltipScanTip then
+        tooltipScanTip = CreateFrame("GameTooltip", "EpogArmoryTooltipStatsTip", UIParent, "GameTooltipTemplate")
+    end
+    tooltipScanTip:SetOwner(UIParent, "ANCHOR_NONE")
+    tooltipScanTip:ClearLines()
+    tooltipScanTip:SetHyperlink(link)
+    local out = nil
+    for i = 2, tooltipScanTip:NumLines() do
+        local fs = _G["EpogArmoryTooltipStatsTipTextLeft" .. i]
+        local text = fs and fs:GetText()
+        -- Skip set-bonus lines explicitly — per briefing we ignore set bonuses.
+        if text and not text:find("^Set:") then
+            for _, pat in ipairs(TOOLTIP_STAT_PATTERNS) do
+                local n = text:match(pat[1])
+                if n then
+                    n = tonumber(n)
+                    if n and n ~= 0 then
+                        out = out or {}
+                        -- Sum in case two lines target the same key (defensive;
+                        -- rarely happens in practice).
+                        out[pat[2]] = (out[pat[2]] or 0) + n
+                        break -- one match per line is enough
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
 
 local function now() return GetTime() end
 
@@ -247,8 +331,8 @@ local function CacheItemInfo(itemID, itemLink)
     -- with the original ITEM_MOD_* keys so the site's ingest can map them
     -- via the same enum used for TDB merging. Random suffix variants are
     -- ignored per spec — first roll wins for a given itemID.
+    local link = itemLink or ("item:" .. itemID)
     if GetItemStats then
-        local link = itemLink or ("item:" .. itemID)
         local stats = GetItemStats(link)
         if stats then
             local serial = {}
@@ -263,6 +347,17 @@ local function CacheItemInfo(itemID, itemLink)
                 entry.stats = serial
             end
         end
+    end
+
+    -- v0.26: tooltip-scan for percent-based bonuses (+1% crit / hit / dodge /
+    -- parry / etc.) that pre-date the rating system. Vanilla/TBC-era set
+    -- items like Darkmantle list these as flat tooltip text; GetItemStats
+    -- doesn't return them because there's no enum key for "flat percent
+    -- crit". Stored under entry.tooltipStats so the site's ingest can
+    -- handle them in a separate display path from the GetItemStats data.
+    local tooltipStats = ScanTooltipStats(link)
+    if tooltipStats then
+        entry.tooltipStats = tooltipStats
     end
 
     EpogItemCacheDB[itemID] = entry
