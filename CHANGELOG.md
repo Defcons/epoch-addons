@@ -4,6 +4,23 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.24 — Cache-schema versioning (re-fetch stats for pre-v0.22 items) *(2026-04-23)* *(local-only, not released yet)*
+
+Reported from the epoglogs side: items cached before v0.22 (which added `stats`) have `stats_json = NULL` on the server, so their tooltips fall back to TDB — wrong for Ascension-modified items, missing for server-custom items. The addon's `CacheItemInfo` short-circuited on plain presence (`if EpogItemCacheDB[itemID] then return`), so those stale entries never got re-fetched.
+
+Fix: introduce a cache schema version.
+
+- New `CACHE_SCHEMA = 2` constant. `v1 = pre-stats` (name/quality/itemLevel/icon/ts), `v2 = v0.22+ with stats`.
+- Every cached entry now carries `entry.v = CACHE_SCHEMA`.
+- `CacheItemInfo` early-returns only when `existing.v == CACHE_SCHEMA`; older or missing schema falls through and re-runs `GetItemInfo` + `GetItemStats` to upgrade the entry in place.
+- `MarkPendingCache` applies the same check so the retry loop can re-promote stale entries if the initial read blocked on a client-side fetch.
+
+**Migration in practice:** pre-v0.22 entries gradually upgrade as the owning gear shows up in new scans. For an immediate bulk refresh, run `/epogarmory cachebuild` once after upgrading — it now walks every stored player's per-spec gear and any stale entry gets re-fetched. Post-upgrade the short-circuit triggers on matching schema, so there's no perf cost on subsequent scans.
+
+Future schema changes just bump the constant; same mechanism handles the migration.
+
+---
+
 ## EpogArmory v0.23 — Fix `ApplySavedPosition`/`SaveFramePosition` upvalue scoping *(2026-04-23)* *(local-only, not released yet)*
 
 Runtime error opening the browser:

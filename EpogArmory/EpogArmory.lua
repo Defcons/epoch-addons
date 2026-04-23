@@ -111,6 +111,13 @@ local versionNotified    = false
 local pendingCache = {} -- itemID -> firstSeenTime
 local CACHE_RETRY_INTERVAL = 0.5
 local CACHE_GIVE_UP        = 15
+-- Cache schema version. Bumped when the shape of EpogItemCacheDB[itemID]
+-- changes in a way that requires re-fetching. Entries with a lower (or
+-- missing) .v are treated as stale on the next touch, so pre-v0.22 entries
+-- (no stats field) get a fresh GetItemStats call.
+-- v1: name/quality/itemLevel/icon/ts
+-- v2: + stats (v0.22)
+local CACHE_SCHEMA = 2
 
 local function now() return GetTime() end
 
@@ -209,7 +216,10 @@ end
 local function CacheItemInfo(itemID, itemLink)
     if not itemID or itemID <= 0 then return false end
     EpogItemCacheDB = EpogItemCacheDB or {}
-    if EpogItemCacheDB[itemID] then return true end -- already cached, skip re-query
+    -- Skip only when we already have a current-schema entry. Pre-v0.22 entries
+    -- (no .v, no stats) re-fetch here so they pick up GetItemStats data.
+    local existing = EpogItemCacheDB[itemID]
+    if existing and existing.v == CACHE_SCHEMA then return true end
 
     local name, _, quality, itemLevel, _, _, _, _, _, texture = GetItemInfo(itemID)
     if not name then
@@ -223,6 +233,7 @@ local function CacheItemInfo(itemID, itemLink)
         icon = icon:lower()
     end
     local entry = {
+        v = CACHE_SCHEMA,
         name = name,
         quality = quality or 0,
         itemLevel = itemLevel or 0,
@@ -260,7 +271,10 @@ end
 
 local function MarkPendingCache(itemID, itemLink)
     if not itemID or itemID <= 0 then return end
-    if EpogItemCacheDB and EpogItemCacheDB[itemID] then return end
+    -- Only skip if a current-schema entry exists. Stale entries fall through
+    -- so the pending retry loop eventually re-runs CacheItemInfo and upgrades.
+    local existing = EpogItemCacheDB and EpogItemCacheDB[itemID]
+    if existing and existing.v == CACHE_SCHEMA then return end
     if not pendingCache[itemID] then
         pendingCache[itemID] = { firstSeen = now(), link = itemLink }
         TriggerItemFetch(itemID)
