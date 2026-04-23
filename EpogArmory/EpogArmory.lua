@@ -1098,6 +1098,32 @@ local function CountPending()
     return n
 end
 
+-- Public namespace entry used by the UI's Delete button. Clears one player
+-- from the local DB so the mesh can refill on the next scan from any peer.
+-- Also resets the 24h HasFreshScan gate for this GUID (by wiping
+-- lastScanned[guid]) and the in-memory 15min inspect cooldown (seen[guid]),
+-- so *this client* can re-inspect immediately if they're in range. If the
+-- user is deleting their own entry, force a fresh self-scan by clearing the
+-- fingerprint and queueing RequestSelfScan.
+_G.EpogArmory = _G.EpogArmory or {}
+_G.EpogArmory.DeletePlayer = function(guid)
+    if not guid or guid == "" then return end
+    local name = "?"
+    if EpogArmoryDB and EpogArmoryDB.players and EpogArmoryDB.players[guid] then
+        name = EpogArmoryDB.players[guid].name or "?"
+        EpogArmoryDB.players[guid] = nil
+    end
+    if EpogArmoryDB and EpogArmoryDB.lastScanned then
+        EpogArmoryDB.lastScanned[guid] = nil
+    end
+    seen[guid] = nil
+    if guid == UnitGUID("player") then
+        lastSelfFingerprint = ""
+        RequestSelfScan()
+    end
+    dprint(string.format("[delete] removed %s (%s) from local DB", name, guid))
+end
+
 -- iterate all stored players and feed every itemID through the cache.
 -- Anything not cached locally gets queued for a SetHyperlink-triggered server
 -- fetch; the OnUpdate poll picks them up over the next few seconds.

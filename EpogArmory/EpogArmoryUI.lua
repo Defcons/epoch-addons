@@ -217,6 +217,27 @@ local RefreshIcons
 local BackToBrowser   -- inspect → browser navigation (Back button)
 local OpenInspectFor  -- browser row → inspect navigation (swaps in place)
 
+-- Confirmation popup for the Delete button. The deleted entry is gone from
+-- THIS client's DB only; any peer with it still holds their copy, and a
+-- future scan will refill ours. Clearing lastScanned[guid] (done inside
+-- EpogArmory.DeletePlayer) also opens our 24h mesh-dedup gate immediately.
+StaticPopupDialogs["EPOGARMORY_CONFIRM_DELETE"] = {
+    text = "Delete %s from your local armory DB?\n\nThe mesh will refill this player on the next scan from any peer.",
+    button1 = YES,
+    button2 = NO,
+    OnAccept = function(self)
+        local guid = self.data
+        if _G.EpogArmory and _G.EpogArmory.DeletePlayer then
+            _G.EpogArmory.DeletePlayer(guid)
+        end
+        if BackToBrowser then BackToBrowser() end
+        if browserFrame and browserFrame.Refresh then browserFrame.Refresh() end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
 local function BuildInspectFrame()
     local f = CreateFrame("Frame", "EpogArmoryInspectFrame", UIParent)
     -- Width 320 matches the browser frame so swapping between them feels
@@ -251,6 +272,23 @@ local function BuildInspectFrame()
     back:SetText("Back")
     back:SetScript("OnClick", function() BackToBrowser() end)
     f.back = back
+
+    -- Delete button: removes the currently-viewed player from this client's
+    -- local DB. Confirmation popup prevents accidental wipes. Red-tinted text
+    -- to signal a destructive action.
+    local delete = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    delete:SetWidth(60); delete:SetHeight(20)
+    delete:SetPoint("LEFT", back, "RIGHT", 6, 0)
+    delete:SetText("Delete")
+    local dtext = delete:GetFontString()
+    if dtext then dtext:SetTextColor(1, 0.4, 0.4) end
+    delete:SetScript("OnClick", function()
+        if not f.activePlayer then return end
+        local p = f.activePlayer
+        local dialog = StaticPopup_Show("EPOGARMORY_CONFIRM_DELETE", p.name or "?")
+        if dialog then dialog.data = p.guid end
+    end)
+    f.delete = delete
 
     f.nameText = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.nameText:SetPoint("TOP", 0, -42)

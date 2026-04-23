@@ -4,6 +4,25 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.19 — "Made by Defcon" in TOC + per-player Delete button *(2026-04-23)* *(local-only, not released yet)*
+
+**TOC byline.** `Notes` now leads with `"Made by Defcon."` so the credit shows up in the in-game addon list tooltip. Also added `## X-Credits: Made by Defcon` as a custom TOC field for any tool that reads credits separately.
+
+**Delete button.** Inspect frame now has a red-tinted `Delete` button next to `Back` (top-left). Clicking it pops a confirmation ("Delete Defcon from your local armory DB? The mesh will refill this player on the next scan from any peer.") → `Yes` removes the entry and returns to the browser.
+
+What the delete touches:
+
+- `EpogArmoryDB.players[guid]` — the stored gear snapshot, gone from this client
+- `EpogArmoryDB.lastScanned[guid]` — the 24h mesh-wide dedup timestamp, cleared so this client can re-inspect immediately when in range
+- `seen[guid]` — the 15min per-GUID in-memory inspect cooldown, cleared for the same reason
+- If deleting your own player: also clears `lastSelfFingerprint` and calls `RequestSelfScan()` so the next event triggers a fresh self-broadcast (otherwise the fingerprint would still match and the scan would silent-skip)
+
+Exposed via a new `_G.EpogArmory.DeletePlayer(guid)` entrypoint; no public slash command since the button is the intended path.
+
+Consumer semantics: delete is LOCAL — every peer still holds their own copy. Refill depends on someone in the mesh (a) having the target in their DB and (b) rescanning them so they rebroadcast, OR (c) you inspecting the target yourself when they're next in range. No auto-request; it's eventual-consistency.
+
+---
+
 ## EpogArmory v0.18 — Shield minimap icon + unified browser/inspect + centerpiece icons *(2026-04-22)* *(local-only, not released yet)*
 
 Three UX changes in one release, plus a small wire-format addition.
