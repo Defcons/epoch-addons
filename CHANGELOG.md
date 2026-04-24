@@ -15,6 +15,34 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.41 — Remove zone restriction *(2026-04-24)*
+
+Dropped the instance-only scanning gate. Previously scans were only captured inside dungeons/raids ("requireInstance = true" default); now they capture anywhere — outdoor world, BGs, arenas, cities, everywhere.
+
+Rationale: the restriction existed as a safety net against "bank alt in town wearing fun gear" scenarios, but that role is now covered properly by:
+
+- **Mount-gear filter** rejects scans with Carrot on a Stick / Riding Crop / Charm of Swift Flight / Argent War Horn / fishing poles / Chef's Hat / Rugged Sandle / Mithril Spurs enchant / Riding Skill glove enchant
+- **PvP set routing** — Insignia trinkets now flag the scan as a PvP loadout and route to `sets["pvp"]` instead of polluting the main spec sets
+- **Per-spec storage** — even if an unusual loadout is captured, it lands in its own dominant-tree or PvP slot without overwriting other sets
+- **4h mesh cooldown** — no flood of scans even with the gate removed
+
+Net effect: arena/BG/open-world/city scans now land in the armory. Raid leaders can inspect PUGs outside the instance. PvP testers get real data.
+
+**Removed:**
+- `requireInstance` variable + all 4 zone gates (`ShouldStore`, `AddUnit`/`ScanRoster`, `TryInspect`, `TryScanSelf`)
+- `IsInstanceZone()` helper (no longer needed)
+- `/epogarmory instance on|off` slash command
+- "requireInstance=" field from `/epogarmory status` output
+- Help-listing lines advertising the command
+
+**Kept:**
+- `ZoneType()` — still used to populate `entry.zone` as informational metadata on each set (site armory can show "scanned in raid"/"arena"/"outdoor")
+- `InCombatLockdown()` gates on `TryInspect` and `TryScanSelf` — combat-safety is unchanged
+
+**Config:** any lingering `EpogArmoryDB.config.requireInstance` from old installs is cleared to nil on login (vestigial field, does nothing).
+
+---
+
 ## EpogArmory v0.40 — Dedup tooltip stats against GetItemStats *(2026-04-24)*
 
 Modern items were getting the same stat captured twice — once from `GetItemStats` into `entry.stats` and again from tooltip pattern-matching into `entry.tooltipStats`. User example:

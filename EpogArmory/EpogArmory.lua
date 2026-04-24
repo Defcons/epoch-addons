@@ -84,7 +84,10 @@ local ASSEMBLY_TIMEOUT      = 60
 local SCAN_FRESH_WINDOW     = 14400
 
 -- Runtime config, persisted in EpogArmoryDB.config on logout.
-local requireInstance = true
+-- v0.40: zone restriction removed. PvP loadouts now route to sets["pvp"]
+-- and the mount-gear filter (UTILITY_ITEMS / UTILITY_ITEM_NAMES_ANY_SLOT /
+-- tooltip enchant scan for Mithril Spurs etc.) catches bank-alt / show-off
+-- loadouts regardless of zone. No longer need to gate on instance-only.
 
 local UTILITY_ITEMS = {
     [11122] = "Carrot on a Stick",
@@ -557,10 +560,6 @@ local function ZoneType()
     return instType or "unknown"
 end
 
-local function IsInstanceZone()
-    local z = ZoneType()
-    return z == "party" or z == "raid"
-end
 
 local function ItemStringFromLink(link)
     if not link then return "" end
@@ -957,9 +956,6 @@ local function ShouldStore(entry)
     if not entry then return false, "nil entry" end
     if (entry.level or 0) < MIN_STORE_LEVEL then
         return false, string.format("level %d < %d", entry.level or 0, MIN_STORE_LEVEL)
-    end
-    if requireInstance and entry.zone ~= "party" and entry.zone ~= "raid" then
-        return false, string.format("zone=%s (requireInstance on)", tostring(entry.zone))
     end
     -- Ascension is classless: GetTalentTabInfo(tab, ...) returns 0 points-spent
     -- for every tab regardless of what the player actually specced, so we can't
@@ -1389,7 +1385,6 @@ end
 
 local function ScanRoster()
     lastRoster = now()
-    if requireInstance and not IsInstanceZone() then return end
     local before = #queue
     if GetNumRaidMembers() > 0 then
         for i = 1, 40 do AddUnit("raid" .. i) end
@@ -1411,7 +1406,6 @@ local function TryInspect()
     if current then return end
     if now() < nextInspectAt then return end
     if #queue == 0 then return end
-    if requireInstance and not IsInstanceZone() then return end
     if InCombatLockdown() then return end
 
     local entry = table.remove(queue, 1)
@@ -1514,12 +1508,6 @@ end
 local function TryScanSelf()
     if not selfScanPending then return end
     if now() < selfScanAt then return end
-    if requireInstance and not IsInstanceZone() then
-        -- Don't cancel — we want to scan the moment we zone into an instance.
-        -- Just defer the deadline.
-        selfScanAt = now() + SELF_SCAN_DEBOUNCE
-        return
-    end
     if InCombatLockdown() then
         selfScanAt = now() + SELF_SCAN_DEBOUNCE
         return
@@ -1651,14 +1639,13 @@ f:SetScript("OnEvent", function(self, event, ...)
         EpogArmoryDB.lastScanned = EpogArmoryDB.lastScanned or {}
         EpogArmoryDB.config      = EpogArmoryDB.config      or {}
         EpogArmoryDB.peerInfo    = EpogArmoryDB.peerInfo    or {}
-        if EpogArmoryDB.config.requireInstance == nil then
-            EpogArmoryDB.config.requireInstance = true
-        end
+        -- v0.40: zone restriction removed; any lingering requireInstance
+        -- in old SavedVariables is just a vestigial dead field.
+        EpogArmoryDB.config.requireInstance = nil
         -- v0.37: responder-side sync opt-in defaults to true.
         if EpogArmoryDB.config.acceptSync == nil then
             EpogArmoryDB.config.acceptSync = true
         end
-        requireInstance = EpogArmoryDB.config.requireInstance
         EpogItemCacheDB = EpogItemCacheDB or {}
         MigratePlayers() -- wrap pre-v0.13 flat entries into sets[1]
         RequestSelfScan(SELF_SCAN_LOGIN_DELAY) -- initial self-scan after talent data warms up
@@ -1802,8 +1789,6 @@ local function ShowHelp()
     print("  /epogarmory debug         — toggle verbose chat logging")
     print("  /epogarmory list          — print every stored player")
     print("  /epogarmory wipe          — clear stored players (keeps config)")
-    print("  /epogarmory instance on   — only scan/store inside dungeon/raid (default)")
-    print("  /epogarmory instance off  — scan/store everywhere (testing)")
     print("  /epogarmory cache         — show item-info cache size")
     print("  /epogarmory cachebuild    — fill the cache from all stored players' gear (names/quality/ilvl)")
     print("  /epogarmory cachewipe     — clear the item-info cache")
@@ -1819,11 +1804,10 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         print("|cffffaa44EpogArmory|r debug:",
             EpogArmoryDebug and "|cff00ff00ON|r" or "|cffff0000OFF|r")
     elseif msg == "status" then
-        print(string.format("|cffffaa44EpogArmory|r stored=%d tracked=%d cache=%d cachePending=%d queue=%d outPending=%d asm=%d currentInspect=%s requireInstance=%s inCombat=%s zone=%s",
+        print(string.format("|cffffaa44EpogArmory|r stored=%d tracked=%d cache=%d cachePending=%d queue=%d outPending=%d asm=%d currentInspect=%s inCombat=%s zone=%s",
             CountStored(), CountTracked(), CountCache(), CountPending(),
             #queue, #outQueue, CountAssembly(),
             current and UnitName(current.unit) or "none",
-            tostring(requireInstance),
             tostring(InCombatLockdown()),
             ZoneType()))
     elseif msg == "cache" then
@@ -1837,18 +1821,6 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         EpogItemCacheDB = {}
         pendingCache = {}
         print("|cffffaa44EpogArmory|r: wiped item-info cache")
-    elseif msg == "instance on" or msg == "instance true" then
-        requireInstance = true
-        EpogArmoryDB = EpogArmoryDB or {}
-        EpogArmoryDB.config = EpogArmoryDB.config or {}
-        EpogArmoryDB.config.requireInstance = true
-        print("|cffffaa44EpogArmory|r: requireInstance = |cff00ff00true|r (scan + store only in dungeon/raid)")
-    elseif msg == "instance off" or msg == "instance false" then
-        requireInstance = false
-        EpogArmoryDB = EpogArmoryDB or {}
-        EpogArmoryDB.config = EpogArmoryDB.config or {}
-        EpogArmoryDB.config.requireInstance = false
-        print("|cffffaa44EpogArmory|r: requireInstance = |cffff0000false|r (scan + store everywhere — testing mode)")
     elseif msg == "wipe" then
         local kept = EpogArmoryDB and EpogArmoryDB.config or {}
         EpogArmoryDB = { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = kept }
