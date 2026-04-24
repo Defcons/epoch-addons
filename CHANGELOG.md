@@ -4,6 +4,69 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## Aux-addon v1.4 — Smoother AH scanning on large AHs *(2026-04-24)*
+On dense servers (600+ AH pages, ~30k auctions) the search scan became progressively slower and chewed increasing memory. Root cause: `search.table:SetDatabase()` was called after every page via `on_page_scanned`, and that goes through `UpdateRowInfo` which does an `O(N log N)` sort plus an `O(N)` grouping pass over `search.records`. At 600 pages × 30000 records that's ~260 million comparisons during one scan.
+
+Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
+
+- **Throttle mid-scan refresh (always on, no UI change):** `on_page_scanned` now skips the live table rebuild once `getn(search.records) > LIVE_REFRESH_MAX_RECORDS` (2000). `on_complete` does one guaranteed final `SetDatabase` so the full result set still renders when the scan finishes. Small searches (under 2k results) still refresh every page for responsive feel.
+- **New "Bg" (background scan) toggle button** next to Resume/Pause: when active, `on_auction` skips `tinsert(search.records, ...)` entirely. The scan still walks every page and `history.process_auction()` in `core/scan.lua` still records all prices — only the result table is suppressed. Memory stays flat regardless of AH size. Ideal for nightly full-AH price sweeps. State persists in `aux.account.background_scan` (same scope as `history_decay`).
+- **Status bar text in background mode** shows `[bg, N prices processed]` during the scan and `Scan complete (background, N prices processed)` at the end so the user sees the work is happening.
+
+---
+
+## EpogArmory v0.37 — Sync on raid/party + 3-concurrent cap + syncoff toggle *(2026-04-24)* *(local-only, not released yet)*
+
+Three changes: extend sync to raid/party channels, cap concurrent syncs to 3 with visible timers, and add a syncoff toggle (default on).
+
+### 1. Channel extension
+
+`/epogarmory syncfrom` now broadcasts on every available channel — `PickChannels()` returns whichever of `RAID`/`PARTY` applies plus `GUILD`. `HandleSyncRequest` accepts `GUILD`, `PARTY`, and `RAID`; whisper and battleground stay rejected.
+
+If the target is in both your guild and your raid, they receive two copies of the SYNCREQ; the first triggers the response, and the per-requester cooldown makes the duplicate a no-op.
+
+### 2. Requester-side 3-concurrent cap
+
+New constants `SYNC_MAX_CONCURRENT = 3` and `SYNC_EST_DURATION = 25*60`. New in-memory `activeSyncs[peerName] = estimatedEndTime` tracker.
+
+Behavior:
+- `/epogarmory syncfrom <name>` rejects (chat message) if you already have 3 active, or if you're already syncing from this specific peer
+- In the Scanners view, active-sync rows render dimmed (alpha 0.55) with `"syncing... (~Xm left)"` instead of DB size
+- When 3 are active, ALL remaining rows dim — click shows an explanatory chat line instead of the confirm popup
+- Footer reads `"N scanners · click to sync (K/3 active)"` or `"sync limit reached"` at cap
+- Browser ticks every 30s while a sync is active so the countdown stays fresh
+
+### 3. Responder-side defense: syncoff toggle + global cooldown
+
+Two protections against sync-bomb scenarios:
+
+- **`EpogArmoryDB.config.acceptSync = true`** (default). Toggle via `/epogarmory syncoff` / `syncon`, OR via the new checkbox "Accept sync requests from others" in the Scanners view (bottom-left). When false, all incoming SYNCREQ are declined with a debug line.
+- **`SYNC_GLOBAL_COOLDOWN = 900` (15 min)** — regardless of requester, responds to at most one SYNCREQ every 15 min. Caps outQueue drain at a single 20-min response even under a 10-attacker bomb.
+
+### Bomb-scenario math
+
+| Scenario | Before v0.37 | After v0.37 |
+|---|---|---|
+| 10 attackers bomb you, 10 unique requesters | Up to 10 × 20 min = ~3h drain | 1 × 20 min = 20 min |
+| 1 attacker loops `syncfrom` | Blocked by 1h per-requester cooldown | Same (unchanged) |
+| Admin syncs 3 peers legitimately | 3 × 20 min parallel on each target | Same — global cooldown is per-responder, not requester-set |
+| 4th sync attempt as admin | Fires a 4th outbound stream | Rejected until one of the 3 active finishes |
+
+### UI surface exposed
+
+New fields on `_G.EpogArmory`:
+- `IsPeerSyncActive(name)` — returns boolean, checks in-memory activeSyncs
+- `SyncEndTimeFor(name)` — returns the estimated end timestamp, or nil
+- `ActiveSyncCount()` — returns count of active syncs
+- `SyncMaxConcurrent` — constant (3)
+
+### Persistence
+
+- `EpogArmoryDB.config.acceptSync` survives `/reload` and logout
+- `activeSyncs` is in-memory only — `/reload` wipes it, which correctly matches `/reload` also wiping the `outQueue` that was draining responses
+
+---
+
 ## EpogArmory v0.36 — Browser Scanners view + peer DB-size broadcast *(2026-04-24)* *(local-only, not released yet)*
 
 Pair of changes that together answer "who should I sync from?":

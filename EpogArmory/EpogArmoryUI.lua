@@ -675,6 +675,15 @@ local function BuildBrowser()
 
         row:SetScript("OnClick", function(self)
             if f.viewMode == "scanners" then
+                if self.activeSync then
+                    print("|cffffaa44EpogArmory|r: already syncing from this peer — wait for it to finish.")
+                    return
+                end
+                if self.rowGreyed then
+                    print(string.format("|cffffaa44EpogArmory|r: at the %d-sync limit. Wait for one to finish first.",
+                        (_G.EpogArmory and _G.EpogArmory.SyncMaxConcurrent) or 3))
+                    return
+                end
                 -- Clicked a scanner-leaderboard row → pop confirm + trigger sync
                 if self.scannerName and self.scannerName ~= "" then
                     local dlg = StaticPopup_Show("EPOGARMORY_CONFIRM_SYNC", self.scannerName)
@@ -691,6 +700,27 @@ local function BuildBrowser()
 
     f.countLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.countLabel:SetPoint("BOTTOM", 0, 18)
+
+    -- v0.37: accept-sync toggle shown only in Scanners mode. Lets the user
+    -- opt out of responding to incoming SYNCREQ (emergency/paranoia toggle).
+    -- Default enabled on first login; state persisted in EpogArmoryDB.config.
+    f.acceptSyncBtn = CreateFrame("CheckButton", "EpogArmoryAcceptSyncBtn", f, "UICheckButtonTemplate")
+    f.acceptSyncBtn:SetWidth(20); f.acceptSyncBtn:SetHeight(20)
+    f.acceptSyncBtn:SetPoint("BOTTOMLEFT", 18, 36)
+    f.acceptSyncBtn.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.acceptSyncBtn.text:SetPoint("LEFT", f.acceptSyncBtn, "RIGHT", 2, 1)
+    f.acceptSyncBtn.text:SetText("Accept sync requests from others")
+    f.acceptSyncBtn:SetScript("OnClick", function(self)
+        EpogArmoryDB = EpogArmoryDB or {}
+        EpogArmoryDB.config = EpogArmoryDB.config or {}
+        EpogArmoryDB.config.acceptSync = self:GetChecked() and true or false
+        if EpogArmoryDB.config.acceptSync then
+            print("|cffffaa44EpogArmory|r: sync-response |cff00ff66ON|r")
+        else
+            print("|cffffaa44EpogArmory|r: sync-response |cffff6666OFF|r (will refuse incoming SYNCREQ)")
+        end
+    end)
+    f.acceptSyncBtn:Hide()
 
     -- First-time / empty-DB hint. Shown only when the user has nothing
     -- stored yet. Sits over the scroll frame area so it reads as "here's
@@ -829,30 +859,56 @@ local function BuildBrowser()
         FauxScrollFrame_Update(scroll, #list, BROWSER_ROWS, BROWSER_ROW_HEIGHT)
         local offset = FauxScrollFrame_GetOffset(scroll)
 
+        -- v0.37: read sync state from EpogArmory namespace so we can grey
+        -- rows that are currently being sync'd, and stop accepting clicks
+        -- when at the 3-concurrent cap.
+        local isActive = (_G.EpogArmory and _G.EpogArmory.IsPeerSyncActive) or function() return false end
+        local syncEndsAt = (_G.EpogArmory and _G.EpogArmory.SyncEndTimeFor) or function() return nil end
+        local activeCount = (_G.EpogArmory and _G.EpogArmory.ActiveSyncCount and _G.EpogArmory.ActiveSyncCount()) or 0
+        local maxConcurrent = (_G.EpogArmory and _G.EpogArmory.SyncMaxConcurrent) or 3
+        local atCap = activeCount >= maxConcurrent
+
         for i = 1, BROWSER_ROWS do
             local row = f.rows[i]
             local s = list[i + offset]
             if s then
-                -- Format: <name>  <DB size>  <age> · contributed N to us
-                -- Prefer peer-reported DB size (from v0.36 broadcast field);
-                -- fall back to contributed count when no live data.
+                local active = isActive(s.name)
                 local sizeStr, ageStr
-                if s.reportedDB then
+                if active then
+                    local remain = math.max(0, (syncEndsAt(s.name) or time()) - time())
+                    sizeStr = string.format("|cff66ffcc syncing...|r")
+                    ageStr  = string.format("|cff888888(~%dm left)|r", math.ceil(remain / 60))
+                elseif s.reportedDB then
                     sizeStr = string.format("|cffffdd44%d|r |cff888888in DB|r", s.reportedDB)
                     ageStr  = string.format("|cff888888(heard %s)|r", FormatAge(s.reportedAt))
                 else
                     sizeStr = string.format("|cff888888%d contributed|r", s.contributed)
                     ageStr  = string.format("|cff888888last scan %s|r", FormatAge(s.lastContribution))
                 end
+                -- Grey out rows that aren't clickable right now.
+                local greyed = active or (atCap and not active)
+                local nameDisplay
+                if greyed then
+                    nameDisplay = "|cff777777" .. (s.name or "?") .. "|r"
+                    row:SetAlpha(0.55)
+                else
+                    nameDisplay = "|cffffffff" .. (s.name or "?") .. "|r"
+                    row:SetAlpha(1.0)
+                end
                 row.text:SetText(string.format("%s  %s  %s",
-                    (s.name or "?"), sizeStr, ageStr))
+                    nameDisplay, sizeStr, ageStr))
                 row.player = nil
                 row.scannerName = s.name
+                row.rowGreyed = greyed
+                row.activeSync = active
                 row:Show()
             else
                 row:Hide()
                 row.player = nil
                 row.scannerName = nil
+                row.rowGreyed = false
+                row.activeSync = false
+                row:SetAlpha(1.0)
             end
         end
 
@@ -861,7 +917,15 @@ local function BuildBrowser()
             f.countLabel:SetText("")
         else
             f.emptyHint:Hide()
-            f.countLabel:SetText(string.format("%d scanners · click to sync", #list))
+            if atCap then
+                f.countLabel:SetText(string.format(
+                    "%d scanners · |cffff9966sync limit reached (%d/%d)|r — wait for one to finish",
+                    #list, activeCount, maxConcurrent))
+            else
+                f.countLabel:SetText(string.format(
+                    "%d scanners · click to sync (%d/%d active)",
+                    #list, activeCount, maxConcurrent))
+            end
         end
     end
 
@@ -878,17 +942,26 @@ local function BuildBrowser()
     local EMPTY_HINT_SCANNERS = "No scanners known yet.\n\n|cffaaaaaaOnce you and/or guildmates running the addon do some scans, this view will show who's contributing the most. Click a row to request a sync from them.|r"
 
     -- Toggle button cycles viewMode and re-renders. Also hides/shows the
-    -- search box (not meaningful in scanners mode).
+    -- search box (not meaningful in scanners mode) and the accept-sync
+    -- checkbox (only meaningful in scanners mode).
     viewToggle:SetScript("OnClick", function()
         if f.viewMode == "scanners" then
             f.viewMode = "players"
             viewToggle:SetText("Scanners")
             f.searchLabel:Show(); search:Show()
+            f.acceptSyncBtn:Hide()
             f.emptyHint:SetText(EMPTY_HINT_PLAYERS)
         else
             f.viewMode = "scanners"
             viewToggle:SetText("Players")
             f.searchLabel:Hide(); search:Hide()
+            -- Sync current state from SavedVariables into the checkbox UI.
+            local accept = true
+            if EpogArmoryDB and EpogArmoryDB.config and EpogArmoryDB.config.acceptSync == false then
+                accept = false
+            end
+            f.acceptSyncBtn:SetChecked(accept)
+            f.acceptSyncBtn:Show()
             f.emptyHint:SetText(EMPTY_HINT_SCANNERS)
         end
         Update()
@@ -899,6 +972,20 @@ local function BuildBrowser()
     end)
     search:SetScript("OnTextChanged", Update)
     f:SetScript("OnShow", function(self) ApplySavedPosition(self); Update() end)
+
+    -- v0.37: 30s ticker while the browser is open. Only does any work when
+    -- the Scanners view is showing AND at least one sync is active — that's
+    -- when the "~Xm left" countdown needs to re-render. Otherwise the handler
+    -- is essentially a cheap increment + branch check.
+    f:SetScript("OnUpdate", function(self, elapsed)
+        self._tickAcc = (self._tickAcc or 0) + elapsed
+        if self._tickAcc < 30 then return end
+        self._tickAcc = 0
+        if f.viewMode == "scanners" then
+            local active = (_G.EpogArmory and _G.EpogArmory.ActiveSyncCount and _G.EpogArmory.ActiveSyncCount()) or 0
+            if active > 0 then Update() end
+        end
+    end)
 
     f.Refresh = Update
 
