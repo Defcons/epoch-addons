@@ -15,6 +15,42 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.40 — Dedup tooltip stats against GetItemStats *(2026-04-24)*
+
+Modern items were getting the same stat captured twice — once from `GetItemStats` into `entry.stats` and again from tooltip pattern-matching into `entry.tooltipStats`. User example:
+
+```lua
+[12930] = { -- Briarwood Reed
+    stats = { ITEM_MOD_SPELL_POWER_SHORT = 29 },
+    tooltipStats = { SPELL_POWER_FLAT = 29 },  -- duplicate
+}
+```
+
+Site would render "+29 Spell Power" twice. Fix: new `TOOLTIP_STAT_REDUNDANT_WITH` map lists tooltip keys that have an equivalent `ITEM_MOD_*` in the GetItemStats enum. When the tooltip scanner matches one of those patterns AND the equivalent is already present in `entry.stats`, the tooltip capture is silently skipped.
+
+Mapping:
+
+| Tooltip key | GetItemStats equivalent |
+|---|---|
+| `SPELL_POWER_FLAT` | `ITEM_MOD_SPELL_POWER_SHORT` |
+| `HEALING_FLAT` | `ITEM_MOD_SPELL_HEALING_DONE_SHORT` |
+| `SPELL_DAMAGE_FLAT` | `ITEM_MOD_SPELL_DAMAGE_DONE_SHORT` |
+| `MP5` | `ITEM_MOD_MANA_REGENERATION_SHORT` |
+| `HP5` | `ITEM_MOD_HEALTH_REGEN_SHORT` |
+| `DEFENSE_FLAT` | `ITEM_MOD_DEFENSE_SKILL_RATING_SHORT` |
+| `SPELL_PENETRATION_FLAT` | `ITEM_MOD_SPELL_PENETRATION_SHORT` |
+| `BLOCK_VALUE_FLAT` | `ITEM_MOD_BLOCK_VALUE_SHORT` |
+
+Percent-based keys (CRIT_*_PCT, HIT_*_PCT, DODGE_PCT, etc.) and per-school spell damage (SPELL_DAMAGE_FIRE etc.) are NOT in the GetItemStats enum on any item, so they always flow to `tooltipStats` without a redundancy check. Same for Ascension PvP stats (DAMAGE_VS_PLAYERS_PCT).
+
+**Pre-rating items unaffected.** A vanilla/TBC item with "+29 Damage and Healing" that GetItemStats doesn't know about still gets `tooltipStats.SPELL_POWER_FLAT = 29` — the dedup only fires when BOTH would be present.
+
+**Line-consumed semantic preserved.** Even when the tooltip match is dedup-skipped, the scanner still marks the line as "matched" so it doesn't then leak into `tooltipExtras`. No collateral.
+
+**Schema bump v9 → v10** so existing v9 entries with duplicates re-fetch and apply the dedup on next touch. `/epogarmory cachewipe && cachebuild` to force-refresh eagerly; otherwise it happens gradually as scans flow.
+
+---
+
 ## EpogArmory v0.39 — Fix PvP-set ingest crash (%d on string group key) *(2026-04-24)*
 
 Critical bugfix — Ingest crashed on any PvP-flagged scan.

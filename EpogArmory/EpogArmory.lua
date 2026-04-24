@@ -269,7 +269,13 @@ local CACHE_GIVE_UP        = 15
 --     tooltipExtras. Avoids rendering the same stat twice on the site.
 --     Proc lines with "chance" / "on hit" / "for N sec" / etc. are NOT
 --     stat-like and continue to be preserved. v0.32.
-local CACHE_SCHEMA = 9
+-- v10: + TOOLTIP_STAT_REDUNDANT_WITH dedup — tooltip patterns like
+--      SPELL_POWER_FLAT / HEALING_FLAT that have an ITEM_MOD_* equivalent
+--      in GetItemStats now skip the tooltipStats write when the
+--      equivalent is already present in stats. Was double-rendering
+--      on the site (once from stats, once from tooltipStats) for any
+--      modern item that has both. v0.40.
+local CACHE_SCHEMA = 10
 
 -- Tooltip-text patterns for percent-based stats that predate the rating
 -- system and aren't in GetItemStats' enum. Keys are plain uppercase tokens
@@ -331,6 +337,28 @@ local TOOLTIP_EXTRA_PREFIXES = {
     "Chance on hit:",
     "Use:",
     "Equip:", -- v0.30: catch proc-style Equip lines (Hand of Justice etc.)
+}
+
+-- v0.40: dedup map — tooltip stat keys that GetItemStats already captures
+-- via an ITEM_MOD_* enum on modern items. When GetItemStats HAS the
+-- equivalent, skip the tooltip capture to avoid rendering the same stat
+-- twice on the armory site (once from stats, once from tooltipStats).
+-- Pre-rating items (vanilla/TBC) that lack the ITEM_MOD_* still get the
+-- tooltip capture — the dedup only triggers when BOTH would be present.
+--
+-- Percent-based keys (CRIT_*_PCT, HIT_*_PCT, DODGE_PCT, etc.) and
+-- per-school spell damage (SPELL_DAMAGE_FIRE etc.) are NOT in the
+-- GetItemStats enum on any item, so no redundancy check is needed for
+-- them — they always flow to tooltipStats.
+local TOOLTIP_STAT_REDUNDANT_WITH = {
+    SPELL_POWER_FLAT       = "ITEM_MOD_SPELL_POWER_SHORT",
+    HEALING_FLAT           = "ITEM_MOD_SPELL_HEALING_DONE_SHORT",
+    SPELL_DAMAGE_FLAT      = "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT",
+    MP5                    = "ITEM_MOD_MANA_REGENERATION_SHORT",
+    HP5                    = "ITEM_MOD_HEALTH_REGEN_SHORT",
+    DEFENSE_FLAT           = "ITEM_MOD_DEFENSE_SKILL_RATING_SHORT",
+    SPELL_PENETRATION_FLAT = "ITEM_MOD_SPELL_PENETRATION_SHORT",
+    BLOCK_VALUE_FLAT       = "ITEM_MOD_BLOCK_VALUE_SHORT",
 }
 
 -- v0.32: stat-like Equip lines (e.g. "Equip: +20 Attack Power." or
@@ -403,7 +431,12 @@ local tooltipScanTip
 --   damage      — { min, max, school? } for weapons (nil for armor)
 --   speed       — attack speed in seconds, e.g. 2.8 (nil for non-weapons)
 -- Any may be nil if nothing matched in that category.
-local function ScanTooltip(link)
+-- `fromGetStats` (v0.40, optional) — the entry.stats table populated by
+-- GetItemStats earlier in CacheItemInfo. Used to dedup tooltip captures
+-- that would duplicate an already-present ITEM_MOD_* (e.g. don't emit
+-- SPELL_POWER_FLAT=29 to tooltipStats when stats.ITEM_MOD_SPELL_POWER_SHORT=29
+-- already exists).
+local function ScanTooltip(link, fromGetStats)
     if not link then return nil, nil, nil, nil, nil end
     if not tooltipScanTip then
         tooltipScanTip = CreateFrame("GameTooltip", "EpogArmoryTooltipStatsTip", UIParent, "GameTooltipTemplate")
@@ -437,17 +470,23 @@ local function ScanTooltip(link)
                 setBonuses = setBonuses or {}
                 setBonuses[#setBonuses + 1] = { pieces = pieces, text = desc }
             else
-                -- First try stat patterns. Matches accumulate into the stats
-                -- table; the line is then "consumed" and not considered for
-                -- extras.
+                -- First try stat patterns. Matches "consume" the line
+                -- regardless of whether we actually store the value — so
+                -- a redundant-with-GetItemStats line doesn't then leak
+                -- into tooltipExtras. v0.40: if the equivalent ITEM_MOD_*
+                -- is already in fromGetStats, skip the tooltipStats write
+                -- to prevent double-stat rendering on the site.
                 local matched = false
                 for _, pat in ipairs(TOOLTIP_STAT_PATTERNS) do
                     local n = text:match(pat[1])
                     if n then
                         n = tonumber(n)
                         if n and n ~= 0 then
-                            stats = stats or {}
-                            stats[pat[2]] = (stats[pat[2]] or 0) + n
+                            local redundant = TOOLTIP_STAT_REDUNDANT_WITH[pat[2]]
+                            if not (redundant and fromGetStats and fromGetStats[redundant]) then
+                                stats = stats or {}
+                                stats[pat[2]] = (stats[pat[2]] or 0) + n
+                            end
                             matched = true
                             break
                         end
@@ -643,7 +682,7 @@ local function CacheItemInfo(itemID, itemLink)
     --   speed         — weapon attack speed as a decimal (e.g. 2.8).
     -- Any may be nil if not applicable to the item; site's ingest handles
     -- each in its own display path.
-    local tooltipStats, tooltipExtras, setBonuses, damage, speed = ScanTooltip(link)
+    local tooltipStats, tooltipExtras, setBonuses, damage, speed = ScanTooltip(link, entry.stats)
     if tooltipStats  then entry.tooltipStats  = tooltipStats  end
     if tooltipExtras then entry.tooltipExtras = tooltipExtras end
     if setBonuses    then entry.setBonuses    = setBonuses    end
