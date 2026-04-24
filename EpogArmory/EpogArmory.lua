@@ -827,6 +827,15 @@ local function BuildPayload(unit, guid)
     parts[#parts + 1] = tabIcons[1]
     parts[#parts + 1] = tabIcons[2]
     parts[#parts + 1] = tabIcons[3]
+    -- v0.36: piggyback our local DB size (count of stored players) so the
+    -- browser's Scanners view can show peers ordered by "how much data they
+    -- have to share". Cheap — one small integer per broadcast, always
+    -- additive at the tail per the append-only wire rule.
+    local dbSize = 0
+    if EpogArmoryDB and EpogArmoryDB.players then
+        for _ in pairs(EpogArmoryDB.players) do dbSize = dbSize + 1 end
+    end
+    parts[#parts + 1] = tostring(dbSize)
     return table.concat(parts, "^"), equipped
 end
 
@@ -973,6 +982,12 @@ local function ParsePayload(payload)
     if t[35] and t[35] ~= "" then
         entry.tabIcons = { t[35] or "", t[36] or "", t[37] or "" }
     end
+    -- v0.36+: position 38 carries the sender's own DB size (count of stored
+    -- players). Used by the browser's Scanners view to rank peers by "how
+    -- much data they have to share". Absent on older payloads.
+    if t[38] and t[38] ~= "" then
+        entry.senderDBSize = tonumber(t[38])
+    end
     if entry.name == "" or entry.guid == "" then return nil end
     return entry
 end
@@ -988,6 +1003,18 @@ local function Ingest(payload, sender)
     -- so the 24h dedup works across the full mesh — even if this particular
     -- scan fails ShouldStore (utility gear, wrong zone, etc).
     MarkInspected(entry.guid, entry.scanTime)
+
+    -- v0.36: record the sender's reported DB size. Persisted in
+    -- EpogArmoryDB.peerInfo so the Scanners view works immediately on
+    -- login (before any fresh broadcasts arrive) based on the latest
+    -- counts we heard last session.
+    if entry.senderDBSize and sender and sender ~= "" and sender ~= UnitName("player") then
+        EpogArmoryDB.peerInfo = EpogArmoryDB.peerInfo or {}
+        EpogArmoryDB.peerInfo[sender] = {
+            dbSize   = entry.senderDBSize,
+            lastSeen = entry.scanTime or time(),
+        }
+    end
 
     -- Populate the item-info cache from every scan we observe — even rejected
     -- ones give us valid itemIDs to enrich our DB.
@@ -1535,6 +1562,7 @@ f:SetScript("OnEvent", function(self, event, ...)
         EpogArmoryDB.players     = EpogArmoryDB.players     or {}
         EpogArmoryDB.lastScanned = EpogArmoryDB.lastScanned or {}
         EpogArmoryDB.config      = EpogArmoryDB.config      or {}
+        EpogArmoryDB.peerInfo    = EpogArmoryDB.peerInfo    or {}
         if EpogArmoryDB.config.requireInstance == nil then
             EpogArmoryDB.config.requireInstance = true
         end
@@ -1596,6 +1624,7 @@ end
 
 -- Public namespace entry used by the UI's Delete button. Clears one player
 -- from the local DB so the mesh can refill on the next scan from any peer.
+_G.EpogArmory = _G.EpogArmory or {}
 -- Also resets the 24h HasFreshScan gate for this GUID (by wiping
 -- lastScanned[guid]) and the in-memory 15min inspect cooldown (seen[guid]),
 -- so *this client* can re-inspect immediately if they're in range. If the

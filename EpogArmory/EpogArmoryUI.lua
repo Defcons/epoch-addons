@@ -258,6 +258,24 @@ StaticPopupDialogs["EPOGARMORY_CONFIRM_DELETE"] = {
     hideOnEscape = true,
 }
 
+-- Confirmation popup when clicking a Scanner row in the browser. Triggers
+-- /epogarmory syncfrom <name> with the default 7-day window. Peers' 1h
+-- per-requester cooldown prevents accidental spam.
+StaticPopupDialogs["EPOGARMORY_CONFIRM_SYNC"] = {
+    text = "Request a sync from %s?\n\nThey'll replay their last 7 days of scans over guild chat. Drain takes ~20 minutes.",
+    button1 = YES,
+    button2 = NO,
+    OnAccept = function(self)
+        local name = self.data
+        if name and SlashCmdList and SlashCmdList["EPOGARMORY"] then
+            SlashCmdList["EPOGARMORY"]("syncfrom " .. name)
+        end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
 local function BuildInspectFrame()
     local f = CreateFrame("Frame", "EpogArmoryInspectFrame", UIParent)
     -- Width 320 matches the browser frame so swapping between them feels
@@ -604,12 +622,23 @@ local function BuildBrowser()
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -4, -4)
 
+    -- View-mode toggle: switches between "players" (default — searchable
+    -- list of scanned players) and "scanners" (leaderboard of who's
+    -- contributed the most sets, useful for picking a sync target).
+    f.viewMode = "players"
+    local viewToggle = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    viewToggle:SetWidth(80); viewToggle:SetHeight(20)
+    viewToggle:SetPoint("TOPRIGHT", close, "BOTTOMRIGHT", -2, 0)
+    viewToggle:SetText("Scanners")
+    f.viewToggle = viewToggle
+
     local searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     searchLabel:SetPoint("TOPLEFT", 22, -46)
     searchLabel:SetText("Search:")
+    f.searchLabel = searchLabel
 
     local search = CreateFrame("EditBox", "EpogArmoryBrowserSearch", f, "InputBoxTemplate")
-    search:SetWidth(220); search:SetHeight(20)
+    search:SetWidth(180); search:SetHeight(20)
     search:SetPoint("TOPLEFT", searchLabel, "TOPRIGHT", 10, 3)
     search:SetAutoFocus(false)
     search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
@@ -645,7 +674,16 @@ local function BuildBrowser()
         row.hl:SetAllPoints()
 
         row:SetScript("OnClick", function(self)
-            if self.player and OpenInspectFor then OpenInspectFor(self.player) end
+            if f.viewMode == "scanners" then
+                -- Clicked a scanner-leaderboard row → pop confirm + trigger sync
+                if self.scannerName and self.scannerName ~= "" then
+                    local dlg = StaticPopup_Show("EPOGARMORY_CONFIRM_SYNC", self.scannerName)
+                    if dlg then dlg.data = self.scannerName end
+                end
+            else
+                -- Clicked a player row → open inspect frame
+                if self.player and OpenInspectFor then OpenInspectFor(self.player) end
+            end
         end)
 
         f.rows[i] = row
@@ -674,7 +712,66 @@ local function BuildBrowser()
         return "|cff888888"                         -- stale gray
     end
 
-    local function Update()
+    -- Aggregate scanner contributions from our own stored data. Each
+    -- sets[group].scannedBy tells us who originally captured that set.
+    -- Combined with peer-reported DB sizes (v0.36+ piggyback on scan
+    -- broadcasts), this gives us a picture of who's worth requesting a
+    -- sync from.
+    local function AggregateScanners()
+        local stats = {} -- name -> { contributed, lastContribution }
+        if EpogArmoryDB and EpogArmoryDB.players then
+            for _, p in pairs(EpogArmoryDB.players) do
+                if p.sets then
+                    for _, set in pairs(p.sets) do
+                        local by = set.scannedBy
+                        if by and by ~= "" and by ~= "?" then
+                            if not stats[by] then
+                                stats[by] = { contributed = 0, lastContribution = 0 }
+                            end
+                            stats[by].contributed = stats[by].contributed + 1
+                            if (set.scanTime or 0) > stats[by].lastContribution then
+                                stats[by].lastContribution = set.scanTime or 0
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        -- Merge in peer-reported DB sizes (from v0.36+ piggybacked wire
+        -- field at position 38). Persisted in SavedVariables so the view
+        -- is useful immediately on login before fresh broadcasts arrive.
+        local peerInfo = (EpogArmoryDB and EpogArmoryDB.peerInfo) or {}
+        for name, info in pairs(peerInfo) do
+            if not stats[name] then
+                stats[name] = { contributed = 0, lastContribution = 0 }
+            end
+            stats[name].reportedDB = info.dbSize
+            stats[name].reportedAt = info.lastSeen
+        end
+        local list = {}
+        for name, info in pairs(stats) do
+            list[#list + 1] = {
+                name             = name,
+                contributed      = info.contributed,
+                lastContribution = info.lastContribution,
+                reportedDB       = info.reportedDB,
+                reportedAt       = info.reportedAt,
+            }
+        end
+        -- Sort by reported DB size first (primary signal — how big is their
+        -- DB right now, which is what you actually want for sync targeting),
+        -- fall back to historical contribution count for peers we haven't
+        -- heard from in this session.
+        table.sort(list, function(a, b)
+            local aSize = a.reportedDB or a.contributed
+            local bSize = b.reportedDB or b.contributed
+            if aSize == bSize then return (a.name or "") < (b.name or "") end
+            return aSize > bSize
+        end)
+        return list
+    end
+
+    local function UpdatePlayersMode()
         local list = {}
         if EpogArmoryDB and EpogArmoryDB.players then
             local filter = (search:GetText() or ""):lower()
@@ -701,10 +798,12 @@ local function BuildBrowser()
                 row.text:SetText(string.format("%s%s|r  |cff888888L%d %s|r  %s%s|r",
                     colorStr, p.name or "?", p.level or 0, p.class or "", ageColor, age))
                 row.player = p
+                row.scannerName = nil
                 row:Show()
             else
                 row:Hide()
                 row.player = nil
+                row.scannerName = nil
             end
         end
 
@@ -724,6 +823,76 @@ local function BuildBrowser()
             end
         end
     end
+
+    local function UpdateScannersMode()
+        local list = AggregateScanners()
+        FauxScrollFrame_Update(scroll, #list, BROWSER_ROWS, BROWSER_ROW_HEIGHT)
+        local offset = FauxScrollFrame_GetOffset(scroll)
+
+        for i = 1, BROWSER_ROWS do
+            local row = f.rows[i]
+            local s = list[i + offset]
+            if s then
+                -- Format: <name>  <DB size>  <age> · contributed N to us
+                -- Prefer peer-reported DB size (from v0.36 broadcast field);
+                -- fall back to contributed count when no live data.
+                local sizeStr, ageStr
+                if s.reportedDB then
+                    sizeStr = string.format("|cffffdd44%d|r |cff888888in DB|r", s.reportedDB)
+                    ageStr  = string.format("|cff888888(heard %s)|r", FormatAge(s.reportedAt))
+                else
+                    sizeStr = string.format("|cff888888%d contributed|r", s.contributed)
+                    ageStr  = string.format("|cff888888last scan %s|r", FormatAge(s.lastContribution))
+                end
+                row.text:SetText(string.format("%s  %s  %s",
+                    (s.name or "?"), sizeStr, ageStr))
+                row.player = nil
+                row.scannerName = s.name
+                row:Show()
+            else
+                row:Hide()
+                row.player = nil
+                row.scannerName = nil
+            end
+        end
+
+        if #list == 0 then
+            f.emptyHint:Show()
+            f.countLabel:SetText("")
+        else
+            f.emptyHint:Hide()
+            f.countLabel:SetText(string.format("%d scanners · click to sync", #list))
+        end
+    end
+
+    local function Update()
+        if f.viewMode == "scanners" then
+            UpdateScannersMode()
+        else
+            UpdatePlayersMode()
+        end
+    end
+
+    -- emptyHint text varies by mode — stash both and switch on toggle.
+    local EMPTY_HINT_PLAYERS  = "No players stored yet.\n\n|cffaaaaaaJoin a group in a dungeon or raid — this client will inspect groupmates and store their gear here. Or type|r |cffffaa44/epogarmory show <name>|r |cffaaaaaaif you've scanned someone already.|r"
+    local EMPTY_HINT_SCANNERS = "No scanners known yet.\n\n|cffaaaaaaOnce you and/or guildmates running the addon do some scans, this view will show who's contributing the most. Click a row to request a sync from them.|r"
+
+    -- Toggle button cycles viewMode and re-renders. Also hides/shows the
+    -- search box (not meaningful in scanners mode).
+    viewToggle:SetScript("OnClick", function()
+        if f.viewMode == "scanners" then
+            f.viewMode = "players"
+            viewToggle:SetText("Scanners")
+            f.searchLabel:Show(); search:Show()
+            f.emptyHint:SetText(EMPTY_HINT_PLAYERS)
+        else
+            f.viewMode = "scanners"
+            viewToggle:SetText("Players")
+            f.searchLabel:Hide(); search:Hide()
+            f.emptyHint:SetText(EMPTY_HINT_SCANNERS)
+        end
+        Update()
+    end)
 
     scroll:SetScript("OnVerticalScroll", function(self, o)
         FauxScrollFrame_OnVerticalScroll(self, o, BROWSER_ROW_HEIGHT, Update)

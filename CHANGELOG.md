@@ -4,6 +4,37 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v0.36 — Browser Scanners view + peer DB-size broadcast *(2026-04-24)* *(local-only, not released yet)*
+
+Pair of changes that together answer "who should I sync from?":
+
+### 1. Browser gains a Scanners view
+
+Toggle button top-right of the browser (next to the close button). Click to flip between:
+
+- **Players mode** (default) — the existing searchable list of scanned players
+- **Scanners mode** — a leaderboard of peers sorted by "how much data they have to share", rows clickable to trigger a `syncfrom`
+
+Clicking a scanner row pops a confirmation (`"Request a sync from <name>? They'll replay their last 7 days of scans over guild chat. Drain takes ~20 minutes."`). Confirm fires `/epogarmory syncfrom <name>` — same path the hidden slash command uses. Peers still respect the 1-hour per-requester cooldown, so accidental double-clicks don't spam them.
+
+Empty-state hint switches per mode — Players mode tells you to scan groupmates; Scanners mode tells you the view fills in as guildies broadcast.
+
+### 2. DB size piggybacked on every broadcast
+
+Each outbound scan payload now carries the sender's own `EpogArmoryDB.players` count as a single integer at wire position 38. Receivers stamp `EpogArmoryDB.peerInfo[sender] = { dbSize, lastSeen }` on ingest. No new protocol — just one more field on the existing scan payload, additive per the append-only wire rule.
+
+Scanner view uses this as the primary ranking signal ("reported X in DB, heard Y ago") and falls back to a scannedBy-contribution count when a peer hasn't broadcast in the current session. So the view is immediately useful on login without needing fresh mesh traffic, and becomes more accurate as peers' broadcasts flow through.
+
+### Persistence
+
+`EpogArmoryDB.peerInfo` is a SavedVariables table, so the ranking survives `/reload` and logout. On first install it's empty — fills in as peers do normal scans.
+
+### Traffic cost
+
+~5-10 bytes per broadcast payload (one small integer + separator). Absolutely negligible against the existing 500-byte payload size. Old receivers (v0.35 and earlier) silently ignore the new position-38 field per the append-only rule.
+
+---
+
 ## EpogArmory v0.35 — Hidden admin sync (`/epogarmory syncfrom`) *(2026-04-23)* *(local-only, not released yet)*
 
 The mesh is gossip-only — guildies' accumulated DBs never replay to you after a break. Problem for the admin who uploads SavedVariables to epoglogs: they need everyone's data in their own local DB, but the mesh only feeds them live scans.
