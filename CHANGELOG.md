@@ -15,6 +15,27 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.39 — Fix PvP-set ingest crash (%d on string group key) *(2026-04-24)*
+
+Critical bugfix — Ingest crashed on any PvP-flagged scan.
+
+Two `string.format` calls in `Ingest` used `%d` to format the group key, which worked fine when group was numeric (1/2/3 for class trees) but threw `bad argument #4 to 'format' (number expected, got string)` when group was `"pvp"` (introduced in v0.33). Result: every PvP scan raised a Lua error, the store path aborted, and no PvP data landed in `EpogArmoryDB`.
+
+The bug was silent unless you had the default error popup enabled or were running BugSack — explains why v0.33+ testers who weren't wearing Insignia didn't see it, but anyone with a PvP loadout crashed on every self-scan.
+
+Two lines changed — `%d` → `%s` on the group format specifier, wrapped with `tostring(group)` to be safe against future key types:
+
+```lua
+-- Before (v0.33 through v0.38):
+"[store] OK: %s L%d [tree %d / %s]" , entry.name, entry.level, group, entry.zone
+-- After (v0.39):
+"[store] OK: %s L%d [set %s / %s]", entry.name, entry.level, tostring(group), entry.zone
+```
+
+Same fix on the SKIP-log branch when an older scan for the same set arrives.
+
+---
+
 ## EpogArmory v0.38 — Scanners view polish: leaderboard + reachability + UI fixes *(2026-04-24)* *(local-only, not released yet)*
 
 Five refinements from user testing feedback on v0.37:

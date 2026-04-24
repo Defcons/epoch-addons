@@ -1077,8 +1077,8 @@ local function Ingest(payload, sender)
     -- scan of a *different* tree set is never skipped here — different slot.
     if existing and existing.sets and existing.sets[group]
         and (existing.sets[group].scanTime or 0) >= entry.scanTime then
-        dprint(string.format("[store] SKIP: %s (tree %d) — existing set is newer (%s vs %s)",
-            entry.name, group,
+        dprint(string.format("[store] SKIP: %s (set %s) — existing set is newer (%s vs %s)",
+            entry.name, tostring(group),
             date("%H:%M:%S", existing.sets[group].scanTime or 0),
             date("%H:%M:%S", entry.scanTime)))
         return
@@ -1128,8 +1128,8 @@ local function Ingest(payload, sender)
     end
 
     EpogArmoryDB.players[entry.guid] = existing
-    dprint(string.format("[store] OK: %s L%d [tree %d / %s] — scanned by %s at %s",
-        entry.name, entry.level, group, entry.zone, scannedBy,
+    dprint(string.format("[store] OK: %s L%d [set %s / %s] — scanned by %s at %s",
+        entry.name, entry.level, tostring(group), entry.zone, scannedBy,
         date("%H:%M:%S", entry.scanTime)))
 
     -- v0.21: notify the UI so an open browser list refreshes without the
