@@ -625,10 +625,11 @@ local function BuildBrowser()
     -- View-mode toggle: switches between "players" (default — searchable
     -- list of scanned players) and "scanners" (leaderboard of who's
     -- contributed the most sets, useful for picking a sync target).
+    -- Positioned top-left per v0.38 feedback.
     f.viewMode = "players"
     local viewToggle = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     viewToggle:SetWidth(80); viewToggle:SetHeight(20)
-    viewToggle:SetPoint("TOPRIGHT", close, "BOTTOMRIGHT", -2, 0)
+    viewToggle:SetPoint("TOPLEFT", 14, -14)
     viewToggle:SetText("Scanners")
     f.viewToggle = viewToggle
 
@@ -679,6 +680,12 @@ local function BuildBrowser()
                     print("|cffffaa44EpogArmory|r: already syncing from this peer — wait for it to finish.")
                     return
                 end
+                if self.reachable == false then
+                    print(string.format(
+                        "|cffffaa44EpogArmory|r: %s is offline or not in your guild/group right now — can't sync.",
+                        self.scannerName or "peer"))
+                    return
+                end
                 if self.rowGreyed then
                     print(string.format("|cffffaa44EpogArmory|r: at the %d-sync limit. Wait for one to finish first.",
                         (_G.EpogArmory and _G.EpogArmory.SyncMaxConcurrent) or 3))
@@ -704,10 +711,11 @@ local function BuildBrowser()
     -- v0.37: accept-sync toggle shown only in Scanners mode. Lets the user
     -- opt out of responding to incoming SYNCREQ (emergency/paranoia toggle).
     -- Default enabled on first login; state persisted in EpogArmoryDB.config.
+    -- v0.38: label is parented to the button itself so Hide() hides both.
     f.acceptSyncBtn = CreateFrame("CheckButton", "EpogArmoryAcceptSyncBtn", f, "UICheckButtonTemplate")
     f.acceptSyncBtn:SetWidth(20); f.acceptSyncBtn:SetHeight(20)
     f.acceptSyncBtn:SetPoint("BOTTOMLEFT", 18, 36)
-    f.acceptSyncBtn.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.acceptSyncBtn.text = f.acceptSyncBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.acceptSyncBtn.text:SetPoint("LEFT", f.acceptSyncBtn, "RIGHT", 2, 1)
     f.acceptSyncBtn.text:SetText("Accept sync requests from others")
     f.acceptSyncBtn:SetScript("OnClick", function(self)
@@ -854,14 +862,48 @@ local function BuildBrowser()
         end
     end
 
+    -- v0.38: build a set of peer names that are currently reachable — i.e.
+    -- we could plausibly send a SYNCREQ to them right now. Combines:
+    --   - guildmates marked online by the server's guild roster
+    --   - current party/raid members (regardless of guild)
+    -- Unreachable peers still appear in the Scanners list (leaderboard
+    -- value) but render dim and aren't clickable.
+    local function BuildReachableSet()
+        local reachable = {}
+        -- Self always reachable (though clicking self is a no-op anyway).
+        local me = UnitName("player")
+        if me then reachable[me] = true end
+        -- Party / raid members.
+        for i = 1, GetNumPartyMembers() do
+            local n = UnitName("party" .. i)
+            if n then reachable[n] = true end
+        end
+        for i = 1, GetNumRaidMembers() do
+            local n = UnitName("raid" .. i)
+            if n then reachable[n] = true end
+        end
+        -- Online guildmates. GetGuildRosterInfo reads the cached roster —
+        -- we call GuildRoster() when switching into Scanners mode to
+        -- request a fresh snapshot. Even if slightly stale, the "online"
+        -- flag updates on every GuildRoster() refresh the client performs.
+        if IsInGuild() then
+            local n = GetNumGuildMembers and GetNumGuildMembers() or 0
+            for i = 1, n do
+                local gname, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
+                if gname and online then reachable[gname] = true end
+            end
+        end
+        return reachable
+    end
+
     local function UpdateScannersMode()
         local list = AggregateScanners()
+        local reachable = BuildReachableSet()
+
         FauxScrollFrame_Update(scroll, #list, BROWSER_ROWS, BROWSER_ROW_HEIGHT)
         local offset = FauxScrollFrame_GetOffset(scroll)
 
-        -- v0.37: read sync state from EpogArmory namespace so we can grey
-        -- rows that are currently being sync'd, and stop accepting clicks
-        -- when at the 3-concurrent cap.
+        -- v0.37: read sync state from EpogArmory namespace.
         local isActive = (_G.EpogArmory and _G.EpogArmory.IsPeerSyncActive) or function() return false end
         local syncEndsAt = (_G.EpogArmory and _G.EpogArmory.SyncEndTimeFor) or function() return nil end
         local activeCount = (_G.EpogArmory and _G.EpogArmory.ActiveSyncCount and _G.EpogArmory.ActiveSyncCount()) or 0
@@ -872,11 +914,16 @@ local function BuildBrowser()
             local row = f.rows[i]
             local s = list[i + offset]
             if s then
-                local active = isActive(s.name)
+                local rank      = i + offset -- leaderboard position (stable even when paginated)
+                local active    = isActive(s.name)
+                local isReach   = reachable[s.name] == true
+                local clickable = isReach and not active and not atCap
+
+                local rankStr = string.format("|cffaaaaaa#%d|r", rank)
                 local sizeStr, ageStr
                 if active then
                     local remain = math.max(0, (syncEndsAt(s.name) or time()) - time())
-                    sizeStr = string.format("|cff66ffcc syncing...|r")
+                    sizeStr = "|cff66ffccsyncing...|r"
                     ageStr  = string.format("|cff888888(~%dm left)|r", math.ceil(remain / 60))
                 elseif s.reportedDB then
                     sizeStr = string.format("|cffffdd44%d|r |cff888888in DB|r", s.reportedDB)
@@ -885,29 +932,29 @@ local function BuildBrowser()
                     sizeStr = string.format("|cff888888%d contributed|r", s.contributed)
                     ageStr  = string.format("|cff888888last scan %s|r", FormatAge(s.lastContribution))
                 end
-                -- Grey out rows that aren't clickable right now.
-                local greyed = active or (atCap and not active)
                 local nameDisplay
-                if greyed then
-                    nameDisplay = "|cff777777" .. (s.name or "?") .. "|r"
-                    row:SetAlpha(0.55)
-                else
+                if clickable then
                     nameDisplay = "|cffffffff" .. (s.name or "?") .. "|r"
                     row:SetAlpha(1.0)
+                else
+                    nameDisplay = "|cff777777" .. (s.name or "?") .. "|r"
+                    row:SetAlpha(0.55)
                 end
-                row.text:SetText(string.format("%s  %s  %s",
-                    nameDisplay, sizeStr, ageStr))
-                row.player = nil
+                row.text:SetText(string.format("%s  %s  %s  %s",
+                    rankStr, nameDisplay, sizeStr, ageStr))
+                row.player      = nil
                 row.scannerName = s.name
-                row.rowGreyed = greyed
-                row.activeSync = active
+                row.rowGreyed   = not clickable
+                row.activeSync  = active
+                row.reachable   = isReach
                 row:Show()
             else
                 row:Hide()
-                row.player = nil
+                row.player      = nil
                 row.scannerName = nil
-                row.rowGreyed = false
-                row.activeSync = false
+                row.rowGreyed   = false
+                row.activeSync  = false
+                row.reachable   = false
                 row:SetAlpha(1.0)
             end
         end
@@ -917,14 +964,16 @@ local function BuildBrowser()
             f.countLabel:SetText("")
         else
             f.emptyHint:Hide()
+            local reachCount = 0
+            for _, s in ipairs(list) do if reachable[s.name] then reachCount = reachCount + 1 end end
             if atCap then
                 f.countLabel:SetText(string.format(
-                    "%d scanners · |cffff9966sync limit reached (%d/%d)|r — wait for one to finish",
-                    #list, activeCount, maxConcurrent))
+                    "%d scanners (%d online) · |cffff9966sync limit reached (%d/%d)|r",
+                    #list, reachCount, activeCount, maxConcurrent))
             else
                 f.countLabel:SetText(string.format(
-                    "%d scanners · click to sync (%d/%d active)",
-                    #list, activeCount, maxConcurrent))
+                    "%d scanners (%d online) · click to sync (%d/%d active)",
+                    #list, reachCount, activeCount, maxConcurrent))
             end
         end
     end
@@ -963,6 +1012,10 @@ local function BuildBrowser()
             f.acceptSyncBtn:SetChecked(accept)
             f.acceptSyncBtn:Show()
             f.emptyHint:SetText(EMPTY_HINT_SCANNERS)
+            -- v0.38: ask the server for a fresh guild roster so the
+            -- "online" flag is current. GuildRoster() is rate-limited
+            -- server-side (~10s) so spamming is harmless.
+            if IsInGuild() and GuildRoster then GuildRoster() end
         end
         Update()
     end)
@@ -970,20 +1023,34 @@ local function BuildBrowser()
     scroll:SetScript("OnVerticalScroll", function(self, o)
         FauxScrollFrame_OnVerticalScroll(self, o, BROWSER_ROW_HEIGHT, Update)
     end)
+    -- v0.38: mousewheel scroll (FauxScrollFrameTemplate doesn't enable it
+    -- by default). Three rows per wheel tick, standard feel. Future-proof
+    -- for lists of any size.
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local off = FauxScrollFrame_GetOffset(self) or 0
+        local step = 3
+        if delta > 0 then
+            FauxScrollFrame_SetOffset(self, math.max(0, off - step))
+        else
+            FauxScrollFrame_SetOffset(self, off + step)
+        end
+        Update()
+    end)
     search:SetScript("OnTextChanged", Update)
     f:SetScript("OnShow", function(self) ApplySavedPosition(self); Update() end)
 
-    -- v0.37: 30s ticker while the browser is open. Only does any work when
-    -- the Scanners view is showing AND at least one sync is active — that's
-    -- when the "~Xm left" countdown needs to re-render. Otherwise the handler
-    -- is essentially a cheap increment + branch check.
+    -- v0.38: 30s ticker refreshes the Scanners view whenever it's open.
+    -- Catches sync countdowns, newly-online guildmates, roster changes,
+    -- and peerInfo updates from incoming broadcasts. Trivially cheap
+    -- outside Scanners mode (just the increment + mode check).
     f:SetScript("OnUpdate", function(self, elapsed)
         self._tickAcc = (self._tickAcc or 0) + elapsed
         if self._tickAcc < 30 then return end
         self._tickAcc = 0
         if f.viewMode == "scanners" then
-            local active = (_G.EpogArmory and _G.EpogArmory.ActiveSyncCount and _G.EpogArmory.ActiveSyncCount()) or 0
-            if active > 0 then Update() end
+            if IsInGuild() and GuildRoster then GuildRoster() end
+            Update()
         end
     end)
 

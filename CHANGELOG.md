@@ -15,6 +15,29 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.38 — Scanners view polish: leaderboard + reachability + UI fixes *(2026-04-24)* *(local-only, not released yet)*
+
+Five refinements from user testing feedback on v0.37:
+
+**1. Accept-sync checkbox text now hides with the button.** In v0.37 the label FontString was parented to the browser frame itself (`f:CreateFontString(...)`), so `acceptSyncBtn:Hide()` only hid the checkbox, not the label — the text "Accept sync requests from others" stayed visible in Players mode. Re-parented the FontString to the button itself so both hide together.
+
+**2. View-mode toggle moved to top-left.** Was at top-right below the close button (cramped). Now at `TOPLEFT +14, -14` — cleaner hierarchy, doesn't compete with the close X.
+
+**3. Reachability check on Scanners rows.** Peers who are offline, not in your guild, and not in your party/raid can't respond to a SYNCREQ — so they now render dim (alpha 0.55, grey name) and clicking them prints a chat message instead of opening the confirm popup. The reachability set is built fresh on every Update via:
+  - `GetNumPartyMembers` + `UnitName("partyN")` for party members
+  - `GetNumRaidMembers` + `UnitName("raidN")` for raid members
+  - `GetGuildRosterInfo` iteration for guildmates with `online == true`
+
+`GuildRoster()` is called on mode switch into Scanners and on the 30s ticker to keep the online flag fresh (server rate-limits the RPC ~10s, so spamming is harmless). Footer adds an "(N online)" count.
+
+**4. Leaderboard numbering.** Each Scanners row now prepends `#N` where N is the rank (sorted by peer-reported DB size → scannedBy contribution as fallback). Numbers stay stable through pagination (`#1` is always the highest, `#25` is the 25th even if you've scrolled).
+
+**5. Scroll future-proofing.** Both views already used `FauxScrollFrame_Update` + offset paging, so arbitrary list sizes have always worked — but the scroll frame didn't have mousewheel enabled by default. Added `EnableMouseWheel(true)` + an `OnMouseWheel` handler (3 rows per tick). Works in both Players and Scanners view.
+
+Also bumped the 30s ticker from "refresh only when syncs active" to "refresh always in Scanners mode" — so peers coming online / offline, new broadcasts updating peerInfo, and roster joins all reflect live without manual toggle.
+
+---
+
 ## EpogArmory v0.37 — Sync on raid/party + 3-concurrent cap + syncoff toggle *(2026-04-24)* *(local-only, not released yet)*
 
 Three changes: extend sync to raid/party channels, cap concurrent syncs to 3 with visible timers, and add a syncoff toggle (default on).
