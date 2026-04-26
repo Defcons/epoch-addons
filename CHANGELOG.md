@@ -15,6 +15,18 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.52 — Show your own DB count in the Scanners view *(2026-04-26)*
+
+User noted their own row in the Scanners view always showed `—` in the In DB column. Cause: `Ingest`'s `effectiveScanner ~= MyIdentity()` guard explicitly skips writing self to peerInfo (peerInfo is meant for tracking other peers). The Scanners view's `In DB` column reads from peerInfo, so self → no entry → `—`.
+
+Fix: `AggregateScanners` now injects self's `reportedDB` inline by counting `EpogArmoryDB.players` directly. Only sets `reportedDB`, leaves `reportedAt` alone — the Last column keeps using `lastContribution` (when you last self-scanned), which is the meaningful "last activity" signal for self.
+
+Implementation: exposed `_G.EpogArmory.MyIdentity` so the UI can detect "is this leaderboard row me" without duplicating the main-name resolution logic.
+
+Edge case: if you've never self-scanned and have no contributions, you don't appear in the leaderboard at all (correct — you're not contributing to the network from anyone's perspective). Once your first self-scan lands, you show up with a real DB count.
+
+---
+
 ## EpogArmory v0.51 — 4x faster sync (BROADCAST_STAGGER 2.0s → 0.5s) *(2026-04-26)*
 
 User asked if syncs really need to be that slow. The honest answer was no — `BROADCAST_STAGGER = 2.0` was set in v0.13 when the only outbound traffic was rare organic inspect broadcasts (no urgency). When `syncfrom` arrived in v0.35 it inherited the same pacing, even though now the user is actively waiting on a 200-set bulk transfer.

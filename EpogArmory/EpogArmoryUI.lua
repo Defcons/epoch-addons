@@ -1047,6 +1047,22 @@ local function BuildBrowser()
             stats[name].reportedDB = info.dbSize
             stats[name].reportedAt = info.lastSeen
         end
+        -- Claude v0.52: peerInfo never tracks self (Ingest's
+        -- `effectiveScanner ~= MyIdentity()` guard skips self-writes), so
+        -- our own row would always show "—" in the In DB column. Compute
+        -- it inline here from EpogArmoryDB.players. Only touch reportedDB
+        -- — leave reportedAt alone so the Last column keeps using
+        -- lastContribution (when we last self-scanned), which is the real
+        -- meaningful value for self.
+        local myIdentity = (_G.EpogArmory and _G.EpogArmory.MyIdentity)
+            and _G.EpogArmory.MyIdentity() or UnitName("player")
+        if myIdentity and myIdentity ~= "" and stats[myIdentity] then
+            local myDBSize = 0
+            if EpogArmoryDB and EpogArmoryDB.players then
+                for _ in pairs(EpogArmoryDB.players) do myDBSize = myDBSize + 1 end
+            end
+            stats[myIdentity].reportedDB = myDBSize
+        end
         -- v0.45: drop scanners whose latest signal (last contribution OR
         -- last live broadcast we heard) is older than 30 days. Keeps the
         -- leaderboard focused on currently-active peers; entries get

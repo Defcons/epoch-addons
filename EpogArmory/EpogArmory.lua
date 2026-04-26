@@ -1986,6 +1986,9 @@ _G.EpogArmory.SyncMaxConcurrent = SYNC_MAX_CONCURRENT
 _G.EpogArmory.RequestPeerRefresh = function() -- Claude v0.47
     return BroadcastPeerPing()
 end
+-- v0.52: expose MyIdentity so the UI can detect "is this leaderboard row me"
+-- and inject our own DB count (peerInfo never tracks self by design).
+_G.EpogArmory.MyIdentity = function() return MyIdentity() end
 -- Also resets the 24h HasFreshScan gate for this GUID (by wiping
 -- lastScanned[guid]) and the in-memory 15min inspect cooldown (seen[guid]),
 -- so *this client* can re-inspect immediately if they're in range. If the
