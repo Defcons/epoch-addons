@@ -958,14 +958,55 @@ local function MakeChunks(payload, msgID)
     return out
 end
 
+-- v0.53: returns true iff every party/raid member is in our guild. Used to
+-- skip the PARTY/RAID broadcast when we're already going to send to GUILD —
+-- a 5-man dungeon of guildies otherwise gets every scan twice (once per
+-- channel). Failsafe: if guild roster isn't yet populated, returns false
+-- (we'll send on both channels — current behavior, no data loss).
+local function AllGroupAreGuildies()
+    if not IsInGuild() then return false end
+    local n = GetNumGuildMembers and GetNumGuildMembers() or 0
+    if n == 0 then return false end -- roster not loaded yet → safe-fall to dual broadcast
+    local guildies = {}
+    for i = 1, n do
+        local name = GetGuildRosterInfo(i)
+        if name then guildies[name] = true end
+    end
+    local me = UnitName("player")
+    if me then guildies[me] = true end
+    if GetNumRaidMembers() > 0 then
+        for i = 1, GetNumRaidMembers() do
+            local nm = UnitName("raid" .. i)
+            if nm and not guildies[nm] then return false end
+        end
+        return true
+    end
+    if GetNumPartyMembers() > 0 then
+        for i = 1, GetNumPartyMembers() do
+            local nm = UnitName("party" .. i)
+            if nm and not guildies[nm] then return false end
+        end
+        return true
+    end
+    return false -- not in a group
+end
+
 local function PickChannels()
     local list = {}
-    if GetNumRaidMembers() > 0 then
-        table.insert(list, "RAID")
-    elseif GetNumPartyMembers() > 0 then
-        table.insert(list, "PARTY")
+    local inGuild = IsInGuild()
+    -- v0.53: when everyone in the group is also a guildmate, skip the
+    -- PARTY/RAID send — the GUILD broadcast already reaches them and the
+    -- duplicate would just burn channel budget. Halves traffic for
+    -- all-guild dungeons/raids.
+    local skipGroupChan = inGuild and AllGroupAreGuildies()
+    if not skipGroupChan then
+        if GetNumRaidMembers() > 0 then
+            table.insert(list, "RAID")
+        elseif GetNumPartyMembers() > 0 then
+            table.insert(list, "PARTY")
+        end
     end
-    if IsInGuild() then
+    if inGuild then
         table.insert(list, "GUILD")
     end
     return list
@@ -1490,7 +1531,20 @@ local function HandleSyncRequest(payload, sender, channel)
                             math.floor(now() * 10) % 0xffff, msgCounter % 0xffff)
                         local chunks = MakeChunks(set.rawPayload, msgID)
                         for _, chunk in ipairs(chunks) do
-                            outQueue[#outQueue + 1] = { ch = "GUILD", body = chunk }
+                            -- v0.53: WHISPER the requester directly instead
+                            -- of GUILD-broadcasting the response. Saves
+                            -- guild-wide noise (everyone else was ingesting
+                            -- the replays as a side-effect — useful but
+                            -- expensive for them). The trade-off is that
+                            -- only the requester catches up, not the whole
+                            -- guild. WHISPER target = `sender` (the actual
+                            -- character that sent the SYNCREQ — works even
+                            -- if requester is on an alt with mainName set).
+                            outQueue[#outQueue + 1] = {
+                                ch     = "WHISPER",
+                                target = sender,
+                                body   = chunk,
+                            }
                         end
                         queued = queued + 1
                     end
@@ -1500,8 +1554,8 @@ local function HandleSyncRequest(payload, sender, channel)
     end
     lastSyncResponseTo[requester or ""] = time()
     lastSyncResponseAt = time() -- v0.37: stamp global cooldown
-    dprint(string.format("[sync] responding to %s: queued %d, skipped %d (already fresh) since %s (max %d)",
-        requester or "?", queued, skipped,
+    dprint(string.format("[sync] responding to %s (whisper to %s): queued %d, skipped %d (already fresh) since %s (max %d)",
+        requester or "?", sender or "?", queued, skipped,
         sinceTS > 0 and date("%Y-%m-%d %H:%M", sinceTS) or "epoch",
         SYNC_MAX_SETS_PER_RESPONSE))
 end
@@ -1829,7 +1883,10 @@ f:SetScript("OnUpdate", function(self, elapsed)
 
     if #outQueue > 0 and now() >= nextSendAt then
         local item = table.remove(outQueue, 1)
-        SendAddonMessage(PREFIX, item.body, item.ch)
+        -- v0.53: WHISPER channel needs a target character name as 4th arg.
+        -- Other channels (PARTY/RAID/GUILD/BATTLEGROUND) ignore the 4th arg
+        -- so passing item.target = nil is harmless for non-whisper sends.
+        SendAddonMessage(PREFIX, item.body, item.ch, item.target)
         nextSendAt = now() + BROADCAST_STAGGER
     end
 

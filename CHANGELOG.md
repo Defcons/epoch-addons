@@ -15,6 +15,32 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.53 — Channel noise reduction (skip dual-broadcast + whisper sync responses) *(2026-04-26)*
+
+Two targeted bandwidth optimizations after discussion of mesh-protocol redesigns. The "in-game custom channel + pull-based protocol" idea was ruled out because (a) WoW 3.3.5's `SendAddonMessage` doesn't support custom channels (added in Cataclysm), and (b) the math didn't favor pull-based on a guild-scale mesh. These two are the realistic wins.
+
+### 1. Skip PARTY/RAID broadcast when the whole group is guildies
+
+Previously every gear scan went to BOTH `PARTY/RAID` AND `GUILD` (per `PickChannels`). For a 5-man dungeon of guildmates, every party member received the broadcast twice — once via PARTY, once via GUILD.
+
+New `AllGroupAreGuildies()` helper builds a guild-roster set, then checks each party/raid member against it. If everyone matches, `PickChannels` returns just `{GUILD}` instead of `{PARTY, GUILD}`. Halves traffic for all-guild dungeons/raids.
+
+Failsafe: if guild roster isn't populated yet (e.g. early after login, before the first `GUILD_ROSTER_UPDATE`), the helper returns false and we send on both channels — current behavior. No data loss, just no optimization until the roster fills.
+
+### 2. Whisper sync responses instead of GUILD-broadcasting
+
+`HandleSyncRequest` previously replayed up to 200 sets to the GUILD channel — meaning every guildmate ingested all of them as a side-effect (free benefit, but expensive for them). On a sync of a 200-entry DB across a 50-person guild, that was 200 sets × 50 listeners = 10,000 ingest operations to deliver to one requester.
+
+Now uses WHISPER addressed to `sender` (the actual character that sent the SYNCREQ — works whether or not they have `mainName` set). Only the requester pays ingest cost. The "everyone catches up for free" side benefit is gone — explicit trade-off accepted.
+
+`outQueue` items now optionally carry a `target` field; the OnUpdate send loop passes it as the 4th arg to `SendAddonMessage`. Other channel types ignore the 4th arg, so non-whisper sends are unaffected.
+
+### Why these two and not the bigger redesign
+
+The bigger "notify-then-pull" redesign would have cost more than it saved on a guild-scale mesh — broadcast is essentially free per additional receiver, while pull-based pays per receiver. These two changes capture the wins (less duplicate delivery, less guild-wide collateral ingest) without protocol-level complexity.
+
+---
+
 ## EpogArmory v0.52 — Show your own DB count in the Scanners view *(2026-04-26)*
 
 User noted their own row in the Scanners view always showed `—` in the In DB column. Cause: `Ingest`'s `effectiveScanner ~= MyIdentity()` guard explicitly skips writing self to peerInfo (peerInfo is meant for tracking other peers). The Scanners view's `In DB` column reads from peerInfo, so self → no entry → `—`.
