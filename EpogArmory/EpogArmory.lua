@@ -2172,7 +2172,9 @@ SlashCmdList["EPOGARMORY"] = function(msg)
             return
         end
         if CountActiveSyncs() >= SYNC_MAX_CONCURRENT then
-            print(string.format("|cffffaa44EpogArmory|r: already at %d concurrent syncs. Wait for one to finish (each takes ~25 min).",
+            -- v0.50: don't quote a fixed "~25 min" anymore — actual time
+            -- depends on peer DB size. Just say "wait for one to finish".
+            print(string.format("|cffffaa44EpogArmory|r: already at %d concurrent syncs. Wait for one to finish (varies by peer DB size — see Scanners view for countdowns).",
                 SYNC_MAX_CONCURRENT))
             return
         end
@@ -2201,9 +2203,23 @@ SlashCmdList["EPOGARMORY"] = function(msg)
                 outQueue[#outQueue + 1] = { ch = ch, body = chunk }
             end
         end
-        activeSyncs[name] = time() + SYNC_EST_DURATION
-        print(string.format("|cffffaa44EpogArmory|r: requested sync from |cff00ff00%s|r (last %d days) via %s. ETA ~25 min.",
-            name, days, table.concat(channels, "+")))
+        -- v0.50: estimate sync duration from peerInfo.dbSize instead of
+        -- always advertising 25 min (the worst-case 200-set cap). Each set
+        -- ≈ 4 chunks × 2s stagger ≈ 8s; manifest dedup may shrink the
+        -- actual count further but we don't know what they have, so the
+        -- upper bound here is min(reportedDB, SYNC_MAX_SETS_PER_RESPONSE).
+        -- 60s safety buffer for any drift.
+        local estimatedSets = SYNC_MAX_SETS_PER_RESPONSE
+        if EpogArmoryDB and EpogArmoryDB.peerInfo and EpogArmoryDB.peerInfo[name]
+           and EpogArmoryDB.peerInfo[name].dbSize then
+            estimatedSets = math.min(EpogArmoryDB.peerInfo[name].dbSize,
+                                     SYNC_MAX_SETS_PER_RESPONSE)
+        end
+        local etaSeconds = estimatedSets * 8 + 60
+        local etaMinutes = math.max(1, math.ceil(etaSeconds / 60))
+        activeSyncs[name] = time() + etaSeconds
+        print(string.format("|cffffaa44EpogArmory|r: requested sync from |cff00ff00%s|r (last %d days) via %s. ETA ~%d min (peer has ~%d entries).",
+            name, days, table.concat(channels, "+"), etaMinutes, estimatedSets))
         local manifestEntries = 0
         if manifest ~= "" then
             -- count separators + 1 (entries are joined by ";")

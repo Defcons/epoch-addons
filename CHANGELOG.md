@@ -15,6 +15,36 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.50 — Realistic sync ETA based on peer DB size *(2026-04-26)*
+
+User noted the sync request always claims `ETA ~25 min` regardless of how much data the peer actually has. That's the worst-case ceiling (200-set cap × ~8s/set), not the actual time. For a peer with 45 entries, the real ceiling is ~6 min; with v0.46 manifest dedup it's typically much less.
+
+### What changed
+
+`/epogarmory syncfrom` now reads `peerInfo[name].dbSize` (when known — present for any peer running v0.36+) and computes a realistic upper bound:
+
+```
+estimatedSets = min(reportedDB, SYNC_MAX_SETS_PER_RESPONSE=200)
+etaSeconds    = estimatedSets * 8 + 60   -- 8s/set + 60s safety
+```
+
+Message now reads:
+```
+EpogArmory: requested sync from Xtarsia (last 7 days) via GUILD. ETA ~7 min (peer has ~45 entries).
+```
+
+### Side benefit: faster row un-greying
+
+`activeSyncs[name]` (the timestamp that greys out the row in the Scanners view and rate-limits a duplicate sync request) now uses the same realistic ETA. Previously, after a 3-minute sync from a small-DB peer, the row would stay greyed for another 22 minutes for no reason. Now it un-greys when the actual sync should be done.
+
+### Fallback
+
+If we have no `peerInfo` entry for the target (peer never broadcast / pre-v0.36 client / pruned by 30-day staleness sweep), the estimate falls back to the old 25-minute upper bound — same as before.
+
+The "concurrent sync limit" message no longer quotes a fixed "~25 min" either (also varies now); just says to check the Scanners-view countdowns.
+
+---
+
 ## EpogArmory v0.49 — Scanners view: columnar table *(2026-04-26)*
 
 User request: structure the Scanners view as columns too — Rank, Name, Contributions, In DB, Last seen. Confirmed by user that Contributions and In DB are separate stats:
