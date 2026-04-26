@@ -525,6 +525,17 @@ end
 
 local function now() return GetTime() end
 
+-- v0.43: resolve "who are we, identity-wise" for cross-alt consolidation.
+-- Returns the configured main name if set, otherwise the live character
+-- name. Used when broadcasting and answering "is this SYNCREQ targeting me".
+local function MyIdentity()
+    if EpogArmoryDB and EpogArmoryDB.config and EpogArmoryDB.config.mainName
+        and EpogArmoryDB.config.mainName ~= "" then
+        return EpogArmoryDB.config.mainName
+    end
+    return UnitName("player") or "?"
+end
+
 -- Which of the 3 class talent trees has the most points. 1, 2, or 3. Used as
 -- the per-player set key so a rogue's Assassination/Combat/Subtlety each get
 -- their own gear snapshot. Matches the player's mental model of "spec"; works
@@ -904,6 +915,14 @@ local function BuildPayload(unit, guid)
         for _ in pairs(EpogArmoryDB.players) do dbSize = dbSize + 1 end
     end
     parts[#parts + 1] = tostring(dbSize)
+    -- v0.43: emit our configured main-name identity at position 39. Empty
+    -- string when not configured — receivers fall back to the wire sender
+    -- character name. Lets the user consolidate scans from all their alts
+    -- under one identity.
+    local myMain = (EpogArmoryDB and EpogArmoryDB.config and EpogArmoryDB.config.mainName) or ""
+    -- Strip wire-control chars defensively (^ separator, | item-link escape)
+    myMain = myMain:gsub("[%^|]", "")
+    parts[#parts + 1] = myMain
     return table.concat(parts, "^"), equipped
 end
 
@@ -1053,6 +1072,15 @@ local function ParsePayload(payload)
     if t[38] and t[38] ~= "" then
         entry.senderDBSize = tonumber(t[38])
     end
+    -- v0.43+: position 39 carries the sender's configured main-name identity.
+    -- Used as the canonical scanner identity (scannedBy + peerInfo key) so
+    -- scans broadcast from multiple alts of the same user consolidate under
+    -- one name. Absent or empty on older payloads / unconfigured clients,
+    -- in which case the receiver falls back to the wire sender character
+    -- name.
+    if t[39] and t[39] ~= "" then
+        entry.senderMain = t[39]
+    end
     if entry.name == "" or entry.guid == "" then return nil end
     return entry
 end
@@ -1073,11 +1101,17 @@ local function Ingest(payload, sender)
     -- EpogArmoryDB.peerInfo so the Scanners view works immediately on
     -- login (before any fresh broadcasts arrive) based on the latest
     -- counts we heard last session.
-    if entry.senderDBSize and sender and sender ~= "" and sender ~= UnitName("player") then
+    -- v0.43: key by the sender's main-name identity (entry.senderMain) when
+    -- they have one set, so all alts of the same user consolidate into one
+    -- Scanners-view entry. Track lastCharName so reachability checks have
+    -- a real character name to look up in guild/group rosters.
+    local effectiveScanner = (entry.senderMain ~= nil and entry.senderMain ~= "") and entry.senderMain or sender
+    if entry.senderDBSize and effectiveScanner and effectiveScanner ~= "" and effectiveScanner ~= MyIdentity() then
         EpogArmoryDB.peerInfo = EpogArmoryDB.peerInfo or {}
-        EpogArmoryDB.peerInfo[sender] = {
-            dbSize   = entry.senderDBSize,
-            lastSeen = entry.scanTime or time(),
+        EpogArmoryDB.peerInfo[effectiveScanner] = {
+            dbSize       = entry.senderDBSize,
+            lastSeen     = entry.scanTime or time(),
+            lastCharName = sender, -- character actually broadcasting (for reachability lookups)
         }
     end
 
@@ -1105,7 +1139,14 @@ local function Ingest(payload, sender)
     else
         group = DominantTree(entry.spec)
     end
-    local scannedBy = sender or (UnitName("player") or "?")
+    -- v0.43: prefer the broadcaster's main-name identity (entry.senderMain)
+    -- so set.scannedBy reads as the consolidated user name across alts.
+    -- Fall back to wire sender for older clients without the field, and
+    -- finally to MyIdentity() (covers the local direct-ingest path where
+    -- sender == self and we want our own configured main name applied).
+    local scannedBy = entry.senderMain
+    if not scannedBy or scannedBy == "" then scannedBy = sender end
+    if not scannedBy or scannedBy == "" then scannedBy = MyIdentity() end
     local existing = EpogArmoryDB.players[entry.guid]
 
     -- Per-spec dedup: only this tree's set is compared for staleness. A newer
@@ -1245,7 +1286,12 @@ local function HandleSyncRequest(payload, sender, channel)
     local tag, requester, target, sinceStr = strsplit("^", payload)
     if tag ~= "SYNCREQ" then return end
     if not target or target == "" then return end
-    if target ~= UnitName("player") then
+    -- v0.43: accept either our character name OR our configured main name.
+    -- Lets an admin do `syncfrom <main>` and reach whichever alt the user
+    -- is currently on with that mainName configured.
+    local me = UnitName("player")
+    local myMain = (EpogArmoryDB and EpogArmoryDB.config and EpogArmoryDB.config.mainName) or nil
+    if target ~= me and target ~= myMain then
         -- Request is for someone else; silently ignore.
         return
     end
@@ -1517,6 +1563,19 @@ local function TryScanSelf()
     local playerGUID = UnitGUID("player")
     if not playerGUID then return end
 
+    -- v0.43: don't waste mesh bandwidth on self-scans below MIN_STORE_LEVEL.
+    -- Receivers' ShouldStore would reject them anyway (level < 60), and
+    -- without this gate every peer sees a "[store] REJECT: <name> L33 —
+    -- level 33 < 60" debug line for every alt-broadcast cycle. Inspect-
+    -- side already gates via MIN_INSPECT_LEVEL in AddUnit; this matches
+    -- the symmetric self-side gate.
+    local myLevel = UnitLevel("player") or 0
+    if myLevel < MIN_STORE_LEVEL then
+        dprint(string.format("[self] skip — level %d < %d (no broadcast from low-level alts)",
+            myLevel, MIN_STORE_LEVEL))
+        return
+    end
+
     -- Silent short-circuit: nothing meaningful has changed since our last
     -- broadcast. UNIT_INVENTORY_CHANGED fires every ~15s on Ascension from
     -- durability/aura noise; unchanged fingerprint → no log, no work.
@@ -1639,6 +1698,12 @@ f:SetScript("OnEvent", function(self, event, ...)
         EpogArmoryDB.lastScanned = EpogArmoryDB.lastScanned or {}
         EpogArmoryDB.config      = EpogArmoryDB.config      or {}
         EpogArmoryDB.peerInfo    = EpogArmoryDB.peerInfo    or {}
+        -- v0.43: track every character that's logged into this account so
+        -- /epogarmory main can validate against the list. SavedVariables is
+        -- account-scoped, so this set accumulates across alts naturally.
+        EpogArmoryDB.knownChars  = EpogArmoryDB.knownChars  or {}
+        local me = UnitName("player")
+        if me and me ~= "" then EpogArmoryDB.knownChars[me] = true end
         -- v0.40: zone restriction removed; any lingering requireInstance
         -- in old SavedVariables is just a vestigial dead field.
         EpogArmoryDB.config.requireInstance = nil
@@ -1646,6 +1711,10 @@ f:SetScript("OnEvent", function(self, event, ...)
         if EpogArmoryDB.config.acceptSync == nil then
             EpogArmoryDB.config.acceptSync = true
         end
+        -- v0.43: optional main-name identity. When set, all broadcasts from
+        -- this client carry it at wire position 39. Receivers use it as the
+        -- canonical scanner identity, consolidating alts under the main.
+        -- Default nil = use character name (no consolidation, current behavior).
         EpogItemCacheDB = EpogItemCacheDB or {}
         MigratePlayers() -- wrap pre-v0.13 flat entries into sets[1]
         RequestSelfScan(SELF_SCAN_LOGIN_DELAY) -- initial self-scan after talent data warms up
@@ -1792,6 +1861,7 @@ local function ShowHelp()
     print("  /epogarmory cache         — show item-info cache size")
     print("  /epogarmory cachebuild    — fill the cache from all stored players' gear (names/quality/ilvl)")
     print("  /epogarmory cachewipe     — clear the item-info cache")
+    print("  /epogarmory main [name]   — set/show your main-character identity (consolidates alts in the mesh)")
     print("|cff888888  Source + releases: github.com/Defcons/epogarmory-addon|r")
     -- dumpspec left in place but not advertised — internal diagnostic.
 end
@@ -1910,8 +1980,11 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         end
         msgCounter = msgCounter + 1
         local msgID = string.format("S%x", msgCounter % 0xffff)
+        -- v0.43: requester field uses MyIdentity (configured main name or
+        -- character name fallback). Per-requester cooldowns on the responder
+        -- side now consolidate across all alts of the same admin.
         local body = string.format("%s^1^1^SYNCREQ^%s^%s^%d",
-            msgID, UnitName("player") or "?", name, sinceTS)
+            msgID, MyIdentity(), name, sinceTS)
         for _, ch in ipairs(channels) do
             outQueue[#outQueue + 1] = { ch = ch, body = body }
         end
@@ -1922,6 +1995,51 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         if _G.EpogArmoryBrowserFrame and _G.EpogArmoryBrowserFrame:IsShown()
             and _G.EpogArmoryBrowserFrame.Refresh then
             _G.EpogArmoryBrowserFrame.Refresh()
+        end
+    elseif msg == "main" or msg:sub(1, 5) == "main " then
+        -- v0.43: pick which of your characters is your "main" identity.
+        -- All broadcasts from any of your alts will then be attributed to
+        -- this name in the mesh. Validated against EpogArmoryDB.knownChars
+        -- (the set of characters that have logged in on this account, since
+        -- SavedVariables is account-scoped).
+        EpogArmoryDB = EpogArmoryDB or {}
+        EpogArmoryDB.config = EpogArmoryDB.config or {}
+        EpogArmoryDB.knownChars = EpogArmoryDB.knownChars or {}
+        local arg = msg:match("^main%s+(.+)$")
+        if not arg then
+            -- No arg → show current + list known characters
+            local current = EpogArmoryDB.config.mainName
+            local me = UnitName("player") or "?"
+            print(string.format("|cffffaa44EpogArmory|r: main identity = |cff00ff66%s|r%s",
+                tostring(current or me),
+                current and "" or " (defaulting to current character)"))
+            local names = {}
+            for n, _ in pairs(EpogArmoryDB.knownChars) do names[#names + 1] = n end
+            table.sort(names)
+            print("|cff888888  Choices:|r " .. table.concat(names, ", "))
+            print("|cff888888  Use:|r /epogarmory main <name>  |cff888888or|r /epogarmory main clear")
+        elseif arg == "clear" or arg == "none" then
+            EpogArmoryDB.config.mainName = nil
+            print("|cffffaa44EpogArmory|r: main identity cleared — broadcasts will use current character name")
+        else
+            -- Canonical casing
+            local pick = arg:sub(1, 1):upper() .. arg:sub(2):lower()
+            if not EpogArmoryDB.knownChars[pick] then
+                print(string.format("|cffffaa44EpogArmory|r: |cffff6666%s|r is not in your known-characters list. Log in once on that character first.",
+                    pick))
+                local names = {}
+                for n, _ in pairs(EpogArmoryDB.knownChars) do names[#names + 1] = n end
+                table.sort(names)
+                print("|cff888888  Known:|r " .. table.concat(names, ", "))
+            else
+                EpogArmoryDB.config.mainName = pick
+                -- Force a fresh self-scan so the new identity goes out on
+                -- the wire immediately (otherwise next scan waits for a
+                -- fingerprint change).
+                lastSelfFingerprint = ""
+                RequestSelfScan()
+                print(string.format("|cffffaa44EpogArmory|r: main identity = |cff00ff66%s|r — your scans now broadcast under this name", pick))
+            end
         end
     elseif msg == "syncoff" or msg == "syncon" then
         -- Toggle the responder-side opt-out. When "off", we refuse any

@@ -15,6 +15,44 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.43 — Sender-side level gate + main-name identity *(2026-04-26)*
+
+Two changes that together solve the "alt pollution" problem in the mesh.
+
+### 1. Sender-side level gate
+
+`TryScanSelf` now checks `UnitLevel("player") < MIN_STORE_LEVEL` (60) and silently skips the scan + broadcast. Receivers' `ShouldStore` already rejected level < 60, but the broadcast still went out — every guildmate's debug log saw `[store] REJECT: <name> L33 — level 33 < 60` for every alt-broadcast cycle. Now the broadcast doesn't happen at all on low-level alts. Mirrors the existing `MIN_INSPECT_LEVEL` gate on the inspect-other path.
+
+### 2. Main-name identity
+
+New config field `EpogArmoryDB.config.mainName` — when set, all your broadcasts attribute to this name rather than the live character. So scans from your alts consolidate under one identity in everyone's Scanners view, and an admin can `syncfrom <main>` to reach you regardless of which alt you're playing.
+
+**Slash command:**
+
+```
+/epogarmory main                      — show current + list known characters
+/epogarmory main <characterName>      — set (must be a character you've logged in on)
+/epogarmory main clear                — revert to using current character name
+```
+
+The choice is **restricted to characters you've actually logged in on this account**. SavedVariables is account-scoped, so each `PLAYER_LOGIN` adds the current character to `EpogArmoryDB.knownChars`. The slash command validates against this set — typing a name you've never logged in as is rejected with the list of valid choices.
+
+**Wire format addition (position 39):** every outbound scan payload carries the broadcaster's main name (or empty string when not configured). Append-only per the v0.7 rule — old clients ignore it. Receivers extract `entry.senderMain` and use it as the canonical scanner identity:
+
+- `set.scannedBy` on stored entries — main name when present, sender character name as fallback
+- `EpogArmoryDB.peerInfo` is now keyed by main name (not character name), with a new `lastCharName` field tracking the most recent broadcasting alt for reachability lookups
+- The Scanners view aggregation, ranking, and click-to-sync all work against the consolidated identity
+
+**SYNCREQ routing:**
+- Outgoing `requester` field uses `MyIdentity()` (main name or character name fallback) — per-requester cooldowns now span all your alts
+- Incoming target check accepts `target == UnitName("player")` OR `target == config.mainName` — admin can send `syncfrom Defcon` and reach Defcon's currently-logged-in alt regardless of character
+
+**Reachability:** `BuildReachableSet` now also resolves main-name keys through `peerInfo.lastCharName` — if the peer's last-broadcasting alt is in your guild/group, the main-name row is reachable.
+
+**Behavior with no main configured:** identical to v0.42. The wire field stays empty, receivers fall back to character names everywhere, no consolidation happens. Set the main name to opt in.
+
+---
+
 ## EpogArmory v0.42 — Fix Players-view rows staying dim after Scanners visit *(2026-04-26)*
 
 User reported greyed-out names in the Players view that didn't correlate with class colors or any other state. Cause: the Scanners view's reachability dimming (`row:SetAlpha(0.55)` for offline peers) was leaking back into Players view because `UpdatePlayersMode` never reset row alpha. Whichever rows were dim in the last Scanners render stayed dim when the user toggled back to Players.

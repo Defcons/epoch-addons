@@ -875,29 +875,39 @@ local function BuildBrowser()
     --   - current party/raid members (regardless of guild)
     -- Unreachable peers still appear in the Scanners list (leaderboard
     -- value) but render dim and aren't clickable.
+    -- v0.43: Scanners view keys can be MAIN NAMES (configured by the peer
+    -- via /epogarmory main), not just character names. If the main name
+    -- doesn't itself match a reachable character, look up the peer's
+    -- last-broadcasting character via peerInfo.lastCharName and check that.
     local function BuildReachableSet()
-        local reachable = {}
-        -- Self always reachable (though clicking self is a no-op anyway).
+        local charSet = {}
         local me = UnitName("player")
-        if me then reachable[me] = true end
-        -- Party / raid members.
+        if me then charSet[me] = true end
         for i = 1, GetNumPartyMembers() do
             local n = UnitName("party" .. i)
-            if n then reachable[n] = true end
+            if n then charSet[n] = true end
         end
         for i = 1, GetNumRaidMembers() do
             local n = UnitName("raid" .. i)
-            if n then reachable[n] = true end
+            if n then charSet[n] = true end
         end
-        -- Online guildmates. GetGuildRosterInfo reads the cached roster —
-        -- we call GuildRoster() when switching into Scanners mode to
-        -- request a fresh snapshot. Even if slightly stale, the "online"
-        -- flag updates on every GuildRoster() refresh the client performs.
         if IsInGuild() then
             local n = GetNumGuildMembers and GetNumGuildMembers() or 0
             for i = 1, n do
                 local gname, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
-                if gname and online then reachable[gname] = true end
+                if gname and online then charSet[gname] = true end
+            end
+        end
+        -- charSet contains character names. Build the public reachable set:
+        -- character matches first, then resolve main-name peers via their
+        -- last-known broadcasting character.
+        local reachable = {}
+        for n in pairs(charSet) do reachable[n] = true end
+        if EpogArmoryDB and EpogArmoryDB.peerInfo then
+            for mainName, info in pairs(EpogArmoryDB.peerInfo) do
+                if info.lastCharName and charSet[info.lastCharName] then
+                    reachable[mainName] = true
+                end
             end
         end
         return reachable
