@@ -15,6 +15,44 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.49 — Scanners view: columnar table *(2026-04-26)*
+
+User request: structure the Scanners view as columns too — Rank, Name, Contributions, In DB, Last seen. Confirmed by user that Contributions and In DB are separate stats:
+
+- **Contributions** = sets stored in YOUR DB that this scanner originally captured (pulled from `set.scannedBy` on each stored set). "How much they've added to your pool."
+- **In DB** = total entries that scanner has in THEIR own DB at last broadcast (carried on wire position 38 of every gear scan). "How much they have to share with you."
+
+Both shown side-by-side now instead of the previous mutually-exclusive `N contributed` / `N in DB` line.
+
+### Column layout
+
+Five columns per row, ~266px row width on the 320px frame:
+
+| Col | Width | Align | Content |
+|---|---|---|---|
+| `#` | 24px | left | Leaderboard rank `#1`–`#99` |
+| Name | 94px | left | Peer name (white if reachable, gray if not) |
+| Contrib | 40px | right | Sets they originally captured that you hold |
+| In DB | 36px | right | Their total DB size (yellow), or `—` if unknown |
+| Last | 50px | right | Most recent signal age (`5m ago`, `2h ago`, `3d ago`) |
+
+Gold header row in the gap above the scroll: `#  Name  Contrib  In DB  Last`.
+
+### Active-sync state
+
+When a sync from this peer is in flight, the **In DB** column shows `sync` (cyan) and the **Last** column shows `~5m` (countdown). Other columns continue to show their normal data so you can still see name + contributions while the sync runs.
+
+### Unknown / missing data
+
+- If we've never received a broadcast from them: **In DB** = `—`
+- If we have no last-seen signal at all: **Last** = `—`
+
+### Mode toggle
+
+Clean separation: Players mode shows player columns + headers; Scanners mode shows scanner columns + headers. The two sets of FontStrings are parented to the same row so `row:Hide()` (for empty rows beyond the list) cascades to all of them — no leakage.
+
+---
+
 ## EpogArmory v0.48.1 — Drop Death Knight from class filter *(2026-04-26)*
 
 User noted that Death Knight isn't a class on Ascension — the server doesn't ship the DK starting experience, so no player has classFile = "DEATHKNIGHT". Removed it from the class filter dropdown. Nine vanilla classes remain.

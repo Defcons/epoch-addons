@@ -758,6 +758,58 @@ local function BuildBrowser()
     f._colAgeRight  = COL_AGE_RIGHT
     f._colAgeWidth  = COL_AGE_WIDTH
 
+    -- Claude v0.49: column anchors for the Scanners-view table layout.
+    -- Five columns: Rank, Name, Contrib, In DB, Last. All in row-relative
+    -- coordinates. Row width ≈ 266px (scroll 270, minus 4 for inset).
+    -- Layout (row-local, left → right edge):
+    --   Rank:    4 → 28  (24w)
+    --   Name:   30 → 124 (94w)  4px gap
+    --   Contrib:128 → 168 (40w) 4px gap
+    --   DB:     172 → 208 (36w) 4px gap
+    --   Last:   212 → 262 (50w) 4px right padding
+    local SCAN_RANK_LEFT     = 4
+    local SCAN_NAME_LEFT     = 30
+    local SCAN_CONTRIB_RIGHT = -98  -- offset from row RIGHT → right edge at 168
+    local SCAN_CONTRIB_WIDTH = 40
+    local SCAN_DB_RIGHT      = -58  -- right edge at 208
+    local SCAN_DB_WIDTH      = 36
+    local SCAN_LAST_RIGHT    = -4   -- right edge at 262
+    local SCAN_LAST_WIDTH    = 50
+
+    f.scanHeaderRank = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.scanHeaderRank:SetPoint("BOTTOMLEFT", scroll, "TOPLEFT", SCAN_RANK_LEFT + 2, 2)
+    f.scanHeaderRank:SetText("|cffffd200#|r")
+    f.scanHeaderRank:Hide()
+
+    f.scanHeaderName = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.scanHeaderName:SetPoint("BOTTOMLEFT", scroll, "TOPLEFT", SCAN_NAME_LEFT + 2, 2)
+    f.scanHeaderName:SetText("|cffffd200Name|r")
+    f.scanHeaderName:Hide()
+
+    f.scanHeaderContrib = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.scanHeaderContrib:SetPoint("BOTTOMRIGHT", scroll, "TOPRIGHT", SCAN_CONTRIB_RIGHT - 2, 2)
+    f.scanHeaderContrib:SetText("|cffffd200Contrib|r")
+    f.scanHeaderContrib:Hide()
+
+    f.scanHeaderDB = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.scanHeaderDB:SetPoint("BOTTOMRIGHT", scroll, "TOPRIGHT", SCAN_DB_RIGHT - 2, 2)
+    f.scanHeaderDB:SetText("|cffffd200In DB|r")
+    f.scanHeaderDB:Hide()
+
+    f.scanHeaderLast = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.scanHeaderLast:SetPoint("BOTTOMRIGHT", scroll, "TOPRIGHT", SCAN_LAST_RIGHT - 2, 2)
+    f.scanHeaderLast:SetText("|cffffd200Last|r")
+    f.scanHeaderLast:Hide()
+
+    f._scanRankLeft     = SCAN_RANK_LEFT
+    f._scanNameLeft     = SCAN_NAME_LEFT
+    f._scanContribRight = SCAN_CONTRIB_RIGHT
+    f._scanContribWidth = SCAN_CONTRIB_WIDTH
+    f._scanDBRight      = SCAN_DB_RIGHT
+    f._scanDBWidth      = SCAN_DB_WIDTH
+    f._scanLastRight    = SCAN_LAST_RIGHT
+    f._scanLastWidth    = SCAN_LAST_WIDTH
+
     f.rows = {}
     for i = 1, BROWSER_ROWS do
         local row = CreateFrame("Button", nil, f)
@@ -795,6 +847,39 @@ local function BuildBrowser()
         row.colAge:SetWidth(f._colAgeWidth)
         row.colAge:SetJustifyH("RIGHT")
         row.colAge:Hide()
+
+        -- Claude v0.49: per-row column FontStrings for the Scanners view.
+        -- Visible only in scanners mode; row.text is hidden in that mode too
+        -- (replaced by these five columns instead of a single concatenation).
+        row.scanRank = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        row.scanRank:SetPoint("LEFT", f._scanRankLeft, 0)
+        row.scanRank:SetWidth(f._scanNameLeft - f._scanRankLeft - 2)
+        row.scanRank:SetJustifyH("LEFT")
+        row.scanRank:Hide()
+
+        row.scanName = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        row.scanName:SetPoint("LEFT", f._scanNameLeft, 0)
+        row.scanName:SetPoint("RIGHT", row, "RIGHT", f._scanContribRight - f._scanContribWidth - 4, 0)
+        row.scanName:SetJustifyH("LEFT")
+        row.scanName:Hide()
+
+        row.scanContrib = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        row.scanContrib:SetPoint("RIGHT", f._scanContribRight, 0)
+        row.scanContrib:SetWidth(f._scanContribWidth)
+        row.scanContrib:SetJustifyH("RIGHT")
+        row.scanContrib:Hide()
+
+        row.scanDB = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        row.scanDB:SetPoint("RIGHT", f._scanDBRight, 0)
+        row.scanDB:SetWidth(f._scanDBWidth)
+        row.scanDB:SetJustifyH("RIGHT")
+        row.scanDB:Hide()
+
+        row.scanLast = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        row.scanLast:SetPoint("RIGHT", f._scanLastRight, 0)
+        row.scanLast:SetWidth(f._scanLastWidth)
+        row.scanLast:SetJustifyH("RIGHT")
+        row.scanLast:Hide()
 
         row.hl = row:CreateTexture(nil, "HIGHLIGHT")
         row.hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
@@ -1027,6 +1112,9 @@ local function BuildBrowser()
                 row.colAge:SetText(string.format("%s%s|r", AgeColor(p.scanTime), FormatAge(p.scanTime)))
                 row.colName:Show(); row.colClass:Show(); row.colAge:Show()
                 row.text:Hide()
+                -- Claude v0.49: hide scanner-mode columns when in players mode
+                row.scanRank:Hide(); row.scanName:Hide(); row.scanContrib:Hide()
+                row.scanDB:Hide(); row.scanLast:Hide()
                 row.player = p
                 row.scannerName = nil
                 -- v0.42: reset alpha. Scanners view dims rows for unreachable
@@ -1134,30 +1222,47 @@ local function BuildBrowser()
                 local isReach   = reachable[s.name] == true
                 local clickable = isReach and not active and not atCap
 
-                local rankStr = string.format("|cffaaaaaa#%d|r", rank)
-                local sizeStr, ageStr
+                -- Claude v0.49: 5 columns instead of single concatenated text.
+                -- Stat semantics:
+                --   contributed = sets stored in MY DB that this scanner
+                --                 originally captured (counted from
+                --                 set.scannedBy on each stored set).
+                --   reportedDB  = total entries in THEIR DB at last broadcast
+                --                 (carried on wire position 38 of every scan).
+                -- These are different — one is what they've added to my pool,
+                -- the other is what they have to share with me.
+                local nameColor = clickable and "|cffffffff" or "|cff777777"
+                row:SetAlpha(clickable and 1.0 or 0.55)
+
+                row.scanRank:SetText(string.format("|cffaaaaaa#%d|r", rank))
+                row.scanName:SetText(nameColor .. (s.name or "?") .. "|r")
+                row.scanContrib:SetText(string.format("|cffaaaaaa%d|r", s.contributed or 0))
+
                 if active then
                     local remain = math.max(0, (syncEndsAt(s.name) or time()) - time())
-                    sizeStr = "|cff66ffccsyncing...|r"
-                    ageStr  = string.format("|cff888888(~%dm left)|r", math.ceil(remain / 60))
-                elseif s.reportedDB then
-                    sizeStr = string.format("|cffffdd44%d|r |cff888888in DB|r", s.reportedDB)
-                    ageStr  = string.format("|cff888888(heard %s)|r", FormatAge(s.reportedAt))
+                    row.scanDB:SetText("|cff66ffccsync|r")
+                    row.scanLast:SetText(string.format("|cff888888~%dm|r", math.ceil(remain / 60)))
                 else
-                    sizeStr = string.format("|cff888888%d contributed|r", s.contributed)
-                    ageStr  = string.format("|cff888888last scan %s|r", FormatAge(s.lastContribution))
+                    if s.reportedDB then
+                        row.scanDB:SetText(string.format("|cffffdd44%d|r", s.reportedDB))
+                    else
+                        row.scanDB:SetText("|cff666666—|r")
+                    end
+                    -- Most-recent signal we have from this peer:
+                    --   reportedAt = last broadcast we heard from them
+                    --   lastContribution = last set they captured that we hold
+                    -- Take the max — both are "I know this peer was alive at T".
+                    local lastT = math.max(s.lastContribution or 0, s.reportedAt or 0)
+                    if lastT > 0 then
+                        row.scanLast:SetText(string.format("|cff888888%s|r", FormatAge(lastT)))
+                    else
+                        row.scanLast:SetText("|cff666666—|r")
+                    end
                 end
-                local nameDisplay
-                if clickable then
-                    nameDisplay = "|cffffffff" .. (s.name or "?") .. "|r"
-                    row:SetAlpha(1.0)
-                else
-                    nameDisplay = "|cff777777" .. (s.name or "?") .. "|r"
-                    row:SetAlpha(0.55)
-                end
-                row.text:SetText(string.format("%s  %s  %s  %s",
-                    rankStr, nameDisplay, sizeStr, ageStr))
-                row.text:Show() -- Claude v0.48: scanner rows use single text
+
+                row.scanRank:Show(); row.scanName:Show(); row.scanContrib:Show()
+                row.scanDB:Show(); row.scanLast:Show()
+                row.text:Hide() -- single-line text replaced by the columns
                 row.colName:Hide(); row.colClass:Hide(); row.colAge:Hide()
                 row.player      = nil
                 row.scannerName = s.name
@@ -1220,6 +1325,9 @@ local function BuildBrowser()
             f.colHeaderName:Show()   -- Claude v0.48
             f.colHeaderClass:Show()  -- Claude v0.48
             f.colHeaderAge:Show()    -- Claude v0.48
+            -- Claude v0.49: hide Scanners-mode column headers
+            f.scanHeaderRank:Hide(); f.scanHeaderName:Hide()
+            f.scanHeaderContrib:Hide(); f.scanHeaderDB:Hide(); f.scanHeaderLast:Hide()
             f.acceptSyncBtn:Hide()
             f.refreshPeersBtn:Hide() -- Claude v0.47
             f.emptyHint:SetText(EMPTY_HINT_PLAYERS)
@@ -1231,6 +1339,9 @@ local function BuildBrowser()
             f.colHeaderName:Hide()   -- Claude v0.48
             f.colHeaderClass:Hide()  -- Claude v0.48
             f.colHeaderAge:Hide()    -- Claude v0.48
+            -- Claude v0.49: show Scanners-mode column headers
+            f.scanHeaderRank:Show(); f.scanHeaderName:Show()
+            f.scanHeaderContrib:Show(); f.scanHeaderDB:Show(); f.scanHeaderLast:Show()
             -- Sync current state from SavedVariables into the checkbox UI.
             local accept = true
             if EpogArmoryDB and EpogArmoryDB.config and EpogArmoryDB.config.acceptSync == false then
