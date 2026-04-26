@@ -717,7 +717,9 @@ local function BuildBrowser()
     f.acceptSyncBtn:SetPoint("BOTTOMLEFT", 18, 36)
     f.acceptSyncBtn.text = f.acceptSyncBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.acceptSyncBtn.text:SetPoint("LEFT", f.acceptSyncBtn, "RIGHT", 2, 1)
-    f.acceptSyncBtn.text:SetText("Accept sync requests from others")
+    -- Claude v0.47.1: shortened from "Accept sync requests from others"
+    -- to make room for the Refresh Peers button on the same footer row.
+    f.acceptSyncBtn.text:SetText("Accept sync requests")
     f.acceptSyncBtn:SetScript("OnClick", function(self)
         EpogArmoryDB = EpogArmoryDB or {}
         EpogArmoryDB.config = EpogArmoryDB.config or {}
@@ -736,8 +738,11 @@ local function BuildBrowser()
     -- without waiting for organic gear-scan broadcasts. Cooldown enforced
     -- on the addon side (60s); this button just relays the result.
     f.refreshPeersBtn = CreateFrame("Button", "EpogArmoryRefreshPeersBtn", f, "UIPanelButtonTemplate")
-    f.refreshPeersBtn:SetWidth(120); f.refreshPeersBtn:SetHeight(22)
-    f.refreshPeersBtn:SetPoint("BOTTOMRIGHT", -14, 34)
+    f.refreshPeersBtn:SetWidth(110); f.refreshPeersBtn:SetHeight(22)
+    -- Claude v0.47.1: bottom-right of the footer row, paired with the
+    -- (shortened) "Accept sync requests" checkbox on the same y so they
+    -- read as one footer rather than stacked elements.
+    f.refreshPeersBtn:SetPoint("BOTTOMRIGHT", -14, 33)
     f.refreshPeersBtn:SetText("Refresh Peers")
     f.refreshPeersBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOPRIGHT")

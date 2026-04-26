@@ -15,6 +15,14 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.47.1 — Footer layout fix *(2026-04-26)*
+
+User reported the new Refresh Peers button overlapped the "Accept sync requests from others" checkbox label. Both controls live on the same footer row of a 320px-wide frame, and the long label ran past where the button's left edge sat.
+
+Fix: shortened the checkbox label to "Accept sync requests" (drops the redundant "from others" — same intent, ~70px shorter) and narrowed the button slightly. Both now fit cleanly side-by-side: checkbox + label on the left, button on the right.
+
+---
+
 ## EpogArmory v0.47 — "Refresh Peers" button + lightweight peer ping *(2026-04-26)*
 
 User request: "Can we add a command similar to syncfrom where we basically just ask everyone in guild 'Give me your latest updates' that will update the list of scanners if I am missing any, and how many entries they have in their DB. This should be a button in the bottom right of the Scanners frame."
