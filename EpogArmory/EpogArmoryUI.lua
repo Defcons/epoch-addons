@@ -639,17 +639,122 @@ local function BuildBrowser()
     f.searchLabel = searchLabel
 
     local search = CreateFrame("EditBox", "EpogArmoryBrowserSearch", f, "InputBoxTemplate")
-    search:SetWidth(180); search:SetHeight(20)
+    -- Claude v0.48: shrunk from 180 → 100 to make room for the class filter
+    -- button on the same row.
+    search:SetWidth(100); search:SetHeight(20)
     search:SetPoint("TOPLEFT", searchLabel, "TOPRIGHT", 10, 3)
     search:SetAutoFocus(false)
     search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     f.search = search
+
+    -- Claude v0.48: class filter for the Players view. Stored as classFile
+    -- (uppercase, English: "WARRIOR" etc.) on the frame; nil = no filter.
+    -- Hidden in Scanners mode.
+    f.classFilter = nil
+    -- WotLK class list, ordered alphabetically by display name.
+    local CLASS_FILTER_ORDER = {
+        "DEATHKNIGHT", "DRUID", "HUNTER", "MAGE", "PALADIN",
+        "PRIEST", "ROGUE", "SHAMAN", "WARLOCK", "WARRIOR",
+    }
+    local function ClassDisplayName(classFile)
+        if not classFile or classFile == "" then return "All" end
+        local loc = (LOCALIZED_CLASS_NAMES_MALE or {})[classFile]
+        if loc then return loc end
+        -- Fallback: title-case (DEATHKNIGHT → Deathknight)
+        return classFile:sub(1, 1) .. classFile:sub(2):lower()
+    end
+    local function ClassColorize(classFile, text)
+        local c = (RAID_CLASS_COLORS or {})[classFile or ""]
+        if not c then return text end
+        return string.format("|cff%02x%02x%02x%s|r", c.r * 255, c.g * 255, c.b * 255, text)
+    end
+
+    -- Hidden dropdown frame used to render the class-filter menu.
+    local classFilterMenu = CreateFrame("Frame", "EpogArmoryClassFilterMenu", f, "UIDropDownMenuTemplate")
+
+    f.classFilterBtn = CreateFrame("Button", "EpogArmoryClassFilterBtn", f, "UIPanelButtonTemplate")
+    f.classFilterBtn:SetWidth(110); f.classFilterBtn:SetHeight(20)
+    f.classFilterBtn:SetPoint("LEFT", search, "RIGHT", 8, 0)
+    f.classFilterBtn:SetText("Class: All")
+
+    local function RefreshClassFilterButtonText()
+        if f.classFilter then
+            f.classFilterBtn:SetText("Class: " .. ClassDisplayName(f.classFilter))
+        else
+            f.classFilterBtn:SetText("Class: All")
+        end
+    end
+
+    -- Forward-declared; assigned to the real Update() further below so the
+    -- dropdown callback can refresh the player list when the filter changes.
+    local function NoOp() end
+    f._refreshList = NoOp
+
+    local function InitClassFilterMenu(self, level)
+        local function addItem(label, classFile)
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = label
+            info.notCheckable = true
+            info.func = function()
+                f.classFilter = classFile
+                RefreshClassFilterButtonText()
+                f._refreshList()
+                CloseDropDownMenus()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+        addItem("All Classes", nil)
+        for _, cls in ipairs(CLASS_FILTER_ORDER) do
+            addItem(ClassColorize(cls, ClassDisplayName(cls)), cls)
+        end
+    end
+
+    f.classFilterBtn:SetScript("OnClick", function(self)
+        UIDropDownMenu_Initialize(classFilterMenu, InitClassFilterMenu, "MENU")
+        ToggleDropDownMenu(1, nil, classFilterMenu, self, 0, 0)
+    end)
+    f.classFilterBtn:Hide() -- toggled on in Players mode below
 
     -- Scroll frame
     local scroll = CreateFrame("ScrollFrame", "EpogArmoryBrowserScroll", f, "FauxScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 18, -80)
     scroll:SetPoint("BOTTOMRIGHT", -32, 40)
     f.scroll = scroll
+
+    -- Claude v0.48: column anchors for the Players-view table layout.
+    -- Frame width 320; row content area roughly x=20 → x=286 (266 wide).
+    -- Allocate: Name (left, ~110px), Class (middle, ~75px), Last Scan
+    -- (right, ~70px). Header fontstrings are positioned over the gap
+    -- between the search row and the scroll frame so we don't sacrifice
+    -- scroll height.
+    local COL_NAME_LEFT   = 6     -- offset from row LEFT
+    local COL_CLASS_LEFT  = 116   -- name column width 110
+    local COL_AGE_RIGHT   = -6    -- offset from row RIGHT (right-aligned)
+    local COL_AGE_WIDTH   = 70
+
+    -- Headers are anchored to the scroll frame; rows are inset 2px from scroll
+    -- left/right (see row anchors below). Add the 2px so headers align with
+    -- the column text exactly.
+    f.colHeaderName = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.colHeaderName:SetPoint("BOTTOMLEFT", scroll, "TOPLEFT", COL_NAME_LEFT + 2, 2)
+    f.colHeaderName:SetText("|cffffd200Name|r")
+    f.colHeaderName:Hide()
+
+    f.colHeaderClass = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.colHeaderClass:SetPoint("BOTTOMLEFT", scroll, "TOPLEFT", COL_CLASS_LEFT + 2, 2)
+    f.colHeaderClass:SetText("|cffffd200Class|r")
+    f.colHeaderClass:Hide()
+
+    f.colHeaderAge = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.colHeaderAge:SetPoint("BOTTOMRIGHT", scroll, "TOPRIGHT", COL_AGE_RIGHT - 2, 2)
+    f.colHeaderAge:SetText("|cffffd200Last Scan|r")
+    f.colHeaderAge:Hide()
+
+    -- Stash anchors on the frame so the row-creation loop below can use them.
+    f._colNameLeft  = COL_NAME_LEFT
+    f._colClassLeft = COL_CLASS_LEFT
+    f._colAgeRight  = COL_AGE_RIGHT
+    f._colAgeWidth  = COL_AGE_WIDTH
 
     f.rows = {}
     for i = 1, BROWSER_ROWS do
@@ -667,6 +772,27 @@ local function BuildBrowser()
         row.text:SetPoint("LEFT", 6, 0)
         row.text:SetPoint("RIGHT", -6, 0)
         row.text:SetJustifyH("LEFT")
+
+        -- Claude v0.48: per-row column fontstrings for the Players view.
+        -- Visible only in players mode; row.text is hidden in that mode.
+        -- Scanners mode keeps the existing single-line row.text rendering.
+        row.colName = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        row.colName:SetPoint("LEFT", f._colNameLeft, 0)
+        row.colName:SetPoint("RIGHT", row, "LEFT", f._colClassLeft - 4, 0)
+        row.colName:SetJustifyH("LEFT")
+        row.colName:Hide()
+
+        row.colClass = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        row.colClass:SetPoint("LEFT", row, "LEFT", f._colClassLeft, 0)
+        row.colClass:SetPoint("RIGHT", row, "RIGHT", f._colAgeRight - f._colAgeWidth - 4, 0)
+        row.colClass:SetJustifyH("LEFT")
+        row.colClass:Hide()
+
+        row.colAge = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        row.colAge:SetPoint("RIGHT", f._colAgeRight, 0)
+        row.colAge:SetWidth(f._colAgeWidth)
+        row.colAge:SetJustifyH("RIGHT")
+        row.colAge:Hide()
 
         row.hl = row:CreateTexture(nil, "HIGHLIGHT")
         row.hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
@@ -868,10 +994,13 @@ local function BuildBrowser()
     local function UpdatePlayersMode()
         local list = {}
         if EpogArmoryDB and EpogArmoryDB.players then
-            local filter = (search:GetText() or ""):lower()
+            local nameFilter  = (search:GetText() or ""):lower()
+            local classFilter = f.classFilter -- Claude v0.48
             for _, p in pairs(EpogArmoryDB.players) do
                 if p and p.name then
-                    if filter == "" or p.name:lower():find(filter, 1, true) then
+                    local nameOK  = nameFilter == "" or p.name:lower():find(nameFilter, 1, true)
+                    local classOK = (not classFilter) or (p.class == classFilter) -- Claude v0.48
+                    if nameOK and classOK then
                         list[#list + 1] = p
                     end
                 end
@@ -886,11 +1015,16 @@ local function BuildBrowser()
             local row = f.rows[i]
             local p = list[i + offset]
             if p then
+                -- Claude v0.48: columnar layout. row.text stays hidden in
+                -- Players mode; the three column fontstrings carry the data.
+                -- Level dropped from display (everything stored is L60+ per
+                -- MIN_STORE_LEVEL gate).
                 local colorStr = ClassColorStr(p.class)
-                local age = FormatAge(p.scanTime)
-                local ageColor = AgeColor(p.scanTime)
-                row.text:SetText(string.format("%s%s|r  |cff888888L%d %s|r  %s%s|r",
-                    colorStr, p.name or "?", p.level or 0, p.class or "", ageColor, age))
+                row.colName:SetText(string.format("%s%s|r", colorStr, p.name or "?"))
+                row.colClass:SetText(string.format("%s%s|r", colorStr, ClassDisplayName(p.class)))
+                row.colAge:SetText(string.format("%s%s|r", AgeColor(p.scanTime), FormatAge(p.scanTime)))
+                row.colName:Show(); row.colClass:Show(); row.colAge:Show()
+                row.text:Hide()
                 row.player = p
                 row.scannerName = nil
                 -- v0.42: reset alpha. Scanners view dims rows for unreachable
@@ -920,7 +1054,13 @@ local function BuildBrowser()
             if #list == total then
                 f.countLabel:SetText(string.format("%d players stored", total))
             else
-                f.countLabel:SetText(string.format("%d of %d match", #list, total))
+                -- Claude v0.48: include filter context when filtered. Useful
+                -- with the class dropdown so the count makes sense.
+                local filterDesc = ""
+                if f.classFilter then
+                    filterDesc = string.format(" (%s)", ClassDisplayName(f.classFilter))
+                end
+                f.countLabel:SetText(string.format("%d of %d match%s", #list, total, filterDesc))
             end
         end
     end
@@ -1015,6 +1155,8 @@ local function BuildBrowser()
                 end
                 row.text:SetText(string.format("%s  %s  %s  %s",
                     rankStr, nameDisplay, sizeStr, ageStr))
+                row.text:Show() -- Claude v0.48: scanner rows use single text
+                row.colName:Hide(); row.colClass:Hide(); row.colAge:Hide()
                 row.player      = nil
                 row.scannerName = s.name
                 row.rowGreyed   = not clickable
@@ -1058,6 +1200,7 @@ local function BuildBrowser()
             UpdatePlayersMode()
         end
     end
+    f._refreshList = Update -- Claude v0.48: lets the class-filter dropdown refresh
 
     -- emptyHint text varies by mode — stash both and switch on toggle.
     local EMPTY_HINT_PLAYERS  = "No players stored yet.\n\n|cffaaaaaaJoin a group in a dungeon or raid — this client will inspect groupmates and store their gear here. Or type|r |cffffaa44/epogarmory show <name>|r |cffaaaaaaif you've scanned someone already.|r"
@@ -1071,6 +1214,10 @@ local function BuildBrowser()
             f.viewMode = "players"
             viewToggle:SetText("Scanners")
             f.searchLabel:Show(); search:Show()
+            f.classFilterBtn:Show()  -- Claude v0.48
+            f.colHeaderName:Show()   -- Claude v0.48
+            f.colHeaderClass:Show()  -- Claude v0.48
+            f.colHeaderAge:Show()    -- Claude v0.48
             f.acceptSyncBtn:Hide()
             f.refreshPeersBtn:Hide() -- Claude v0.47
             f.emptyHint:SetText(EMPTY_HINT_PLAYERS)
@@ -1078,6 +1225,10 @@ local function BuildBrowser()
             f.viewMode = "scanners"
             viewToggle:SetText("Players")
             f.searchLabel:Hide(); search:Hide()
+            f.classFilterBtn:Hide()  -- Claude v0.48
+            f.colHeaderName:Hide()   -- Claude v0.48
+            f.colHeaderClass:Hide()  -- Claude v0.48
+            f.colHeaderAge:Hide()    -- Claude v0.48
             -- Sync current state from SavedVariables into the checkbox UI.
             local accept = true
             if EpogArmoryDB and EpogArmoryDB.config and EpogArmoryDB.config.acceptSync == false then
@@ -1122,7 +1273,19 @@ local function BuildBrowser()
         Update()
     end)
     search:SetScript("OnTextChanged", Update)
-    f:SetScript("OnShow", function(self) ApplySavedPosition(self); Update() end)
+    f:SetScript("OnShow", function(self)
+        ApplySavedPosition(self)
+        -- Claude v0.48: ensure Players-mode UI elements start visible (default
+        -- mode is "players"). Without this, column headers + class filter
+        -- only appear after the first toggle round-trip.
+        if self.viewMode == "players" then
+            self.classFilterBtn:Show()
+            self.colHeaderName:Show()
+            self.colHeaderClass:Show()
+            self.colHeaderAge:Show()
+        end
+        Update()
+    end)
 
     -- v0.38: 30s ticker refreshes the Scanners view whenever it's open.
     -- Catches sync countdowns, newly-online guildmates, roster changes,

@@ -15,6 +15,44 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.48 — Players view: columnar table + class filter *(2026-04-26)*
+
+User request: "On the frame for players where we can choose who to inspect, can we make the table with columns so it's structured? For example Classes in one column and Last scan in right column. Also we need to be able to filter on classes here. Level is not needed because it's only for level 60s."
+
+### Columnar layout
+
+Each Players-view row was previously a single concatenated string (`<colored name>  L60 <class>  <age>`). Replaced with three explicit columns:
+
+- **Name** (~110px, left-aligned) — class-colored player name
+- **Class** (~75px, left-aligned) — class name, also class-colored
+- **Last Scan** (~70px, right-aligned) — age-tinted (green = <1h, yellow = <24h, gray = stale)
+
+A header row sits in the gap above the scroll frame: `Name  Class  Last Scan` in gold. No scroll height lost — the header lives in dead space that already existed between the search row and the scroll top.
+
+The Level field is dropped — `MIN_STORE_LEVEL = 60` already gates everything stored, so it was always "L60". Removing it freed horizontal space.
+
+### Class filter
+
+A new `Class: All ▼` button sits to the right of the search box. Click → UIDropDownMenu pops with `All Classes` + the 10 WotLK classes (Death Knight, Druid, Hunter, Mage, Paladin, Priest, Rogue, Shaman, Warlock, Warrior). Each entry colored with its class color for quick scanning.
+
+Filter state stored on the frame as `f.classFilter` (uppercase classFile string, or nil for All). UpdatePlayersMode applies it as `p.class == classFilter` — instant, no allocation. Compatible with the search-box name filter — both apply together.
+
+The footer count line includes the active class filter when set: `12 of 247 match (Druid)` instead of the bare `12 of 247 match`.
+
+### Search box
+
+Shrunk from 180px to 100px to make room for the class filter on the same row. Long names still fit (the box scrolls horizontally on text overflow — Blizzard InputBox default).
+
+### Scanners view
+
+Untouched — still uses the single-line `row.text` rendering with rank, peer name, DB size, age. The columnar layout is Players-only. Toggling between modes shows/hides the right widgets cleanly: column headers + filter button visible only in Players mode; accept-sync checkbox + Refresh Peers button visible only in Scanners mode.
+
+### Implementation note
+
+Added three column FontStrings per row (`row.colName`, `row.colClass`, `row.colAge`) parented to the row frame. Players mode shows them and hides `row.text`; Scanners mode shows `row.text` and hides the columns. `row:Hide()` (for empty rows beyond the list end) cascades to all children — no leakage.
+
+---
+
 ## EpogArmory v0.47.1 — Footer layout fix *(2026-04-26)*
 
 User reported the new Refresh Peers button overlapped the "Accept sync requests from others" checkbox label. Both controls live on the same footer row of a 320px-wide frame, and the long label ran past where the button's left edge sat.
