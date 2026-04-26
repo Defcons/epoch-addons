@@ -651,9 +651,11 @@ local function BuildBrowser()
     -- (uppercase, English: "WARRIOR" etc.) on the frame; nil = no filter.
     -- Hidden in Scanners mode.
     f.classFilter = nil
-    -- WotLK class list, ordered alphabetically by display name.
+    -- Claude v0.48.1: Ascension does not have Death Knight as a class
+    -- (server doesn't ship the DK starting experience), so it's omitted.
+    -- Nine vanilla classes, ordered alphabetically by display name.
     local CLASS_FILTER_ORDER = {
-        "DEATHKNIGHT", "DRUID", "HUNTER", "MAGE", "PALADIN",
+        "DRUID", "HUNTER", "MAGE", "PALADIN",
         "PRIEST", "ROGUE", "SHAMAN", "WARLOCK", "WARRIOR",
     }
     local function ClassDisplayName(classFile)

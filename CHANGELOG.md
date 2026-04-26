@@ -15,6 +15,12 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.48.1 — Drop Death Knight from class filter *(2026-04-26)*
+
+User noted that Death Knight isn't a class on Ascension — the server doesn't ship the DK starting experience, so no player has classFile = "DEATHKNIGHT". Removed it from the class filter dropdown. Nine vanilla classes remain.
+
+---
+
 ## EpogArmory v0.48 — Players view: columnar table + class filter *(2026-04-26)*
 
 User request: "On the frame for players where we can choose who to inspect, can we make the table with columns so it's structured? For example Classes in one column and Last scan in right column. Also we need to be able to filter on classes here. Level is not needed because it's only for level 60s."
