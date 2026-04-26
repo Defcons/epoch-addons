@@ -15,6 +15,41 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.51 — 4x faster sync (BROADCAST_STAGGER 2.0s → 0.5s) *(2026-04-26)*
+
+User asked if syncs really need to be that slow. The honest answer was no — `BROADCAST_STAGGER = 2.0` was set in v0.13 when the only outbound traffic was rare organic inspect broadcasts (no urgency). When `syncfrom` arrived in v0.35 it inherited the same pacing, even though now the user is actively waiting on a 200-set bulk transfer.
+
+### The numbers
+
+```
+WoW 3.3.5 addon-channel safe budget: ~800 B/s  (ChatThrottleLib default)
+Old:  225 B/msg / 2.0s stagger = 112 B/s  (14% of budget — over-cautious)
+New:  225 B/msg / 0.5s stagger = 450 B/s  (56% of budget — still leaves
+                                           room for DBM/Recount/etc)
+```
+
+### Effect
+
+| Peer DB size | Old ETA | New ETA |
+|---|---|---|
+| 45 entries | ~6 min | ~1.5 min |
+| 100 entries | ~13 min | ~3.5 min |
+| 200 entries (cap) | ~27 min | ~7 min |
+
+ETA math in `/epogarmory syncfrom` recomputed for the new pacing: ~2s/set instead of ~8s/set. `SYNC_EST_DURATION` (the fallback when peerInfo is missing) tightened from `25*60` → `8*60` for the same reason.
+
+### Why this is safe
+
+Every outgoing addon message is ~225 bytes (200B body + ~25B chunk header). At 450 B/s sustained we sit at ~56% of the 800 B/s budget that DBM/Recount/Details share with us. During raid pulls when their traffic spikes, we're still well under the disconnect threshold. Per-peer outgoing rate is what matters — concurrent syncs to different peers don't aggregate from the receiver's POV.
+
+The 200-set cap on responder side stays — that's a safety bound, not a speed knob.
+
+### Side benefit
+
+All other broadcasts (self-scans, version pings, peer pings) also drain 4x faster — gear updates show up in the mesh in ~1s instead of ~4s when there's a small queue.
+
+---
+
 ## EpogArmory v0.50 — Realistic sync ETA based on peer DB size *(2026-04-26)*
 
 User noted the sync request always claims `ETA ~25 min` regardless of how much data the peer actually has. That's the worst-case ceiling (200-set cap × ~8s/set), not the actual time. For a peer with 45 entries, the real ceiling is ~6 min; with v0.46 manifest dedup it's typically much less.

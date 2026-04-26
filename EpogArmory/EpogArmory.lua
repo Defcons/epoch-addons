@@ -60,13 +60,19 @@ local INSPECT_COOLDOWN      = 900
 local OUT_OF_RANGE_COOLDOWN = 30     -- retry fast when CanInspect fails
 local INSPECT_TIMEOUT       = 4
 local INSPECT_INTERVAL      = 2.5
--- Delay between consecutive addon-message sends from outQueue. Local inspect
--- + ingest is instant; this gate only affects how fast data chatters out to
--- peers. Peers don't need scans within seconds — eventually is fine, and
--- spreading sends keeps the outgoing byte-rate tiny (~45 B/s at 2.0) so we
--- never brush against Blizzard's ~800 B/s addon-message throttle in a churn
--- like raid-roster-formation.
-local BROADCAST_STAGGER     = 2.0
+-- Delay between consecutive addon-message sends from outQueue.
+--
+-- v0.51: tightened from 2.0s → 0.5s. The original 2.0 was set when the
+-- only outbound traffic was rare organic inspect broadcasts (no urgency).
+-- /epogarmory syncfrom changed that — users actively wait on bulk transfers
+-- of up to 200 sets, and 2.0s stagger pushed full-sync time to ~27 min.
+--
+-- Math at 0.5s with ~225 B per wire message: ~450 B/s sustained, well
+-- under WoW 3.3.5's ~800 B/s addon-channel throttle (the figure
+-- ChatThrottleLib uses, which DBM/Recount/etc all rely on). Leaves
+-- ~350 B/s headroom for other addons sharing the channel during raid pulls.
+-- Net effect: sync ETA drops 4x (200-set cap goes 27 min → ~7 min).
+local BROADCAST_STAGGER     = 0.5
 local MAX_CHUNK_BODY        = 200
 local ROSTER_TICK           = 10
 local MIN_INSPECT_LEVEL     = 60
@@ -203,16 +209,19 @@ local versionNotified    = false
 -- set.rawPayload blobs back through the normal outQueue. Other guildmates
 -- ingest the replays too (free benefit — their DBs also catch up).
 local SYNC_RESPONSE_COOLDOWN     = 3600        -- 1h per requester
-local SYNC_MAX_SETS_PER_RESPONSE = 200         -- cap drain at ~20min even for huge DBs
+local SYNC_MAX_SETS_PER_RESPONSE = 200         -- cap drain at ~7min even for huge DBs (v0.51 stagger)
 local lastSyncResponseTo         = {}          -- in-memory: requesterName -> time() of last response
 
 -- v0.37: requester-side cap — 3 concurrent outgoing syncs max. Each tracked
--- with an estimated end time (~25 min per sync, conservative vs the 20 min
--- full-drain at MAX_SETS_PER_RESPONSE). UI greys rows while a sync is
--- active. Tracker is in-memory; /reload resets it (which also wipes
--- outQueue, so both sides stay consistent).
+-- with an estimated end time. UI greys rows while a sync is active.
+-- Tracker is in-memory; /reload resets it (which also wipes outQueue, so
+-- both sides stay consistent).
+-- v0.50+: actual ETA is computed per-peer from peerInfo.dbSize and stored
+-- in activeSyncs; this constant is the FALLBACK when peerInfo is missing.
+-- v0.51: tightened from 25*60 → 8*60 to match the new 0.5s stagger
+-- (200-set cap × ~2s/set = ~7 min, +1 min safety).
 local SYNC_MAX_CONCURRENT = 3
-local SYNC_EST_DURATION   = 25 * 60
+local SYNC_EST_DURATION   = 8 * 60
 local activeSyncs         = {} -- peerName -> estimatedEndTime
 
 -- v0.37: responder-side defense-in-depth. Global cooldown across ALL sync
@@ -2204,18 +2213,19 @@ SlashCmdList["EPOGARMORY"] = function(msg)
             end
         end
         -- v0.50: estimate sync duration from peerInfo.dbSize instead of
-        -- always advertising 25 min (the worst-case 200-set cap). Each set
-        -- ≈ 4 chunks × 2s stagger ≈ 8s; manifest dedup may shrink the
+        -- always advertising 25 min (the worst-case 200-set cap).
+        -- v0.51: ~4 chunks per set × 0.5s stagger = ~2s/set (was ~8s/set
+        -- with the old 2.0s stagger). Manifest dedup may shrink the
         -- actual count further but we don't know what they have, so the
         -- upper bound here is min(reportedDB, SYNC_MAX_SETS_PER_RESPONSE).
-        -- 60s safety buffer for any drift.
+        -- 30s safety buffer for any drift.
         local estimatedSets = SYNC_MAX_SETS_PER_RESPONSE
         if EpogArmoryDB and EpogArmoryDB.peerInfo and EpogArmoryDB.peerInfo[name]
            and EpogArmoryDB.peerInfo[name].dbSize then
             estimatedSets = math.min(EpogArmoryDB.peerInfo[name].dbSize,
                                      SYNC_MAX_SETS_PER_RESPONSE)
         end
-        local etaSeconds = estimatedSets * 8 + 60
+        local etaSeconds = estimatedSets * 2 + 30
         local etaMinutes = math.max(1, math.ceil(etaSeconds / 60))
         activeSyncs[name] = time() + etaSeconds
         print(string.format("|cffffaa44EpogArmory|r: requested sync from |cff00ff00%s|r (last %d days) via %s. ETA ~%d min (peer has ~%d entries).",
