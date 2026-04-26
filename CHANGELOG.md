@@ -15,6 +15,24 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.42 — Fix Players-view rows staying dim after Scanners visit *(2026-04-26)*
+
+User reported greyed-out names in the Players view that didn't correlate with class colors or any other state. Cause: the Scanners view's reachability dimming (`row:SetAlpha(0.55)` for offline peers) was leaking back into Players view because `UpdatePlayersMode` never reset row alpha. Whichever rows were dim in the last Scanners render stayed dim when the user toggled back to Players.
+
+Fix: explicit `row:SetAlpha(1.0)` in both branches of `UpdatePlayersMode` (populated row + empty row). No other behavior change.
+
+For reference — the **age column color** in the Players view is intentional and unchanged:
+
+| Color | Age range |
+|---|---|
+| Green | < 1h ago |
+| Yellow | < 24h ago |
+| Gray | ≥ 24h ago |
+
+That's `AgeColor()` from v0.21. The bug was only on the **name** column where alpha was bleeding through.
+
+---
+
 ## EpogArmory v0.41 — Remove zone restriction *(2026-04-24)*
 
 Dropped the instance-only scanning gate. Previously scans were only captured inside dungeons/raids ("requireInstance = true" default); now they capture anywhere — outdoor world, BGs, arenas, cities, everywhere.

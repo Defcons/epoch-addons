@@ -837,11 +837,18 @@ local function BuildBrowser()
                     colorStr, p.name or "?", p.level or 0, p.class or "", ageColor, age))
                 row.player = p
                 row.scannerName = nil
+                -- v0.42: reset alpha. Scanners view dims rows for unreachable
+                -- peers (alpha 0.55); without this reset those alpha values
+                -- leak into the next render when the user toggles back to
+                -- Players view, making class-colored names look greyed for
+                -- no apparent reason.
+                row:SetAlpha(1.0)
                 row:Show()
             else
                 row:Hide()
                 row.player = nil
                 row.scannerName = nil
+                row:SetAlpha(1.0)
             end
         end
 
