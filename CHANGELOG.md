@@ -15,6 +15,38 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.45 — Auto-default main + scroll-offset fix + 30-day prune *(2026-04-26)*
+
+Three follow-ups from user feedback on v0.44.
+
+### 1. Bug fix — empty Scanners list with non-zero count
+
+User report: "Scanners footer says '6 scanners (1 online)' but the list shows zero rows." Cause: when toggling between Players and Scanners modes, the `FauxScrollFrame` scroll offset wasn't reset. If you had scrolled down to row 50 in Players (100 entries), the offset stayed at 50. Switching to Scanners (6 entries), every visible row tried to render `list[51..74]` — all nil — so all rows hid. The footer used `#list = 6` and rendered correctly.
+
+Fix: `FauxScrollFrame_SetOffset(scroll, 0)` + `scroll.ScrollBar:SetValue(0)` on every mode toggle. Now switching views always starts at the top of the new list.
+
+### 2. Auto-default mainName to first L60 character
+
+Most users want the alt-consolidation feature; making them discover and run `/epogarmory main` is friction. v0.45: on `PLAYER_LOGIN`, if `EpogArmoryDB.config.mainName` is nil AND the current character is L60+, auto-set it to the current character. Account-wide via SavedVariables, so it sticks — subsequent logins on different characters don't change the auto-set value.
+
+User-visible:
+```
+EpogArmory: auto-set main identity to Defcon (first L60 to log in). Change with /epogarmory main.
+```
+
+Logging in on an alt below L60 (e.g. Defcoil L33) does NOT auto-set — the gate waits for the first L60 to log in. Once set (manually or auto), the value sticks.
+
+### 3. Auto-prune scanners inactive 30+ days
+
+Two paths combine to keep the Scanners view focused on currently-active peers:
+
+- **`PLAYER_LOGIN` cleanup** — walks `EpogArmoryDB.peerInfo`, removes entries with `lastSeen < (time() - 30 * 86400)`. Frees storage; debug logs `[migrate] pruned N stale peerInfo entries (>30d)`.
+- **`AggregateScanners` display filter** — also drops contributor-only entries (in `set.scannedBy` but with no fresh peerInfo) when their latest contribution is also >30 days old. Catches scanners that never broadcast their DB size but contributed once long ago.
+
+Net effect: scanners that haven't been active in the last 30 days disappear from the leaderboard. Their attribution on individual stored sets stays intact (we don't rewrite `scannedBy` — just stop showing them as their own row).
+
+---
+
 ## EpogArmory v0.44 — Main-name UX + local merge + retro consolidation *(2026-04-26)*
 
 User testing on v0.43 surfaced three issues with the alt-consolidation flow. All addressed in v0.44.

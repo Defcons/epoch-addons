@@ -786,15 +786,23 @@ local function BuildBrowser()
             stats[name].reportedDB = info.dbSize
             stats[name].reportedAt = info.lastSeen
         end
+        -- v0.45: drop scanners whose latest signal (last contribution OR
+        -- last live broadcast we heard) is older than 30 days. Keeps the
+        -- leaderboard focused on currently-active peers; entries get
+        -- pruned automatically rather than accumulating forever.
+        local staleCutoff = time() - 30 * 86400
         local list = {}
         for name, info in pairs(stats) do
-            list[#list + 1] = {
-                name             = name,
-                contributed      = info.contributed,
-                lastContribution = info.lastContribution,
-                reportedDB       = info.reportedDB,
-                reportedAt       = info.reportedAt,
-            }
+            local mostRecent = math.max(info.lastContribution or 0, info.reportedAt or 0)
+            if mostRecent >= staleCutoff then
+                list[#list + 1] = {
+                    name             = name,
+                    contributed      = info.contributed,
+                    lastContribution = info.lastContribution,
+                    reportedDB       = info.reportedDB,
+                    reportedAt       = info.reportedAt,
+                }
+            end
         end
         -- Sort by reported DB size first (primary signal — how big is their
         -- DB right now, which is what you actually want for sync targeting),
@@ -1033,6 +1041,15 @@ local function BuildBrowser()
             -- "online" flag is current. GuildRoster() is rate-limited
             -- server-side (~10s) so spamming is harmless.
             if IsInGuild() and GuildRoster then GuildRoster() end
+        end
+        -- v0.45: reset scroll offset on mode switch. Otherwise the previous
+        -- view's offset (e.g. row 50 of 100 players) leaks into the new
+        -- view's render — if the new list is shorter than the old offset,
+        -- list[i + offset] is nil for every i and all rows render hidden
+        -- even though #list says e.g. "6 scanners".
+        FauxScrollFrame_SetOffset(scroll, 0)
+        if scroll.ScrollBar and scroll.ScrollBar.SetValue then
+            scroll.ScrollBar:SetValue(0)
         end
         Update()
     end)

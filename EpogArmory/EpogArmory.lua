@@ -1715,6 +1715,38 @@ f:SetScript("OnEvent", function(self, event, ...)
         -- this client carry it at wire position 39. Receivers use it as the
         -- canonical scanner identity, consolidating alts under the main.
         -- Default nil = use character name (no consolidation, current behavior).
+        --
+        -- v0.45: auto-default mainName to the FIRST L60 character to log in.
+        -- Most users want consolidation; auto-defaulting on the first L60
+        -- saves them from having to discover and run /epogarmory main. Once
+        -- set, it sticks (account-wide via SavedVariables) — subsequent
+        -- logins on different characters don't change it.
+        if not EpogArmoryDB.config.mainName then
+            local lvl = UnitLevel("player") or 0
+            if me and me ~= "" and lvl >= MIN_STORE_LEVEL then
+                EpogArmoryDB.config.mainName = me
+                print(string.format("|cffffaa44EpogArmory|r: auto-set main identity to |cff00ff66%s|r (first L60 to log in). Change with /epogarmory main.",
+                    me))
+            end
+        end
+
+        -- v0.45: auto-prune peerInfo entries that haven't been heard from
+        -- in 30+ days. Keeps the Scanners view focused on currently-active
+        -- peers and prevents the table from accumulating orphan rows
+        -- forever. Contributor-only entries (no peerInfo) are filtered
+        -- by AggregateScanners at display time using the same cutoff.
+        local staleCutoff = time() - 30 * 86400
+        local pruned = 0
+        for name, info in pairs(EpogArmoryDB.peerInfo) do
+            if (info.lastSeen or 0) < staleCutoff then
+                EpogArmoryDB.peerInfo[name] = nil
+                pruned = pruned + 1
+            end
+        end
+        if pruned > 0 then
+            dprint(string.format("[migrate] pruned %d stale peerInfo entries (>30d)", pruned))
+        end
+
         EpogItemCacheDB = EpogItemCacheDB or {}
         MigratePlayers() -- wrap pre-v0.13 flat entries into sets[1]
         RequestSelfScan(SELF_SCAN_LOGIN_DELAY) -- initial self-scan after talent data warms up
