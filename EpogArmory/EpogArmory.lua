@@ -1267,6 +1267,43 @@ local function TrySendVersionPing()
         ADDON_VERSION, table.concat(channels, "+")))
 end
 
+-- v0.46: build a compact manifest of "what we already have" for the
+-- requester side of syncfrom. Format: "guid:group:scanTime;..." per stored
+-- (player, set) tuple. Sent inside the SYNCREQ at position 5; the
+-- responder parses it and skips sending any (guid, group) entries the
+-- requester already has at >= our scanTime — eliminating the dominant
+-- "[store] SKIP: existing set is newer (T vs T)" duplicate-send waste.
+--
+-- Size: each entry ~30 bytes. 100 stored players × 1.5 sets avg ≈ 4.5 KB.
+-- Carries fine over the existing chunked addon-message pipeline.
+local function BuildSyncManifest()
+    if not (EpogArmoryDB and EpogArmoryDB.players) then return "" end
+    local pieces = {}
+    for guid, p in pairs(EpogArmoryDB.players) do
+        if guid and guid ~= "" and p.sets then
+            for setKey, set in pairs(p.sets) do
+                if set.scanTime and set.scanTime > 0 then
+                    pieces[#pieces + 1] = guid .. ":" .. tostring(setKey) .. ":" .. tostring(set.scanTime)
+                end
+            end
+        end
+    end
+    return table.concat(pieces, ";")
+end
+
+local function ParseSyncManifest(s)
+    local out = {}
+    if not s or s == "" then return out end
+    for entry in s:gmatch("([^;]+)") do
+        local guid, group, t = entry:match("^([^:]+):([^:]+):(%d+)$")
+        if guid and group and t then
+            out[guid] = out[guid] or {}
+            out[guid][group] = tonumber(t)
+        end
+    end
+    return out
+end
+
 -- v0.35: handle an incoming SYNCREQ. Only responds if:
 --   1. The request targets this client specifically (by name match)
 --   2. Arrived on GUILD channel (so we're not responding to random whispers)
@@ -1283,7 +1320,10 @@ local function HandleSyncRequest(payload, sender, channel)
         dprint(string.format("[sync] ignore request from %s — bad channel (%s)", sender or "?", channel or "?"))
         return
     end
-    local tag, requester, target, sinceStr = strsplit("^", payload)
+    -- v0.46: position 5 is an optional manifest "guid:group:scanTime;..."
+    -- Old (≤v0.45) requesters omit it → manifestStr is nil → ParseSyncManifest
+    -- returns empty table → behavior identical to v0.45 (send everything).
+    local tag, requester, target, sinceStr, manifestStr = strsplit("^", payload)
     if tag ~= "SYNCREQ" then return end
     if not target or target == "" then return end
     -- v0.43: accept either our character name OR our configured main name.
@@ -1320,31 +1360,45 @@ local function HandleSyncRequest(payload, sender, channel)
     local sinceTS = tonumber(sinceStr) or 0
     if not (EpogArmoryDB and EpogArmoryDB.players) then return end
 
-    local queued = 0
+    -- v0.46: parse manifest of what the requester already has. Skip any
+    -- (guid, setKey) where their stored scanTime >= ours — they would just
+    -- log "[store] SKIP: existing set is newer". Saves the bandwidth.
+    local requesterHas = ParseSyncManifest(manifestStr or "") -- Claude v0.46
+
+    local queued, skipped = 0, 0
     for _, p in pairs(EpogArmoryDB.players) do
         if queued >= SYNC_MAX_SETS_PER_RESPONSE then break end
-        if p.sets then
-            for _, set in pairs(p.sets) do
+        if p.sets and p.guid then
+            local mineForGuid = requesterHas[p.guid]
+            for setKey, set in pairs(p.sets) do
                 if queued >= SYNC_MAX_SETS_PER_RESPONSE then break end
                 if set.rawPayload and (set.scanTime or 0) > sinceTS then
-                    -- Chunk + enqueue with a fresh msgID so receivers see
-                    -- this as a new broadcast (different assembly key).
-                    msgCounter = msgCounter + 1
-                    local msgID = string.format("%x%x",
-                        math.floor(now() * 10) % 0xffff, msgCounter % 0xffff)
-                    local chunks = MakeChunks(set.rawPayload, msgID)
-                    for _, chunk in ipairs(chunks) do
-                        outQueue[#outQueue + 1] = { ch = "GUILD", body = chunk }
+                    -- v0.46: manifest-based dedup. setKey can be number (1/2/3)
+                    -- or "pvp" string; manifest entries are normalized via
+                    -- tostring on both sides.
+                    local theirT = mineForGuid and mineForGuid[tostring(setKey)]
+                    if theirT and theirT >= (set.scanTime or 0) then
+                        skipped = skipped + 1 -- Claude v0.46: skip duplicate
+                    else
+                        -- Chunk + enqueue with a fresh msgID so receivers see
+                        -- this as a new broadcast (different assembly key).
+                        msgCounter = msgCounter + 1
+                        local msgID = string.format("%x%x",
+                            math.floor(now() * 10) % 0xffff, msgCounter % 0xffff)
+                        local chunks = MakeChunks(set.rawPayload, msgID)
+                        for _, chunk in ipairs(chunks) do
+                            outQueue[#outQueue + 1] = { ch = "GUILD", body = chunk }
+                        end
+                        queued = queued + 1
                     end
-                    queued = queued + 1
                 end
             end
         end
     end
     lastSyncResponseTo[requester or ""] = time()
     lastSyncResponseAt = time() -- v0.37: stamp global cooldown
-    dprint(string.format("[sync] responding to %s: queued %d sets since %s (max %d)",
-        requester or "?", queued,
+    dprint(string.format("[sync] responding to %s: queued %d, skipped %d (already fresh) since %s (max %d)",
+        requester or "?", queued, skipped,
         sinceTS > 0 and date("%Y-%m-%d %H:%M", sinceTS) or "epoch",
         SYNC_MAX_SETS_PER_RESPONSE))
 end
@@ -2016,14 +2070,30 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         -- v0.43: requester field uses MyIdentity (configured main name or
         -- character name fallback). Per-requester cooldowns on the responder
         -- side now consolidate across all alts of the same admin.
-        local body = string.format("%s^1^1^SYNCREQ^%s^%s^%d",
-            msgID, MyIdentity(), name, sinceTS)
+        -- v0.46: append a manifest of (guid:group:scanTime;...) so the
+        -- responder can skip sets we already have at >= their scanTime.
+        -- Eliminates the dominant duplicate-send waste from full-DB syncs.
+        -- Manifest can be ~4.5 KB for 100 players, so chunk via MakeChunks.
+        local manifest = BuildSyncManifest() -- Claude v0.46: include manifest
+        local fullPayload = string.format("SYNCREQ^%s^%s^%d^%s",
+            MyIdentity(), name, sinceTS, manifest)
+        local chunks = MakeChunks(fullPayload, msgID) -- Claude v0.46: multi-chunk
         for _, ch in ipairs(channels) do
-            outQueue[#outQueue + 1] = { ch = ch, body = body }
+            for _, chunk in ipairs(chunks) do
+                outQueue[#outQueue + 1] = { ch = ch, body = chunk }
+            end
         end
         activeSyncs[name] = time() + SYNC_EST_DURATION
         print(string.format("|cffffaa44EpogArmory|r: requested sync from |cff00ff00%s|r (last %d days) via %s. ETA ~25 min.",
             name, days, table.concat(channels, "+")))
+        local manifestEntries = 0
+        if manifest ~= "" then
+            -- count separators + 1 (entries are joined by ";")
+            local _, n = manifest:gsub(";", ";")
+            manifestEntries = n + 1
+        end
+        dprint(string.format("[sync] sent SYNCREQ in %d chunk(s), manifest = %d bytes (%d entries)",
+            #chunks, #manifest, manifestEntries))
         -- Refresh the browser scanners view if it's open so the row dims.
         if _G.EpogArmoryBrowserFrame and _G.EpogArmoryBrowserFrame:IsShown()
             and _G.EpogArmoryBrowserFrame.Refresh then

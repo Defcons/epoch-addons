@@ -15,6 +15,37 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.46 — Manifest-based sync (kill duplicate-send waste) *(2026-04-22)*
+
+User report from a guild sync: "I now get a lot of `[store] SKIP: Poonchy (set 3) — existing set is newer (20:02:32 vs 20:02:32)`" — the responder was sending sets the requester already had at the same scanTime, the requester ingested them, validated them, and rejected as not-newer. Pure bandwidth waste, and on a 100+ player DB that's most of the response.
+
+### Manifest exchange in SYNCREQ
+
+The requester now packs a compact manifest of "what I already have" into the SYNCREQ payload. Format:
+
+```
+SYNCREQ^<requester>^<target>^<sinceTS>^<manifest>
+manifest = "guid1:group1:scanTime1;guid2:group2:scanTime2;..."
+```
+
+Per-(guid, group) entries — not per-player max scanTime — because a player can have spec-1 from yesterday and spec-2 from a month ago, and we need to ask for spec-2 without re-getting spec-1.
+
+The responder calls `ParseSyncManifest` to build a `requesterHas[guid][group] = scanTime` lookup, then in the iteration skips any `(guid, set)` where `requesterHas[guid][tostring(setKey)] >= set.scanTime`. The new debug line: `[sync] responding to <name>: queued N, skipped M (already fresh) since <ts>`.
+
+### Sizing + chunking
+
+Each manifest entry is ~30 bytes. A 100-player DB with ~1.5 sets average is ~150 entries ≈ 4.5 KB. That exceeds a single addon-message chunk, so the outgoing SYNCREQ now goes through `MakeChunks` (was hard-coded as `^1^1^`). Reassembly on the responder uses the existing pipeline — no protocol change there.
+
+### Backward compatibility
+
+- **Old responder (≤v0.45) receives v0.46 SYNCREQ:** sees an extra `^<manifest>` field, `strsplit` returns it as the 5th value which the old code ignores. Manifest absent on the responder side → sends everything as before. No regression.
+- **v0.46 responder receives old (≤v0.45) SYNCREQ:** `manifestStr` is nil, `ParseSyncManifest("")` returns `{}`, dedup check `requesterHas[guid] and ...` always falls through → sends everything as before. No regression.
+- **Both sides on v0.46:** dedup kicks in, expect "skipped M" to dominate "queued N" once a sync has been done once.
+
+The optimization is opportunistic — both peers must be on v0.46 for the win, but neither side breaks if mixed.
+
+---
+
 ## EpogArmory v0.45 — Auto-default main + scroll-offset fix + 30-day prune *(2026-04-26)*
 
 Three follow-ups from user feedback on v0.44.
