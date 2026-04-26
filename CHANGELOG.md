@@ -15,6 +15,44 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.47 — "Refresh Peers" button + lightweight peer ping *(2026-04-26)*
+
+User request: "Can we add a command similar to syncfrom where we basically just ask everyone in guild 'Give me your latest updates' that will update the list of scanners if I am missing any, and how many entries they have in their DB. This should be a button in the bottom right of the Scanners frame."
+
+### What it does
+
+- New **Refresh Peers** button bottom-right of the Scanners view. One click broadcasts a tiny `PEERPING` to your guild + group; every guildmate running v0.47+ replies with their current identity, DB size, version, and character name.
+- Each response refreshes the responder's `peerInfo` entry, so the Scanners leaderboard updates with newly-discovered peers and current entry counts without having to wait for an organic gear-scan broadcast.
+
+### Why the existing flow wasn't enough
+
+`peerInfo` was previously updated only as a side-effect of full gear-scan broadcasts (positions 38/39 carry dbSize + senderMain). If a peer hadn't done a scan recently, you'd have stale or missing info on them. The Refresh Peers button polls actively — useful before deciding who to `syncfrom`.
+
+### Wire format
+
+```
+PEERPING^<requester>                                  -- broadcast
+PEERPONG^<identity>^<dbSize>^<version>^<charName>     -- reply
+```
+
+Replies go on the same channel the request arrived on (GUILD/PARTY/RAID).
+
+### Rate limiting
+
+- **User-side**: button can be pressed at most once every 60s. Visual disable for 5s after a press.
+- **Responder-side**: per-requester 60s cooldown so a misbehaving client can't loop-spam.
+- Channel choice: same `PickChannels()` as everything else (RAID > PARTY, plus GUILD if in one).
+
+### Slash command
+
+`/epogarmory refreshpeers` (or `/epogarmory refresh`) — same effect as the button, listed in `/epogarmory` help.
+
+### Backward compatibility
+
+Old clients (≤v0.46) that receive a `PEERPING` see an unknown-tag payload, fall through past the VER/SYNCREQ/PEERPING/PEERPONG branches in `OnAddonMessage`, end up in `Ingest` which fails to parse it as a gear payload and silently drops it. No errors, no responses — they just don't participate in the refresh until they update.
+
+---
+
 ## EpogArmory v0.46 — Manifest-based sync (kill duplicate-send waste) *(2026-04-22)*
 
 User report from a guild sync: "I now get a lot of `[store] SKIP: Poonchy (set 3) — existing set is newer (20:02:32 vs 20:02:32)`" — the responder was sending sets the requester already had at the same scanTime, the requester ingested them, validated them, and rejected as not-newer. Pure bandwidth waste, and on a 100+ player DB that's most of the response.

@@ -223,6 +223,17 @@ local activeSyncs         = {} -- peerName -> estimatedEndTime
 local SYNC_GLOBAL_COOLDOWN = 900 -- 15 min between any sync responses
 local lastSyncResponseAt   = 0   -- any-peer global timestamp of last response
 
+-- v0.47: lightweight "who's out there" peer refresh. Lets the UI button in
+-- the Scanners view actively poll the guild for current identity + dbSize
+-- instead of waiting for organic gear-scan broadcasts. PEERPING is a tiny
+-- request; each receiver replies PEERPONG with their MyIdentity, dbSize,
+-- version, and current character name. Responses update peerInfo, which
+-- the Scanners leaderboard reads.
+local PEER_PING_COOLDOWN     = 60   -- user can press Refresh Peers at most every 60s
+local PEER_RESPONSE_COOLDOWN = 60   -- don't respond to same requester twice in 1 min
+local lastPeerPingSentAt     = 0    -- in-memory: last time WE sent a PEERPING
+local lastPeerPongTo         = {}   -- in-memory: requesterName -> time() of last PEERPONG sent
+
 local function CleanExpiredSyncs()
     local t = time()
     for name, endT in pairs(activeSyncs) do
@@ -1267,6 +1278,89 @@ local function TrySendVersionPing()
         ADDON_VERSION, table.concat(channels, "+")))
 end
 
+-- v0.47: Peer refresh ping. Asks every guildmate running the addon to
+-- announce their identity + dbSize so the Scanners leaderboard refreshes
+-- without having to wait for organic gear-scan broadcasts. Triggered by
+-- the "Refresh Peers" button in the Scanners view (and /epogarmory
+-- refreshpeers). Returns true on send; false + reason string on cooldown.
+local function BroadcastPeerPing()
+    local nowT = time()
+    local since = nowT - lastPeerPingSentAt
+    if since < PEER_PING_COOLDOWN then
+        local wait = PEER_PING_COOLDOWN - since
+        return false, "cooldown", wait
+    end
+    local channels = PickChannels()
+    if #channels == 0 then
+        return false, "nochannel"
+    end
+    msgCounter = msgCounter + 1
+    local msgID = string.format("P%x", msgCounter % 0xffff)
+    -- Identity field lets responders skip self-echoes if they happen to
+    -- have us configured as their own main alias (paranoia — sender-name
+    -- echo drop in OnAddonMessage already covers the normal case).
+    local body = string.format("%s^1^1^PEERPING^%s", msgID, MyIdentity())
+    for _, ch in ipairs(channels) do
+        outQueue[#outQueue + 1] = { ch = ch, body = body }
+    end
+    lastPeerPingSentAt = nowT
+    dprint(string.format("[peerping] sent on [%s]", table.concat(channels, "+")))
+    return true, table.concat(channels, "+")
+end
+
+-- v0.47: respond to an incoming PEERPING. Lightweight: announce identity,
+-- dbSize, version, current character name. Replies go on the SAME channel
+-- the request arrived on so requester gets them via the same chat envelope.
+-- Per-requester cooldown prevents looping if a misbehaving client spams.
+local function HandlePeerPing(payload, sender, channel)
+    if channel ~= "GUILD" and channel ~= "PARTY" and channel ~= "RAID" then return end
+    local tag, requester = strsplit("^", payload)
+    if tag ~= "PEERPING" then return end
+    requester = requester or sender or "?"
+    -- Per-requester cooldown
+    local last = lastPeerPongTo[requester] or 0
+    if (time() - last) < PEER_RESPONSE_COOLDOWN then
+        dprint(string.format("[peerping] decline %s — cooldown (%ds since last pong)",
+            requester, time() - last))
+        return
+    end
+    -- Compute our current dbSize
+    local dbSize = 0
+    if EpogArmoryDB and EpogArmoryDB.players then
+        for _ in pairs(EpogArmoryDB.players) do dbSize = dbSize + 1 end
+    end
+    local me = UnitName("player") or "?"
+    local identity = MyIdentity()
+    msgCounter = msgCounter + 1
+    local msgID = string.format("p%x", msgCounter % 0xffff)
+    -- PEERPONG^<identity>^<dbSize>^<version>^<charName>
+    local body = string.format("%s^1^1^PEERPONG^%s^%d^%s^%s",
+        msgID, identity, dbSize, ADDON_VERSION, me)
+    outQueue[#outQueue + 1] = { ch = channel, body = body }
+    lastPeerPongTo[requester] = time()
+    dprint(string.format("[peerping] replied to %s on %s (dbSize=%d, identity=%s)",
+        requester, channel, dbSize, identity))
+end
+
+-- v0.47: ingest an incoming PEERPONG. Updates peerInfo so the Scanners
+-- leaderboard reflects the responder's current dbSize + last-seen.
+local function HandlePeerPong(payload, sender)
+    local tag, identity, dbSizeStr, version, charName = strsplit("^", payload)
+    if tag ~= "PEERPONG" then return end
+    if not identity or identity == "" then identity = sender or "?" end
+    local dbSize = tonumber(dbSizeStr) or 0
+    EpogArmoryDB = EpogArmoryDB or {}
+    EpogArmoryDB.peerInfo = EpogArmoryDB.peerInfo or {}
+    EpogArmoryDB.peerInfo[identity] = {
+        dbSize       = dbSize,
+        lastSeen     = time(),
+        lastCharName = charName or sender,
+        version      = version,
+    }
+    dprint(string.format("[peerping] got pong from %s (identity=%s, dbSize=%d, v%s)",
+        sender or "?", identity, dbSize, version or "?"))
+end
+
 -- v0.46: build a compact manifest of "what we already have" for the
 -- requester side of syncfrom. Format: "guid:group:scanTime;..." per stored
 -- (player, set) tuple. Sent inside the SYNCREQ at position 5; the
@@ -1446,6 +1540,10 @@ local function OnAddonMessage(prefix, body, channel, sender)
             HandleVersionPing(full, sender)
         elseif full:sub(1, 8) == "SYNCREQ^" then
             HandleSyncRequest(full, sender, channel)
+        elseif full:sub(1, 9) == "PEERPING^" then -- Claude v0.47
+            HandlePeerPing(full, sender, channel)
+        elseif full:sub(1, 9) == "PEERPONG^" then -- Claude v0.47
+            HandlePeerPong(full, sender)
         else
             Ingest(full, sender)
         end
@@ -1873,6 +1971,12 @@ _G.EpogArmory.ActiveSyncCount = function()
     return CountActiveSyncs()
 end
 _G.EpogArmory.SyncMaxConcurrent = SYNC_MAX_CONCURRENT
+-- v0.47: Refresh Peers button calls this. Returns (true, channels) on send,
+-- (false, "cooldown", secondsRemaining) on cooldown, (false, "nochannel") if
+-- not in guild/group.
+_G.EpogArmory.RequestPeerRefresh = function() -- Claude v0.47
+    return BroadcastPeerPing()
+end
 -- Also resets the 24h HasFreshScan gate for this GUID (by wiping
 -- lastScanned[guid]) and the in-memory 15min inspect cooldown (seen[guid]),
 -- so *this client* can re-inspect immediately if they're in range. If the
@@ -1949,6 +2053,7 @@ local function ShowHelp()
     print("  /epogarmory cachewipe     — clear the item-info cache")
     print("  /epogarmory main [name]   — set/show your main-character identity (consolidates alts in the mesh)")
     print("  /epogarmory merge <newname> <alias1> [alias2] ... — locally re-attribute scans from peer aliases to one canonical name")
+    print("  /epogarmory refreshpeers  — ping guildmates for fresh identity + DB-size info (Scanners-view leaderboard)")
     print("|cff888888  Source + releases: github.com/Defcons/epogarmory-addon|r")
     -- dumpspec left in place but not advertised — internal diagnostic.
 end
@@ -2028,6 +2133,19 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         local s1, s2, s3 = ReadSpecPoints("player")
         print(string.format("  ReadSpecPoints(player) = %d / %d / %d → DominantTree = %d",
             s1, s2, s3, DominantTree({s1, s2, s3})))
+    elseif msg == "refreshpeers" or msg == "refresh" then
+        -- v0.47: ask everyone in guild/group "give me your latest info".
+        -- Each peer running v0.47+ replies with identity + dbSize + version
+        -- so the Scanners leaderboard gets fresh data without having to
+        -- wait for organic gear-scan broadcasts.
+        local ok, info, extra = BroadcastPeerPing()
+        if ok then
+            print(string.format("|cffffaa44EpogArmory|r: peer refresh sent on %s — responses will arrive over the next ~5s.", info))
+        elseif info == "cooldown" then
+            print(string.format("|cffffaa44EpogArmory|r: peer refresh on cooldown (%ds remaining).", extra))
+        elseif info == "nochannel" then
+            print("|cffffaa44EpogArmory|r: peer refresh requires being in a guild or group.")
+        end
     elseif msg:sub(1, 8) == "syncfrom" then
         -- Hidden admin command: request another peer to replay their recent
         -- stored scans. v0.37: extended to party + raid + guild channels.

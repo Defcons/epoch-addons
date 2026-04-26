@@ -730,6 +730,49 @@ local function BuildBrowser()
     end)
     f.acceptSyncBtn:Hide()
 
+    -- v0.47: "Refresh Peers" button, bottom-right of the Scanners view.
+    -- Broadcasts a PEERPING that asks every guildmate running the addon
+    -- to announce their identity + dbSize, so the leaderboard refreshes
+    -- without waiting for organic gear-scan broadcasts. Cooldown enforced
+    -- on the addon side (60s); this button just relays the result.
+    f.refreshPeersBtn = CreateFrame("Button", "EpogArmoryRefreshPeersBtn", f, "UIPanelButtonTemplate")
+    f.refreshPeersBtn:SetWidth(120); f.refreshPeersBtn:SetHeight(22)
+    f.refreshPeersBtn:SetPoint("BOTTOMRIGHT", -14, 34)
+    f.refreshPeersBtn:SetText("Refresh Peers")
+    f.refreshPeersBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOPRIGHT")
+        GameTooltip:AddLine("Refresh Peers")
+        GameTooltip:AddLine("Asks every guildmate running EpogArmory to send their current identity and DB size.", 1, 1, 1, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Use this to discover scanners you don't see yet, or to update their entry counts.", 0.7, 0.7, 0.7, true)
+        GameTooltip:Show()
+    end)
+    f.refreshPeersBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.refreshPeersBtn:SetScript("OnClick", function(self)
+        if not (_G.EpogArmory and _G.EpogArmory.RequestPeerRefresh) then return end
+        local ok, info, extra = _G.EpogArmory.RequestPeerRefresh()
+        if ok then
+            print(string.format("|cffffaa44EpogArmory|r: peer refresh sent on %s — responses will arrive over the next ~5s.", info))
+            -- Brief visual disable to communicate "request in flight"; the
+            -- 30s ticker on the Scanners view will pick up incoming pongs.
+            self:Disable()
+            self._reenableAt = GetTime() + 5
+        elseif info == "cooldown" then
+            print(string.format("|cffffaa44EpogArmory|r: peer refresh on cooldown (%ds remaining).", extra))
+        elseif info == "nochannel" then
+            print("|cffffaa44EpogArmory|r: peer refresh requires being in a guild or group.")
+        end
+    end)
+    -- Re-enable after the brief disable window. Cheap OnUpdate, only ticks
+    -- while a press is in flight.
+    f.refreshPeersBtn:SetScript("OnUpdate", function(self)
+        if self._reenableAt and GetTime() >= self._reenableAt then
+            self._reenableAt = nil
+            self:Enable()
+        end
+    end)
+    f.refreshPeersBtn:Hide()
+
     -- First-time / empty-DB hint. Shown only when the user has nothing
     -- stored yet. Sits over the scroll frame area so it reads as "here's
     -- where your data will appear" rather than a random floating message.
@@ -1024,6 +1067,7 @@ local function BuildBrowser()
             viewToggle:SetText("Scanners")
             f.searchLabel:Show(); search:Show()
             f.acceptSyncBtn:Hide()
+            f.refreshPeersBtn:Hide() -- Claude v0.47
             f.emptyHint:SetText(EMPTY_HINT_PLAYERS)
         else
             f.viewMode = "scanners"
@@ -1036,6 +1080,7 @@ local function BuildBrowser()
             end
             f.acceptSyncBtn:SetChecked(accept)
             f.acceptSyncBtn:Show()
+            f.refreshPeersBtn:Show() -- Claude v0.47
             f.emptyHint:SetText(EMPTY_HINT_SCANNERS)
             -- v0.38: ask the server for a fresh guild roster so the
             -- "online" flag is current. GuildRoster() is rate-limited
