@@ -1390,16 +1390,35 @@ local function BuildBrowser()
     -- v0.38: mousewheel scroll (FauxScrollFrameTemplate doesn't enable it
     -- by default). Three rows per wheel tick, standard feel. Future-proof
     -- for lists of any size.
+    -- v0.54: drive the scrollbar's SetValue instead of FauxScrollFrame_SetOffset
+    -- directly. The old path updated the internal offset (so the list moved)
+    -- but never told the scrollbar widget about it (so the thumb stayed
+    -- frozen at the top). Routing through SetValue triggers OnValueChanged →
+    -- OnVerticalScroll → FauxScrollFrame_OnVerticalScroll, which updates
+    -- both offset AND visual thumb in one go.
     scroll:EnableMouseWheel(true)
     scroll:SetScript("OnMouseWheel", function(self, delta)
-        local off = FauxScrollFrame_GetOffset(self) or 0
-        local step = 3
-        if delta > 0 then
-            FauxScrollFrame_SetOffset(self, math.max(0, off - step))
+        local sb = self.ScrollBar or _G[(self:GetName() or "") .. "ScrollBar"]
+        if sb then
+            local cur = sb:GetValue() or 0
+            local step = 3 * BROWSER_ROW_HEIGHT -- 3 rows per wheel tick (in pixels)
+            if delta > 0 then
+                sb:SetValue(math.max(0, cur - step))
+            else
+                sb:SetValue(cur + step)
+            end
         else
-            FauxScrollFrame_SetOffset(self, off + step)
+            -- Fallback if for some reason the scrollbar widget isn't there:
+            -- preserve the old offset-only behavior so wheel still works.
+            local off = FauxScrollFrame_GetOffset(self) or 0
+            local step = 3
+            if delta > 0 then
+                FauxScrollFrame_SetOffset(self, math.max(0, off - step))
+            else
+                FauxScrollFrame_SetOffset(self, off + step)
+            end
+            Update()
         end
-        Update()
     end)
     search:SetScript("OnTextChanged", Update)
     f:SetScript("OnShow", function(self)

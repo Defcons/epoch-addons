@@ -15,6 +15,20 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.54 — Fix scrollbar thumb not moving on mousewheel *(2026-04-26)*
+
+User: "When scrolling in the Players frame the scrolling works but the actual visual scrolling bar is just static. Doesn't move downwards."
+
+Cause: the v0.38 mousewheel handler called `FauxScrollFrame_SetOffset` directly, which updates the internal offset (so the list moves) but never tells the scrollbar widget about the new position (so the thumb stays frozen). The keyboard/click scrollbar path goes through `OnVerticalScroll` → `FauxScrollFrame_OnVerticalScroll` which updates both — the mousewheel was bypassing it.
+
+Fix: route mousewheel through the scrollbar's `SetValue` instead. That triggers `OnValueChanged` → `OnVerticalScroll` → the existing handler, which updates offset + thumb in one go. Single source of truth for scroll state regardless of input method.
+
+Step size kept at 3 rows per wheel tick (now expressed in pixels: `3 * BROWSER_ROW_HEIGHT`).
+
+Fallback path preserved: if the scrollbar widget reference somehow isn't available, falls back to the old offset-only behavior so the wheel still works.
+
+---
+
 ## EpogArmory v0.53 — Channel noise reduction (skip dual-broadcast + whisper sync responses) *(2026-04-26)*
 
 Two targeted bandwidth optimizations after discussion of mesh-protocol redesigns. The "in-game custom channel + pull-based protocol" idea was ruled out because (a) WoW 3.3.5's `SendAddonMessage` doesn't support custom channels (added in Cataclysm), and (b) the math didn't favor pull-based on a guild-scale mesh. These two are the realistic wins.
