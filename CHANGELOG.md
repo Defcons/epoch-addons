@@ -15,6 +15,60 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v1.0 — First stable release *(2026-04-26)*
+
+After ~50 prereleases of iteration, EpogArmory graduates from `v0.x` prerelease to the first stable `v1.0`. No new features in this cut — it's the v0.54 codebase with a version bump and a recap of what the addon does.
+
+### What it is
+
+A WoW 3.3.5 / Project Ascension addon that lets you open an in-game paperdoll for **any player on the server** that's been seen by anyone in the mesh — no group required, no interact range required, no line of sight required.
+
+### Core features
+
+- **Mesh-based gear inspector.** Every running client auto-inspects groupmates in dungeons/raids and broadcasts the gear, talents, and spec icon over addon-message channels. Receivers store the data locally; from then on, anyone in the mesh can pull up that player's paperdoll via the browser.
+- **Per-spec gear sets.** Up to 3 stored sets per player keyed by dominant talent tree, plus a `pvp` set automatically routed when an Insignia trinket is equipped (covers Ascension's classless dual-spec patterns).
+- **Item cache (`EpogItemCacheDB`).** Every observed itemID gets `GetItemInfo` + `GetItemStats` cached, so Ascension's modified stats and server-custom items survive the upload to the public armory site.
+
+### Discoverability + sync
+
+- **Browser** (`/epogarmory` or minimap shield) with two views:
+  - **Players view** — searchable + class-filterable table of every stored player. Class-colored name, class, last-scan age. Click → paperdoll.
+  - **Scanners view** — leaderboard of who's contributed what, with `Contrib`, `In DB`, `Last seen` columns. Click → request a sync from that peer.
+- **`syncfrom` admin command** to bulk-pull stored sets from a specific peer. v0.46 manifest dedup means only sets you don't already have are sent. v0.51 4x faster pacing means a 100-entry sync finishes in ~3 minutes (down from ~13).
+- **Refresh Peers button** to actively poll the guild for fresh identity + DB-size info instead of waiting for organic broadcasts.
+
+### Identity + alts
+
+- **Main-name consolidation.** Multiple alts of the same user roll up under one canonical identity in the Scanners leaderboard. `/epogarmory main <character>` picks the canonical name; retro consolidation rewrites past attributions on rename.
+- **`/epogarmory merge`** to admin-correct cross-peer alias splits.
+
+### Hygiene
+
+- **Self-scan filtering** drops mount-speed enchants, Mithril Spurs boots, Riding Crop trinkets, Chef's Hat, fishing poles, and PvP loadouts from the wrong context. Bank-alt scans don't pollute the mesh.
+- **24h mesh cooldown** per player GUID prevents redundant re-scanning across the network.
+- **30-day auto-prune** of inactive scanners keeps the leaderboard focused on currently-active peers.
+- **Sender-side level gate** — L<60 alts don't broadcast (they'd just clutter receivers' DBs).
+
+### Network behavior
+
+- **Manifest-based sync** (v0.46) — requester sends a compact `(guid:group:scanTime;...)` manifest; responder skips anything you already have at ≥ their scanTime. Eliminates the dominant duplicate-send waste on full-DB pulls.
+- **Channel optimizations** (v0.53):
+  - Skips PARTY/RAID broadcast when every group member is also in your guild — the GUILD broadcast already reaches them.
+  - Sync responses go via WHISPER to the requester's character instead of GUILD-broadcasting (saves the "every guildmate ingests 200 sync replays as collateral" cost).
+- **Tightened pacing** (v0.51) — `BROADCAST_STAGGER` 2.0s → 0.5s = 4x faster syncs while still under the 800 B/s addon-channel safe budget.
+- **Backward-compatible** wire format — additive fields at the tail (positions 31+) so older clients keep working.
+
+### What's stable
+
+- Wire protocol (positions 1–30 frozen since v0.13)
+- SavedVariables shape (`EpogArmoryDB`, `EpogItemCacheDB`)
+- Slash command surface
+- All public `_G.EpogArmory.*` API exposed for the UI
+
+Future v1.x releases will be feature additions and bug fixes; the protocol and storage layout are committed.
+
+---
+
 ## EpogArmory v0.54 — Fix scrollbar thumb not moving on mousewheel *(2026-04-26)*
 
 User: "When scrolling in the Players frame the scrolling works but the actual visual scrolling bar is just static. Doesn't move downwards."
