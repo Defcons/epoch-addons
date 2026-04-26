@@ -1862,6 +1862,7 @@ local function ShowHelp()
     print("  /epogarmory cachebuild    — fill the cache from all stored players' gear (names/quality/ilvl)")
     print("  /epogarmory cachewipe     — clear the item-info cache")
     print("  /epogarmory main [name]   — set/show your main-character identity (consolidates alts in the mesh)")
+    print("  /epogarmory merge <newname> <alias1> [alias2] ... — locally re-attribute scans from peer aliases to one canonical name")
     print("|cff888888  Source + releases: github.com/Defcons/epogarmory-addon|r")
     -- dumpspec left in place but not advertised — internal diagnostic.
 end
@@ -1998,48 +1999,175 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         end
     elseif msg == "main" or msg:sub(1, 5) == "main " then
         -- v0.43: pick which of your characters is your "main" identity.
-        -- All broadcasts from any of your alts will then be attributed to
-        -- this name in the mesh. Validated against EpogArmoryDB.knownChars
-        -- (the set of characters that have logged in on this account, since
-        -- SavedVariables is account-scoped).
+        -- v0.44: account-wide persistence (SavedVariables already is, just
+        -- makes that clear in messaging). On rename, retro-rewrite local
+        -- DB scannedBy/peerInfo entries from the old main (or any of your
+        -- known characters) to the new main, so the Scanners view
+        -- consolidates instead of continuing to show stale separate rows.
         EpogArmoryDB = EpogArmoryDB or {}
         EpogArmoryDB.config = EpogArmoryDB.config or {}
         EpogArmoryDB.knownChars = EpogArmoryDB.knownChars or {}
         local arg = msg:match("^main%s+(.+)$")
-        if not arg then
-            -- No arg → show current + list known characters
-            local current = EpogArmoryDB.config.mainName
-            local me = UnitName("player") or "?"
-            print(string.format("|cffffaa44EpogArmory|r: main identity = |cff00ff66%s|r%s",
-                tostring(current or me),
-                current and "" or " (defaulting to current character)"))
+
+        local function knownList()
             local names = {}
             for n, _ in pairs(EpogArmoryDB.knownChars) do names[#names + 1] = n end
             table.sort(names)
-            print("|cff888888  Choices:|r " .. table.concat(names, ", "))
-            print("|cff888888  Use:|r /epogarmory main <name>  |cff888888or|r /epogarmory main clear")
+            return names
+        end
+
+        if not arg then
+            local current = EpogArmoryDB.config.mainName
+            local me = UnitName("player") or "?"
+            if current then
+                print(string.format("|cffffaa44EpogArmory|r: main identity = |cff00ff66%s|r |cff888888(account-wide, persists across all your characters)|r",
+                    current))
+            else
+                print(string.format("|cffffaa44EpogArmory|r: main identity = |cffff9966NOT SET|r |cff888888— broadcasts will attribute to whichever character is currently logged in (now: %s).|r",
+                    me))
+            end
+            print("|cff888888  Your known characters:|r " .. table.concat(knownList(), ", "))
+            print("|cff888888  Set:|r /epogarmory main <character>   |cff888888|   Clear:|r /epogarmory main clear")
         elseif arg == "clear" or arg == "none" then
+            local oldMain = EpogArmoryDB.config.mainName
             EpogArmoryDB.config.mainName = nil
-            print("|cffffaa44EpogArmory|r: main identity cleared — broadcasts will use current character name")
+            print("|cffffaa44EpogArmory|r: main identity cleared — broadcasts now attribute to current character name")
+            if oldMain then
+                print(string.format("|cff888888  Past scans attributed to '%s' keep that name. Future broadcasts use current character name.|r",
+                    oldMain))
+            end
         else
-            -- Canonical casing
             local pick = arg:sub(1, 1):upper() .. arg:sub(2):lower()
             if not EpogArmoryDB.knownChars[pick] then
-                print(string.format("|cffffaa44EpogArmory|r: |cffff6666%s|r is not in your known-characters list. Log in once on that character first.",
+                print(string.format("|cffffaa44EpogArmory|r: |cffff6666%s|r isn't one of your known characters. Log in once on that character first.",
                     pick))
-                local names = {}
-                for n, _ in pairs(EpogArmoryDB.knownChars) do names[#names + 1] = n end
-                table.sort(names)
-                print("|cff888888  Known:|r " .. table.concat(names, ", "))
-            else
-                EpogArmoryDB.config.mainName = pick
-                -- Force a fresh self-scan so the new identity goes out on
-                -- the wire immediately (otherwise next scan waits for a
-                -- fingerprint change).
-                lastSelfFingerprint = ""
-                RequestSelfScan()
-                print(string.format("|cffffaa44EpogArmory|r: main identity = |cff00ff66%s|r — your scans now broadcast under this name", pick))
+                print("|cff888888  Your known:|r " .. table.concat(knownList(), ", "))
+                return
             end
+            local oldMain = EpogArmoryDB.config.mainName
+            EpogArmoryDB.config.mainName = pick
+
+            -- v0.44: consolidate prior scans under the new main. Rewrite any
+            -- scannedBy and peerInfo entries that match (a) the previous
+            -- mainName or (b) any of YOUR known character names — these all
+            -- represent "you" in the mesh, just under different names.
+            -- Other players' scannedBy values are NOT rewritten; this is
+            -- purely a local reattribution of YOUR contributions.
+            local rewriteSet = {}
+            if oldMain and oldMain ~= pick then rewriteSet[oldMain] = true end
+            for charName in pairs(EpogArmoryDB.knownChars) do
+                if charName ~= pick then rewriteSet[charName] = true end
+            end
+
+            local rewroteScans = 0
+            if EpogArmoryDB.players then
+                for _, p in pairs(EpogArmoryDB.players) do
+                    if p.sets then
+                        for _, s in pairs(p.sets) do
+                            if s.scannedBy and rewriteSet[s.scannedBy] then
+                                s.scannedBy = pick
+                                rewroteScans = rewroteScans + 1
+                            end
+                        end
+                    end
+                end
+            end
+
+            local mergedPeers = 0
+            if EpogArmoryDB.peerInfo then
+                for aliasName in pairs(rewriteSet) do
+                    local info = EpogArmoryDB.peerInfo[aliasName]
+                    if info then
+                        EpogArmoryDB.peerInfo[pick] = EpogArmoryDB.peerInfo[pick] or { dbSize = 0, lastSeen = 0 }
+                        local target = EpogArmoryDB.peerInfo[pick]
+                        if (info.dbSize or 0) > (target.dbSize or 0) then
+                            target.dbSize = info.dbSize
+                        end
+                        if (info.lastSeen or 0) > (target.lastSeen or 0) then
+                            target.lastSeen = info.lastSeen
+                            target.lastCharName = info.lastCharName or aliasName
+                        end
+                        EpogArmoryDB.peerInfo[aliasName] = nil
+                        mergedPeers = mergedPeers + 1
+                    end
+                end
+            end
+
+            -- Force fresh self-scan so the new identity hits the wire on the
+            -- next broadcast cycle without waiting for a fingerprint change.
+            lastSelfFingerprint = ""
+            RequestSelfScan()
+
+            print(string.format("|cffffaa44EpogArmory|r: main identity = |cff00ff66%s|r |cff888888(account-wide; broadcasts from any of your characters will attribute to this name)|r",
+                pick))
+            if rewroteScans > 0 or mergedPeers > 0 then
+                print(string.format("|cff888888  Consolidated: %d stored scans + %d peer entries from your alts → %s|r",
+                    rewroteScans, mergedPeers, pick))
+            end
+            if _G.EpogArmoryBrowserFrame and _G.EpogArmoryBrowserFrame:IsShown()
+                and _G.EpogArmoryBrowserFrame.Refresh then
+                _G.EpogArmoryBrowserFrame.Refresh()
+            end
+        end
+    elseif msg:sub(1, 6) == "merge " or msg == "merge" then
+        -- v0.44: admin tool — locally consolidate multiple peer aliases under
+        -- one canonical name. Useful when you can see "Yippee" / "Yippie" /
+        -- "Yiippee" in the Scanners view and know they're the same player
+        -- but they haven't set their main yet. Only affects YOUR local DB.
+        local args = {}
+        for word in (msg:sub(7) or ""):gmatch("%S+") do
+            args[#args + 1] = word
+        end
+        if #args < 2 then
+            print("|cffffaa44EpogArmory|r: usage — /epogarmory merge <newname> <alias1> [alias2] ...")
+            print("|cff888888  Example:|r /epogarmory merge Yippie Yiippee Yippee")
+            print("|cff888888  Locally rewrites scannedBy + peerInfo from aliases into <newname>. Other guildies still see the original names until they run merge too.|r")
+            return
+        end
+        local newName = args[1]:sub(1, 1):upper() .. args[1]:sub(2):lower()
+        local rewriteSet = {}
+        for i = 2, #args do
+            local alias = args[i]:sub(1, 1):upper() .. args[i]:sub(2):lower()
+            if alias ~= newName then rewriteSet[alias] = true end
+        end
+        local rewroteScans = 0
+        if EpogArmoryDB and EpogArmoryDB.players then
+            for _, p in pairs(EpogArmoryDB.players) do
+                if p.sets then
+                    for _, s in pairs(p.sets) do
+                        if s.scannedBy and rewriteSet[s.scannedBy] then
+                            s.scannedBy = newName
+                            rewroteScans = rewroteScans + 1
+                        end
+                    end
+                end
+            end
+        end
+        local mergedPeers = 0
+        if EpogArmoryDB and EpogArmoryDB.peerInfo then
+            for aliasName in pairs(rewriteSet) do
+                local info = EpogArmoryDB.peerInfo[aliasName]
+                if info then
+                    EpogArmoryDB.peerInfo[newName] = EpogArmoryDB.peerInfo[newName] or { dbSize = 0, lastSeen = 0 }
+                    local target = EpogArmoryDB.peerInfo[newName]
+                    if (info.dbSize or 0) > (target.dbSize or 0) then
+                        target.dbSize = info.dbSize
+                    end
+                    if (info.lastSeen or 0) > (target.lastSeen or 0) then
+                        target.lastSeen = info.lastSeen
+                        target.lastCharName = info.lastCharName or aliasName
+                    end
+                    EpogArmoryDB.peerInfo[aliasName] = nil
+                    mergedPeers = mergedPeers + 1
+                end
+            end
+        end
+        print(string.format("|cffffaa44EpogArmory|r: merged %d scan attributions + %d peer entries → |cff00ff66%s|r",
+            rewroteScans, mergedPeers, newName))
+        print("|cff888888  Local-only — other guildies still see the original names until they merge too.|r")
+        if _G.EpogArmoryBrowserFrame and _G.EpogArmoryBrowserFrame:IsShown()
+            and _G.EpogArmoryBrowserFrame.Refresh then
+            _G.EpogArmoryBrowserFrame.Refresh()
         end
     elseif msg == "syncoff" or msg == "syncon" then
         -- Toggle the responder-side opt-out. When "off", we refuse any

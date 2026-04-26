@@ -15,6 +15,51 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v0.44 — Main-name UX + local merge + retro consolidation *(2026-04-26)*
+
+User testing on v0.43 surfaced three issues with the alt-consolidation flow. All addressed in v0.44.
+
+### 1. `/epogarmory main` display ambiguity
+
+The "no main set" output was `"main identity = Defcoil (defaulting to current character)"` — easy to misread as "the main IS Defcoil and changes per character". Now reads `"NOT SET — broadcasts will attribute to whichever character is currently logged in (now: Defcoil)"`. The configured case explicitly notes "(account-wide, persists across all your characters)" so users understand the scope.
+
+### 2. Retro consolidation when setting/changing main
+
+Setting `mainName` previously only affected *future* broadcasts. Past scans you'd captured under your various character names stayed under those names — your contributions appeared as 3-4 separate scanners in the leaderboard even after you set a main. v0.44: when you set or change your main, all `set.scannedBy` entries matching either the previous mainName OR any of your known character names get rewritten to the new main. `peerInfo` entries get merged the same way (largest dbSize wins; latest lastSeen wins; lastCharName preserved).
+
+Output line now also reports the consolidation:
+```
+EpogArmory: main identity = Defcon (account-wide; ...)
+  Consolidated: 87 stored scans + 3 peer entries from your alts → Defcon
+```
+
+Cross-mesh consolidation (other guildies' DBs) still requires either:
+- Their next ingest of one of your future broadcasts (which carry your main name) — gradual catch-up
+- Them running the new merge command (below) on your aliases
+
+### 3. New `/epogarmory merge` admin command
+
+```
+/epogarmory merge <newname> <alias1> [alias2] [alias3] ...
+```
+
+Locally rewrites `scannedBy` and `peerInfo` from the listed aliases into `<newname>`. Useful when you can see "Yippie" / "Yippee" / "Yiippee" in the Scanners view, know they're the same player, but they haven't set their main yet.
+
+Example use:
+```
+/epogarmory merge Yippie Yiippee Yippee
+EpogArmory: merged 31 scan attributions + 2 peer entries → Yippie
+  Local-only — other guildies still see the original names until they merge too.
+```
+
+Same merge logic as the main-rename consolidation. **Local only** — purely a per-client view fix; other guildies' DBs still show the original names until they run merge themselves (or the alt owner sets their main + new broadcasts propagate naturally).
+
+### Account-wide persistence — clarification
+
+`EpogArmoryDB` is declared in the TOC as `## SavedVariables: EpogArmoryDB, EpogItemCacheDB` (capital S = account-scope). It IS shared across all characters on the same WoW account. If you set `/epogarmory main Defcon` while playing Defcon and later log in as Defcoil, the main is still set to Defcon. The v0.43 behavior was correct; the new display message just makes that clearer.
+
+---
+
 ## EpogArmory v0.43 — Sender-side level gate + main-name identity *(2026-04-26)*
 
 Two changes that together solve the "alt pollution" problem in the mesh.
