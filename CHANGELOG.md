@@ -15,6 +15,26 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v1.1 — Pause auto-scan while manual inspect is open *(2026-04-26)*
+
+User reported that when they manually inspect someone via the Blizzard inspect frame and the addon's auto-scanner fires concurrently, the items in their inspect window become un-hoverable.
+
+Cause: WoW 3.3.5 has a single global "inspect target" slot. Calling `NotifyInspect` retargets it. When the addon called `NotifyInspect("partyN")` while the user had a manual inspect open, it overwrote the manual inspect's target — making all the cached item links in the user's frame point to a different unit (or be invalidated entirely).
+
+### Fix
+
+Two defensive guards:
+
+1. **`TryInspect` early-return:** if `InspectFrame` is shown, hold the queue without dropping items and re-check in 1s. The user's frame stays untouched. As soon as they close it, the scanner resumes from where it left off.
+
+2. **`OnInspectReady` drop-and-retry:** if the inspect-ready event fires while the manual frame is open (race: user opened it between our `NotifyInspect` and the response), discard the data and re-queue our target for `OUT_OF_RANGE_COOLDOWN`. Avoids saving potentially-wrong data attributed to our target's GUID.
+
+### `InspectFrame` lazy-load handled
+
+`InspectFrame` is created by `Blizzard_InspectUI` (LoadOnDemand). The `InspectFrame and InspectFrame:IsShown()` guard short-circuits cleanly when the user has never opened the inspect UI in this session.
+
+---
+
 ## EpogArmory v1.0 — First stable release *(2026-04-26)*
 
 After ~50 prereleases of iteration, EpogArmory graduates from `v0.x` prerelease to the first stable `v1.0`. No new features in this cut — it's the v0.54 codebase with a version bump and a recap of what the addon does.

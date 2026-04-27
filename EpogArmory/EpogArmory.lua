@@ -1668,6 +1668,20 @@ local function TryInspect()
     if now() < nextInspectAt then return end
     if #queue == 0 then return end
     if InCombatLockdown() then return end
+    -- v1.1: pause auto-scanning while the user has the Blizzard inspect frame
+    -- open. NotifyInspect() retargets the global inspect slot, which would
+    -- silently replace the manual inspect's data — items in their open
+    -- inspect window become un-hoverable because the live links are now for
+    -- a different unit. InspectFrame is created lazily by Blizzard_InspectUI
+    -- (LoadOnDemand); the `and` short-circuits when the user has never opened
+    -- the inspect UI in this session.
+    if InspectFrame and InspectFrame:IsShown() then
+        -- Hold the queue without dropping items — once they close it we'll
+        -- resume from where we left off. Small delay before the next attempt
+        -- so we don't busy-loop the OnUpdate driver while it's open.
+        nextInspectAt = now() + 1
+        return
+    end
 
     local entry = table.remove(queue, 1)
     inQueue[entry.guid] = nil
@@ -1699,6 +1713,18 @@ end
 
 local function OnInspectReady()
     if not current then return end
+    -- v1.1: If the user opened the Blizzard inspect frame between our
+    -- NotifyInspect call and this READY event, their manual NotifyInspect
+    -- may have replaced our target — meaning the data we'd read could be
+    -- theirs, not ours. Drop the result and retry our target later.
+    if InspectFrame and InspectFrame:IsShown() then
+        dprint(string.format("[inspect] READY for %s but user has manual inspect open — drop + retry",
+            UnitName(current.unit) or "?"))
+        local g = current.guid
+        ClearCurrent()
+        markRetryIn(g, OUT_OF_RANGE_COOLDOWN)
+        return
+    end
     local c = current
     if UnitGUID(c.unit) ~= c.guid then
         dprint("[inspect] READY fired but current GUID no longer matches — dropping")
