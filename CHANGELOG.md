@@ -15,6 +15,66 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v1.1.3 — Slot-based item verification (heals reassigned itemIDs) *(2026-04-28)*
+
+The `/epogarmory dump` output revealed Ascension reassigns vanilla itemIDs server-side. Example from a real scan:
+
+```
+slot 15 (back):     itemID 13340 → "Chainmail Boots"   Armor/Mail @ INVTYPE_FEET
+slot 16 (mainhand): itemID 90102 → "Loose Chain Pants" Armor/Mail @ INVTYPE_LEGS
+```
+
+Boots in the back slot, pants in mainhand — impossible under valid data. Cause: the server's database has reassigned those itemIDs to custom raid items, but the client's local DBC files still contain the original vanilla data. `GetItemInfo` reads DBC and returns the stale info. Live tooltips work correctly because `SetHyperlink` triggers `CMSG_ITEM_QUERY_SINGLE` → server responds with `SMSG_QUERY_ITEM_RESPONSE` → updates the client's *dynamic* cache, which overrides DBC. Our addon's cache fill never triggered the server query because `GetItemInfo` returned non-nil (just wrong) data, so we confidently cached the vanilla item info.
+
+### Fix: detect mismatch + re-fetch + cache verified state
+
+Per user feedback, "can we figure out if that item actually needs a query first, and cache the result so we don't query repeatedly?" — yes. Added per-cache-entry verification:
+
+```lua
+local EXPECTED_INVTYPE_BY_SLOT = {
+    [15] = { ["INVTYPE_CLOAK"] = true },
+    [16] = { ["INVTYPE_WEAPON"] = true, ["INVTYPE_2HWEAPON"] = true, ["INVTYPE_WEAPONMAINHAND"] = true },
+    -- ... all 19 slots mapped to valid INVTYPE strings
+}
+```
+
+When `CacheItemInfo` is called with slot context (now passed everywhere it's reachable from gear iteration):
+
+1. **Check existing cache.** If entry is verified (`equipLoc` matched the slot last time), short-circuit and return.
+2. **Call `GetItemInfo`.** Get the equipLoc.
+3. **Verify.** If `equipLoc` fits the slot — cache as verified, done.
+4. **Mismatch path:**
+   - Force `SetHyperlink` to refresh the dynamic cache from server.
+   - Increment `verifyAttempts`. Cap at 3.
+   - Don't write the (stale) data — keep the prior entry, queue for retry via `pendingCache`.
+   - Pending-cache flow re-runs `CacheItemInfo` after a short delay. By then, the dynamic cache has the server's real data and the next `GetItemInfo` returns the correct equipLoc.
+5. **Give up after 3 attempts** (server doesn't have updated data for this ID either) — cache what we have but mark `verified = false`.
+
+### New cache fields (CACHE_SCHEMA v10 → v11)
+
+- `equipLoc` — the slot type GetItemInfo returned (for verification + dump diagnostics)
+- `verified` — `true` if equipLoc matched observed slot, `false` if we gave up after retries
+- `verifyAttempts` — retry count, persisted so we don't loop across sessions
+- `lastVerifyAt` — unix ts of last verification attempt
+
+Existing v10 entries lack these fields and are now treated as "needs verification" — they get re-validated on next observation. Entries that are correct stay correct (verification passes, marked verified, never re-queried).
+
+### Healing existing wrong cache
+
+Running `/epogarmory cachebuild` walks every stored player's gear and calls `CacheItemInfo` with slot context for each itemID. With v1.1.3, that now triggers verification across the whole DB in one pass.
+
+### Dump command shows verification status
+
+The `/epogarmory dump` output now annotates each cache entry with `✓verified` (green) or `✗unverified (attempts=N, equipLoc=X)` (red).
+
+### Cost analysis
+
+- Verified items: zero overhead (early-out at the cache lookup).
+- Unverified items: one `SetHyperlink` per attempt, capped at 3. Persisted, so a future session doesn't re-attempt unless cache schema bumps again.
+- Schema bump healing: items not currently observable (player not stored anymore) stay at v10 stale and are never re-touched. No background mass-query.
+
+---
+
 ## EpogArmory v1.1.2 — Dump command: PvP detection trace *(2026-04-28)*
 
 User clarified their problem trinket actually contained "Insignia" — so v1.1.1's "Medallion broadening" hypothesis didn't apply to their case. Something else caused the routing to miss.

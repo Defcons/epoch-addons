@@ -303,7 +303,15 @@ local CACHE_GIVE_UP        = 15
 --      equivalent is already present in stats. Was double-rendering
 --      on the site (once from stats, once from tooltipStats) for any
 --      modern item that has both. v0.40.
-local CACHE_SCHEMA = 10
+-- v11: + slot-vs-equipLoc verification. Ascension reassigns vanilla
+--      itemIDs server-side; client DBC returns stale (vanilla) data
+--      that mismatches the actual equipped slot. New entry fields:
+--        equipLoc        — stored from GetItemInfo
+--        verified        — true if equipLoc matched observed slot
+--        verifyAttempts  — 0..3, retries forcing SetHyperlink to refresh
+--                          the dynamic cache; gives up after 3
+--      Existing v10 entries get re-validated on next observation.
+local CACHE_SCHEMA = 11
 
 -- Tooltip-text patterns for percent-based stats that predate the rating
 -- system and aren't in GetItemStats' enum. Keys are plain uppercase tokens
@@ -633,6 +641,43 @@ end
 
 local cacheTip -- created lazily on first use
 
+-- v11: equipment slot index → set of valid INVTYPE_* strings the slot
+-- accepts. Used to detect when GetItemInfo returns stale DBC data
+-- (Ascension reassigns vanilla itemIDs server-side; the client's local
+-- DBC returns the OLD vanilla item info, which has a slot type that
+-- doesn't match what the player actually has equipped). A mismatch is
+-- the signal to force a server query and refresh the dynamic cache.
+local EXPECTED_INVTYPE_BY_SLOT = {
+    [1]  = { ["INVTYPE_HEAD"]     = true },
+    [2]  = { ["INVTYPE_NECK"]     = true },
+    [3]  = { ["INVTYPE_SHOULDER"] = true },
+    [4]  = { ["INVTYPE_BODY"]     = true }, -- shirt
+    [5]  = { ["INVTYPE_CHEST"]    = true, ["INVTYPE_ROBE"] = true },
+    [6]  = { ["INVTYPE_WAIST"]    = true },
+    [7]  = { ["INVTYPE_LEGS"]     = true },
+    [8]  = { ["INVTYPE_FEET"]     = true },
+    [9]  = { ["INVTYPE_WRIST"]    = true },
+    [10] = { ["INVTYPE_HAND"]     = true },
+    [11] = { ["INVTYPE_FINGER"]   = true },
+    [12] = { ["INVTYPE_FINGER"]   = true },
+    [13] = { ["INVTYPE_TRINKET"]  = true },
+    [14] = { ["INVTYPE_TRINKET"]  = true },
+    [15] = { ["INVTYPE_CLOAK"]    = true },
+    [16] = { ["INVTYPE_WEAPON"]   = true, ["INVTYPE_2HWEAPON"] = true, ["INVTYPE_WEAPONMAINHAND"] = true },
+    [17] = { ["INVTYPE_WEAPON"]   = true, ["INVTYPE_SHIELD"]   = true, ["INVTYPE_HOLDABLE"]       = true, ["INVTYPE_WEAPONOFFHAND"] = true },
+    [18] = { ["INVTYPE_RANGED"]   = true, ["INVTYPE_RANGEDRIGHT"] = true, ["INVTYPE_THROWN"] = true, ["INVTYPE_RELIC"] = true },
+    [19] = { ["INVTYPE_TABARD"]   = true },
+}
+
+-- True when the equipLoc fits the slot. False = definite mismatch (smoking
+-- gun for itemID reassignment). Returns true if either argument is missing
+-- so we don't flag-as-bad items where we lack data to compare.
+local function SlotMatchesInvtype(slot, equipLoc)
+    if not slot or not equipLoc or equipLoc == "" then return true end
+    local valid = EXPECTED_INVTYPE_BY_SLOT[slot]
+    return (valid and valid[equipLoc]) and true or false
+end
+
 local function TriggerItemFetch(itemID)
     if not cacheTip then
         cacheTip = CreateFrame("GameTooltip", "EpogArmoryItemCacheTip", UIParent, "GameTooltipTemplate")
@@ -649,18 +694,55 @@ end
 -- by GetItemStats below to capture Ascension's modified stat values. If
 -- omitted, falls back to a bare "item:itemID" link which still returns the
 -- base item's stats.
-local function CacheItemInfo(itemID, itemLink)
+local function CacheItemInfo(itemID, itemLink, slot)
     if not itemID or itemID <= 0 then return false end
     EpogItemCacheDB = EpogItemCacheDB or {}
-    -- Skip only when we already have a current-schema entry. Pre-v0.22 entries
-    -- (no .v, no stats) re-fetch here so they pick up GetItemStats data.
+    -- Skip only when we already have a current-schema entry that's been
+    -- verified (v11+: equipLoc matches observed slot) OR we have no slot
+    -- to validate against. Pre-v0.22 entries (no .v, no stats) re-fetch
+    -- here so they pick up GetItemStats data; v10 entries lacking
+    -- equipLoc/verified fields fall through and get re-validated.
     local existing = EpogItemCacheDB[itemID]
-    if existing and existing.v == CACHE_SCHEMA then return true end
+    if existing and existing.v == CACHE_SCHEMA and existing.verified ~= false then
+        if not slot then return true end
+        if SlotMatchesInvtype(slot, existing.equipLoc) then return true end
+        -- Existing entry's stored equipLoc disagrees with the slot this
+        -- itemID was just observed in. Could be: server reassigned the ID
+        -- since we last cached, OR our prior cache had wrong data. Fall
+        -- through and re-validate.
+    end
 
-    local name, _, quality, itemLevel, _, _, _, _, _, texture = GetItemInfo(itemID)
+    local name, _, quality, itemLevel, _, _, _, _, equipLoc, texture = GetItemInfo(itemID)
     if not name then
         TriggerItemFetch(itemID)
         return false
+    end
+
+    -- v11: slot-vs-equipLoc verification. If GetItemInfo returns an equipLoc
+    -- that doesn't fit the slot we observed this itemID in, the client's
+    -- DBC has stale data (Ascension server-side itemID reassignment).
+    -- Force a server query via SetHyperlink — the dynamic item cache will
+    -- update on SMSG_QUERY_ITEM_RESPONSE and a future call will see the
+    -- correct equipLoc. Cap at 3 attempts so we don't loop forever.
+    local verified = SlotMatchesInvtype(slot, equipLoc)
+    if (not verified) and slot then
+        local attempts = (existing and existing.verifyAttempts) or 0
+        if attempts < 3 then
+            TriggerItemFetch(itemID)
+            -- Don't write a stale entry; preserve the old one (if any) and
+            -- bump verifyAttempts so we know how many tries we've made.
+            -- Pending-cache flow will retry CacheItemInfo on its next tick.
+            EpogItemCacheDB[itemID] = existing or { v = CACHE_SCHEMA }
+            EpogItemCacheDB[itemID].v = CACHE_SCHEMA
+            EpogItemCacheDB[itemID].verifyAttempts = attempts + 1
+            EpogItemCacheDB[itemID].lastVerifyAt = floor(time())
+            EpogItemCacheDB[itemID].verified = false
+            dprint(string.format("[cache] slot mismatch for itemID %d: GetItemInfo→equipLoc=%s for slot %d (\"%s\") — query attempt %d/3",
+                itemID, equipLoc or "?", slot, name or "?", attempts + 1))
+            return false
+        end
+        dprint(string.format("[cache] giving up verification for itemID %d after 3 attempts (slot %d, equipLoc=%s) — caching unverified",
+            itemID, slot, equipLoc or "?"))
     end
     -- texture is "Interface\Icons\INV_Sword_01" — we want the basename, lowercased.
     local icon = nil
@@ -674,6 +756,8 @@ local function CacheItemInfo(itemID, itemLink)
         quality = quality or 0,
         itemLevel = itemLevel or 0,
         icon = icon,
+        equipLoc = equipLoc,    -- v11: stored for future verification + dump diagnostics
+        verified = verified,    -- v11: true when equipLoc matched the observed slot
         ts = floor(time()),
     }
 
@@ -728,14 +812,21 @@ local function CacheItemInfo(itemID, itemLink)
     return true
 end
 
-local function MarkPendingCache(itemID, itemLink)
+local function MarkPendingCache(itemID, itemLink, slot)
     if not itemID or itemID <= 0 then return end
-    -- Only skip if a current-schema entry exists. Stale entries fall through
-    -- so the pending retry loop eventually re-runs CacheItemInfo and upgrades.
+    -- Only skip if a current-schema entry exists AND it's verified. Stale
+    -- entries (or unverified slot-mismatched entries) fall through so the
+    -- pending retry loop re-runs CacheItemInfo and either upgrades the
+    -- cache or bumps verifyAttempts.
     local existing = EpogItemCacheDB and EpogItemCacheDB[itemID]
-    if existing and existing.v == CACHE_SCHEMA then return end
+    if existing and existing.v == CACHE_SCHEMA and existing.verified ~= false then
+        -- If we have a slot, also confirm the cached equipLoc fits — if it
+        -- doesn't, fall through to retry (covers v10→v11 migration where
+        -- old entries lack equipLoc).
+        if not slot or SlotMatchesInvtype(slot, existing.equipLoc) then return end
+    end
     if not pendingCache[itemID] then
-        pendingCache[itemID] = { firstSeen = now(), link = itemLink }
+        pendingCache[itemID] = { firstSeen = now(), link = itemLink, slot = slot }
         TriggerItemFetch(itemID)
     end
 end
@@ -744,7 +835,7 @@ local function TryCachePending()
     if not next(pendingCache) then return end
     local nowT = now()
     for iid, info in pairs(pendingCache) do
-        if CacheItemInfo(iid, info.link) then
+        if CacheItemInfo(iid, info.link, info.slot) then
             pendingCache[iid] = nil
         elseif (nowT - info.firstSeen) > CACHE_GIVE_UP then
             pendingCache[iid] = nil -- server never responded; try again on next scan
@@ -755,6 +846,7 @@ end
 -- iterate gear slots, ensure every itemID is either cached or queued.
 -- Passes the full itemstring as the hyperlink so GetItemStats can include
 -- suffix-variant stats on the first scan that lands.
+-- v11: passes slot index so CacheItemInfo can verify equipLoc matches.
 local function CachePayloadItems(entry)
     if not entry or not entry.gear then return end
     for slot = 1, 19 do
@@ -763,7 +855,7 @@ local function CachePayloadItems(entry)
             local iid = tonumber(raw:match("^(%d+)"))
             if iid and iid > 0 then
                 local link = "item:" .. raw
-                if not CacheItemInfo(iid, link) then MarkPendingCache(iid, link) end
+                if not CacheItemInfo(iid, link, slot) then MarkPendingCache(iid, link, slot) end
             end
         end
     end
@@ -2115,10 +2207,11 @@ local function CacheBuildAll()
                 if iid and iid > 0 then
                     tried = tried + 1
                     local link = "item:" .. raw
-                    if CacheItemInfo(iid, link) then
+                    -- v11: pass slot for equipLoc verification
+                    if CacheItemInfo(iid, link, slot) then
                         hit = hit + 1
                     else
-                        MarkPendingCache(iid, link)
+                        MarkPendingCache(iid, link, slot)
                         pended = pended + 1
                     end
                 end
@@ -2330,9 +2423,16 @@ SlashCmdList["EPOGARMORY"] = function(msg)
                         end
                         if EpogItemCacheDB and EpogItemCacheDB[itemID] then
                             local c = EpogItemCacheDB[itemID]
-                            print(string.format("    Cache: \"%s\" Q%d ilvl%d icon=%s v=%s",
+                            local verifyStr = ""
+                            if c.verified == true then
+                                verifyStr = " |cff66ff66✓verified|r"
+                            elseif c.verified == false then
+                                verifyStr = string.format(" |cffff6666✗unverified|r (attempts=%d, equipLoc=%s)",
+                                    c.verifyAttempts or 0, c.equipLoc or "?")
+                            end
+                            print(string.format("    Cache: \"%s\" Q%d ilvl%d icon=%s v=%s%s",
                                 c.name or "?", c.quality or 0, c.itemLevel or 0,
-                                c.icon or "?", tostring(c.v)))
+                                c.icon or "?", tostring(c.v), verifyStr))
                         else
                             print("    Cache: |cff666666(not cached)|r")
                         end
