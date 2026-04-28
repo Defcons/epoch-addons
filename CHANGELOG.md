@@ -15,37 +15,40 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
-## EpogArmory v1.2 — `/epogarmory dump` diagnostic for transmog investigation *(2026-04-28)*
+## EpogArmory v1.1.1 — Dump diagnostic + broader PvP trinket detection *(2026-04-28)*
 
-User reported transmog on Ascension is somehow making stored gear look "super random" even though item names + stats display correctly. To investigate, added a forensic dump command that exposes every layer of what we know about a stored player's gear.
+Two patches: a forensic dump command for the transmog investigation, and a fix for the "Insignia/Medallion equipped but routed to non-PvP set" bug.
 
-### Usage
+### Versioning policy
 
-```
-/epogarmory dump <playerName>
-```
+This and future small fixes go to `v1.1.X`. `v1.2` reserved for actual minor releases (new feature surfaces).
 
-For each set (set 1/2/3/pvp) of the stored player, prints all 19 slots with:
+### Patch 1: `/epogarmory dump <playerName>`
 
-1. **Raw itemstring** + **field count** — standard 3.3.5 itemstring is `item:itemID:enchant:gem1:gem2:gem3:gem4:suffix:unique:level` (10 fields including `item`). If the count is higher, that's an Ascension server-side extension (custom stats / reforge / transmog payload). Extras get dumped explicitly.
+Forensic diagnostic for investigating gear-display anomalies (transmog or otherwise). For each set (set 1/2/3/pvp) of the stored player, prints all 19 slots with:
+
+1. **Raw itemstring** + **field count** — standard 3.3.5 itemstring is `itemID:enchant:gem1:gem2:gem3:gem4:suffix:unique:level` (9 fields). Anything more = Ascension server-side extension (custom stats / reforge / transmog). Extras dumped explicitly.
 2. **`GetItemInfo(itemID)`** — name, quality, ilvl, type, subtype, equipLoc.
-3. **`GetItemInfo(fullLink)`** — same lookup but with the full itemstring. If the result differs from the itemID-only lookup, the link's extra fields are altering the resolution — that's a smoking gun.
-4. **`GetItemStats(fullLink)`** — every stat key/value pair. Compare to the live tooltip stats to see if our cache disagrees.
-5. **`EpogItemCacheDB[itemID]`** — what we have stored (name, quality, ilvl, icon, schema version).
+3. **`GetItemInfo(fullLink)`** — same lookup with the full itemstring. If the result differs from the itemID-only lookup, the link's extra fields are altering resolution — that's a smoking gun.
+4. **`GetItemStats(fullLink)`** — every stat key/value pair. Compare to live tooltip stats.
+5. **`EpogItemCacheDB[itemID]`** — what we have cached (name, quality, ilvl, icon, schema version).
 
-### Why this is useful
+Output is verbose but designed for chat scrollback (~5-7 lines per occupied slot). Run on a known-affected player and we can pinpoint where the divergence happens.
 
-The user's report had a paradox: name + stats appear correct in the tooltip, but the gear looks wrong elsewhere. The dump exposes whether:
-- Itemstrings have non-standard extra fields (Ascension custom data we're not parsing)
-- `GetItemInfo` returns different results for itemID vs full link (the extras are altering it)
-- `GetItemStats` matches what the player actually has equipped
-- The cache contains stale or wrong-itemID data
+### Patch 2: PvP trinket detection now catches Medallion + Battlemaster's
 
-Run on a known-affected player and we can pinpoint where the divergence happens.
+User noted an Insignia trinket ended up stored under their assassination set instead of the `pvp` set. Looking at the detection rules, two failure modes:
+
+- **Pattern was too narrow.** `PVP_TRINKET_NAME_PATTERNS = { "Insignia" }` missed `"Medallion of the Alliance/Horde"` entirely — a Medallion-equipped scan would route to the dominant-tree set instead of `sets["pvp"]`. Broadened to `{ "Insignia", "Medallion", "Battlemaster's" }`.
+- **Stale stored sets won't auto-rewrite.** PvP routing landed in v0.33; any set scanned before that (or with a Medallion that the old pattern missed) is stuck wherever it was originally stored. The detection rules only apply at scan time. To fix existing stale sets: just rescan — equip the PvP trinket and the next self-scan will route correctly. Old set 1 entry stays until something overwrites it (or you wipe).
+
+This is purely a detection broadening. The wire protocol and routing logic are unchanged.
 
 ### No protocol changes
 
-Pure read-only diagnostic. No new wire messages, no SavedVariables changes. Output is verbose but designed for chat scrollback (~5-7 lines per occupied slot).
+Both patches are local. No new wire messages, no SavedVariables shape change, no compat concerns.
+
+---
 
 ---
 

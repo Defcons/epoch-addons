@@ -135,10 +135,15 @@ local UTILITY_ITEM_NAMES_BY_SLOT = {
     -- (empty for now — future slot-specific utility patterns go here)
 }
 
--- PvP loadout detection: an Insignia trinket in slot 13 or 14 flags the
+-- PvP loadout detection: a PvP trinket in slot 13 or 14 flags the
 -- whole equipped set as a PvP loadout. Scanned as a distinct set keyed
 -- sets["pvp"] on the player record.
-local PVP_TRINKET_NAME_PATTERNS = { "Insignia" }
+-- v1.1.1: broadened patterns. Vanilla/TBC/WotLK PvP trinkets are named
+-- "Insignia of the Alliance/Horde" OR "Medallion of the Alliance/Horde"
+-- (and various Battlemaster's variants). The original "Insignia"-only
+-- pattern missed Medallions entirely — so a Medallion-equipped scan
+-- would route to the dominant-tree set instead of sets["pvp"].
+local PVP_TRINKET_NAME_PATTERNS = { "Insignia", "Medallion", "Battlemaster's" }
 local TRINKET_SLOTS = { 13, 14 }
 
 local function GearLooksPvP(gearLookup)
