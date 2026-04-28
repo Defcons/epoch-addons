@@ -15,6 +15,40 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v1.2 — `/epogarmory dump` diagnostic for transmog investigation *(2026-04-28)*
+
+User reported transmog on Ascension is somehow making stored gear look "super random" even though item names + stats display correctly. To investigate, added a forensic dump command that exposes every layer of what we know about a stored player's gear.
+
+### Usage
+
+```
+/epogarmory dump <playerName>
+```
+
+For each set (set 1/2/3/pvp) of the stored player, prints all 19 slots with:
+
+1. **Raw itemstring** + **field count** — standard 3.3.5 itemstring is `item:itemID:enchant:gem1:gem2:gem3:gem4:suffix:unique:level` (10 fields including `item`). If the count is higher, that's an Ascension server-side extension (custom stats / reforge / transmog payload). Extras get dumped explicitly.
+2. **`GetItemInfo(itemID)`** — name, quality, ilvl, type, subtype, equipLoc.
+3. **`GetItemInfo(fullLink)`** — same lookup but with the full itemstring. If the result differs from the itemID-only lookup, the link's extra fields are altering the resolution — that's a smoking gun.
+4. **`GetItemStats(fullLink)`** — every stat key/value pair. Compare to the live tooltip stats to see if our cache disagrees.
+5. **`EpogItemCacheDB[itemID]`** — what we have stored (name, quality, ilvl, icon, schema version).
+
+### Why this is useful
+
+The user's report had a paradox: name + stats appear correct in the tooltip, but the gear looks wrong elsewhere. The dump exposes whether:
+- Itemstrings have non-standard extra fields (Ascension custom data we're not parsing)
+- `GetItemInfo` returns different results for itemID vs full link (the extras are altering it)
+- `GetItemStats` matches what the player actually has equipped
+- The cache contains stale or wrong-itemID data
+
+Run on a known-affected player and we can pinpoint where the divergence happens.
+
+### No protocol changes
+
+Pure read-only diagnostic. No new wire messages, no SavedVariables changes. Output is verbose but designed for chat scrollback (~5-7 lines per occupied slot).
+
+---
+
 ## EpogArmory v1.1 — Pause auto-scan while manual inspect is open *(2026-04-26)*
 
 User reported that when they manually inspect someone via the Blizzard inspect frame and the addon's auto-scanner fires concurrently, the items in their inspect window become un-hoverable.

@@ -2149,6 +2149,7 @@ local function ShowHelp()
     print("  /epogarmory main [name]   — set/show your main-character identity (consolidates alts in the mesh)")
     print("  /epogarmory merge <newname> <alias1> [alias2] ... — locally re-attribute scans from peer aliases to one canonical name")
     print("  /epogarmory refreshpeers  — ping guildmates for fresh identity + DB-size info (Scanners-view leaderboard)")
+    print("  /epogarmory dump <name>   — diagnostic dump of every layer (itemstring, GetItemInfo, GetItemStats, cache) for each slot of a stored player")
     print("|cff888888  Source + releases: github.com/Defcons/epogarmory-addon|r")
     -- dumpspec left in place but not advertised — internal diagnostic.
 end
@@ -2193,6 +2194,117 @@ SlashCmdList["EPOGARMORY"] = function(msg)
             print(string.format("  %s %s L%d [%s] — by %s at %s",
                 p.class or "?", p.name or "?", p.level or 0, p.zone or "?",
                 p.scannedBy or "?", date("%Y-%m-%d %H:%M", p.scanTime or 0)))
+        end
+    elseif msg:sub(1, 4) == "dump" then
+        -- v1.2: forensic diagnostic. Dumps every layer of what we know about
+        -- a stored player's gear so we can find where transmog data is
+        -- bleeding through. For each of the 19 slots, prints:
+        --   - the raw itemstring (and how many `:`-separated fields it has;
+        --     standard format is 9, anything more = Ascension custom field)
+        --   - GetItemInfo(itemID) result
+        --   - GetItemInfo(fullLink) result (compared to above; if they
+        --     differ, the link's extra fields are altering the lookup)
+        --   - GetItemStats(fullLink) — every stat key/value
+        --   - EpogItemCacheDB entry (what we have cached)
+        -- Output is verbose but designed for chat scrollback. Run on a
+        -- known-affected player and share the output to investigate.
+        local nameArg = msg:match("^dump%s+(.+)$")
+        if not nameArg or nameArg == "" then
+            print("|cffffaa44EpogArmory|r: usage — /epogarmory dump <playerName>")
+            return
+        end
+        nameArg = nameArg:gsub("^%s+", ""):gsub("%s+$", "")
+        nameArg = nameArg:sub(1, 1):upper() .. nameArg:sub(2):lower()
+        local target
+        if EpogArmoryDB and EpogArmoryDB.players then
+            for _, p in pairs(EpogArmoryDB.players) do
+                if (p.name or "") == nameArg then target = p; break end
+            end
+        end
+        if not target then
+            print(string.format("|cffffaa44EpogArmory|r: no stored player named %s", nameArg))
+            return
+        end
+        local SLOT_LABEL = {
+            "head", "neck", "shoulder", "shirt", "chest", "waist", "legs", "feet",
+            "wrist", "hands", "finger1", "finger2", "trinket1", "trinket2",
+            "back", "mainhand", "offhand", "ranged", "tabard",
+        }
+        local function dumpSet(setKey, set)
+            print(string.format("|cffffaa44=== %s [set %s] ===|r scanned by %s at %s, zone %s",
+                target.name, tostring(setKey), set.scannedBy or "?",
+                date("%Y-%m-%d %H:%M:%S", set.scanTime or 0), set.zone or "?"))
+            for slot = 1, 19 do
+                local itemstring = set.gear and set.gear[slot]
+                if not itemstring or itemstring == "" then
+                    print(string.format("  slot %d (%s): |cff666666(empty)|r", slot, SLOT_LABEL[slot] or "?"))
+                else
+                    -- Count `:` fields. Standard 3.3.5 itemstring is 9 fields:
+                    -- item:itemID:enchant:gem1:gem2:gem3:gem4:suffix:unique:level
+                    -- Anything more suggests Ascension server-side extension
+                    -- (custom stats, reforge, transmog, etc.).
+                    local fields = {}
+                    for f in (itemstring .. ":"):gmatch("([^:]*):") do
+                        fields[#fields + 1] = f
+                    end
+                    local itemID = tonumber(fields[2])
+                    local extraNote = ""
+                    if #fields > 10 then
+                        extraNote = string.format(" |cffff9966[%d fields, %d extras beyond standard]|r",
+                            #fields, #fields - 10)
+                    end
+                    print(string.format("  slot %d (%s): %s%s",
+                        slot, SLOT_LABEL[slot] or "?", itemstring, extraNote))
+                    if #fields > 10 then
+                        local extras = {}
+                        for i = 11, #fields do
+                            extras[#extras + 1] = string.format("[%d]=%s", i, fields[i])
+                        end
+                        print("    extras: " .. table.concat(extras, " "))
+                    end
+                    if itemID then
+                        local n, _, q, ilvl, _, t, st, _, eq = GetItemInfo(itemID)
+                        if n then
+                            print(string.format("    GetItemInfo(id): \"%s\" Q%d ilvl%d %s/%s @ %s",
+                                n, q or 0, ilvl or 0, t or "?", st or "?", eq or "?"))
+                        else
+                            print("    GetItemInfo(id): nil (not in client cache yet)")
+                        end
+                        local n2, _, q2, ilvl2 = GetItemInfo(itemstring)
+                        if n2 and (n2 ~= n or q2 ~= q or ilvl2 ~= ilvl) then
+                            print(string.format("    |cffff9966GetItemInfo(link) DIFFERS:|r \"%s\" Q%d ilvl%d",
+                                n2, q2 or 0, ilvl2 or 0))
+                        end
+                        if GetItemStats then
+                            local stats = GetItemStats(itemstring)
+                            if stats and next(stats) then
+                                local pairs_ = {}
+                                for k, v in pairs(stats) do
+                                    if type(v) == "number" and v ~= 0 then
+                                        pairs_[#pairs_ + 1] = string.format("%s=%s", k, tostring(v))
+                                    end
+                                end
+                                if #pairs_ > 0 then
+                                    print("    GetItemStats: " .. table.concat(pairs_, ", "))
+                                end
+                            end
+                        end
+                        if EpogItemCacheDB and EpogItemCacheDB[itemID] then
+                            local c = EpogItemCacheDB[itemID]
+                            print(string.format("    Cache: \"%s\" Q%d ilvl%d icon=%s v=%s",
+                                c.name or "?", c.quality or 0, c.itemLevel or 0,
+                                c.icon or "?", tostring(c.v)))
+                        else
+                            print("    Cache: |cff666666(not cached)|r")
+                        end
+                    end
+                end
+            end
+        end
+        if target.sets then
+            for setKey, set in pairs(target.sets) do dumpSet(setKey, set) end
+        else
+            print("(no sets stored)")
         end
     elseif msg == "dumpspec" or msg == "specs" then
         -- Diagnostic: shows every talent-API variant's read for each of the
