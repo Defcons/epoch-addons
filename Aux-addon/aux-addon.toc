@@ -33,6 +33,7 @@ core\stack.lua
 core\post.lua
 core\tooltip.lua
 core\pfui_compat.lua
+core\blizzard_compat.lua
 
 gui\listing.lua
 gui\auction_listing.lua
