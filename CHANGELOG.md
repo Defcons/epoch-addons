@@ -15,6 +15,42 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v1.1.4 — Stop fetch-spam, pass full link, bump timeout *(2026-04-28)*
+
+User ran v1.1.3's `/epogarmory cachebuild` on a real DB (3221 items, 1188 needing fetch). Result: the dump showed almost everything still `Cache: (not cached)` after a full minute. Diagnosed three problems with the fetch path; fixed all.
+
+### Bug 1: TriggerItemFetch fired on every retry tick
+
+```
+TryCachePending tick (every 0.25s) → CacheItemInfo → GetItemInfo nil → TriggerItemFetch
+```
+
+For 1188 pending items, that's ~4750 `SetHyperlink` calls per second. The client and server can't sustain that — queries get dropped, server stops responding. **Fix:** removed the `TriggerItemFetch` call from `CacheItemInfo`'s nil branch. The fetch is already triggered once when `MarkPendingCache` adds the item; subsequent retries just poll `GetItemInfo` until the response lands.
+
+### Bug 2: Slot-mismatch verify also re-fired on every tick
+
+Same pattern in the verification branch — every retry called `TriggerItemFetch` again. **Fix:** added a 2-second time gate via `lastVerifyAt`. Per-item retries now happen at most every 2 seconds (still fits within 3 attempts × 2s = 6s, well under `CACHE_GIVE_UP`).
+
+### Bug 3: Bare `item:itemID` query instead of full link
+
+`TriggerItemFetch` was calling `SetHyperlink("item:" .. itemID)` — the bare itemID format. Ascension's server-side custom items have suffix/enchant/gem data that may matter for the lookup. **Fix:** `TriggerItemFetch` now accepts the full itemstring (passed from `MarkPendingCache` and the slot-mismatch retry path), so the query carries the original payload.
+
+### Tuning: CACHE_GIVE_UP 15s → 60s
+
+Mass cachebuild on Ascension custom-itemID payloads needs time. With the spam fixed, the natural pace is much slower — bumped the give-up timeout to 60s so we don't drop pending entries before the server has a chance to respond.
+
+### Slot map kept strict
+
+Initial draft of v1.1.4 broadened slot 17 to accept INVTYPE_2HWEAPON / INVTYPE_WEAPONMAINHAND, hypothesizing Titan's Grip-style configurations on the classless system. **User confirmed Titan's Grip is not a thing on Ascension** — so those mismatches ARE genuine reassignments to fix via server query, not false positives to mask. Reverted to the original strict slot map.
+
+### What to do after upgrading
+
+1. `/reload` or relog.
+2. Run `/epogarmory cachebuild` — should now actually populate over the next ~30 seconds without flooding.
+3. `/epogarmory dump <player>` — verified items should annotate as `✓verified`; reassigned itemIDs should heal as the server's real data arrives.
+
+---
+
 ## EpogArmory v1.1.3 — Slot-based item verification (heals reassigned itemIDs) *(2026-04-28)*
 
 The `/epogarmory dump` output revealed Ascension reassigns vanilla itemIDs server-side. Example from a real scan:

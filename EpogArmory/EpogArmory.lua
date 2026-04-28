@@ -265,7 +265,10 @@ end
 -- is the in-memory retry queue for items the client hasn't fetched yet.
 local pendingCache = {} -- itemID -> firstSeenTime
 local CACHE_RETRY_INTERVAL = 0.5
-local CACHE_GIVE_UP        = 15
+-- v1.1.4: was 15s. Bumped because mass cachebuild on Ascension custom-itemID
+-- payloads needs time for the server to respond to all CMSG_ITEM_QUERY_SINGLE
+-- requests, and our previous re-trigger spam (now fixed) starved the channel.
+local CACHE_GIVE_UP        = 60
 -- Cache schema version. Bumped when the shape of EpogItemCacheDB[itemID]
 -- changes in a way that requires re-fetching. Entries with a lower (or
 -- missing) .v are treated as stale on the next touch.
@@ -663,6 +666,12 @@ local EXPECTED_INVTYPE_BY_SLOT = {
     [13] = { ["INVTYPE_TRINKET"]  = true },
     [14] = { ["INVTYPE_TRINKET"]  = true },
     [15] = { ["INVTYPE_CLOAK"]    = true },
+    -- v1.1.4: kept strict — Ascension does NOT have Titan's Grip, so
+    -- INVTYPE_2HWEAPON in slot 17 is a real reassignment (server reassigned
+    -- a vanilla 2H itemID to its custom offhand item; client DBC returns
+    -- the stale 2H data). Same logic for INVTYPE_WEAPONMAINHAND in offhand.
+    -- These mismatches are REAL bugs to fix via server query, not false
+    -- positives to mask.
     [16] = { ["INVTYPE_WEAPON"]   = true, ["INVTYPE_2HWEAPON"] = true, ["INVTYPE_WEAPONMAINHAND"] = true },
     [17] = { ["INVTYPE_WEAPON"]   = true, ["INVTYPE_SHIELD"]   = true, ["INVTYPE_HOLDABLE"]       = true, ["INVTYPE_WEAPONOFFHAND"] = true },
     [18] = { ["INVTYPE_RANGED"]   = true, ["INVTYPE_RANGEDRIGHT"] = true, ["INVTYPE_THROWN"] = true, ["INVTYPE_RELIC"] = true },
@@ -678,13 +687,16 @@ local function SlotMatchesInvtype(slot, equipLoc)
     return (valid and valid[equipLoc]) and true or false
 end
 
-local function TriggerItemFetch(itemID)
+local function TriggerItemFetch(itemID, itemLink)
     if not cacheTip then
         cacheTip = CreateFrame("GameTooltip", "EpogArmoryItemCacheTip", UIParent, "GameTooltipTemplate")
         cacheTip:SetOwner(UIParent, "ANCHOR_NONE")
     end
     cacheTip:ClearLines()
-    cacheTip:SetHyperlink("item:" .. itemID)
+    -- v1.1.4: prefer the full itemstring (with enchant/gem/suffix) over a
+    -- bare "item:itemID". Ascension server-side data may differ when queried
+    -- with vs without the suffix payload.
+    cacheTip:SetHyperlink(itemLink or ("item:" .. itemID))
     cacheTip:Hide()
 end
 
@@ -714,7 +726,13 @@ local function CacheItemInfo(itemID, itemLink, slot)
 
     local name, _, quality, itemLevel, _, _, _, _, equipLoc, texture = GetItemInfo(itemID)
     if not name then
-        TriggerItemFetch(itemID)
+        -- v1.1.4: don't re-fire TriggerItemFetch on every TryCachePending
+        -- retry. The fetch was already triggered when MarkPendingCache
+        -- added this item to pendingCache; firing again on every retry
+        -- spammed SetHyperlink at ~4750/sec for 1188-pending caches,
+        -- starving the channel and making the server stop responding.
+        -- Just return false; pending-cache loop will keep polling
+        -- GetItemInfo until the response arrives or CACHE_GIVE_UP expires.
         return false
     end
 
@@ -727,18 +745,24 @@ local function CacheItemInfo(itemID, itemLink, slot)
     local verified = SlotMatchesInvtype(slot, equipLoc)
     if (not verified) and slot then
         local attempts = (existing and existing.verifyAttempts) or 0
+        local lastT = (existing and existing.lastVerifyAt) or 0
+        local secsSince = floor(time()) - lastT
         if attempts < 3 then
-            TriggerItemFetch(itemID)
-            -- Don't write a stale entry; preserve the old one (if any) and
-            -- bump verifyAttempts so we know how many tries we've made.
-            -- Pending-cache flow will retry CacheItemInfo on its next tick.
-            EpogItemCacheDB[itemID] = existing or { v = CACHE_SCHEMA }
-            EpogItemCacheDB[itemID].v = CACHE_SCHEMA
-            EpogItemCacheDB[itemID].verifyAttempts = attempts + 1
-            EpogItemCacheDB[itemID].lastVerifyAt = floor(time())
-            EpogItemCacheDB[itemID].verified = false
-            dprint(string.format("[cache] slot mismatch for itemID %d: GetItemInfo→equipLoc=%s for slot %d (\"%s\") — query attempt %d/3",
-                itemID, equipLoc or "?", slot, name or "?", attempts + 1))
+            -- v1.1.4: throttle re-triggers by time. Each TryCachePending
+            -- tick (every 0.25s) re-evaluates pending items; without this
+            -- gate we'd fire SetHyperlink up to 4 times/sec per item.
+            -- 2-second floor between attempts gives the server time to
+            -- respond before we declare another miss.
+            if secsSince >= 2 then
+                TriggerItemFetch(itemID, itemLink)
+                EpogItemCacheDB[itemID] = existing or { v = CACHE_SCHEMA }
+                EpogItemCacheDB[itemID].v = CACHE_SCHEMA
+                EpogItemCacheDB[itemID].verifyAttempts = attempts + 1
+                EpogItemCacheDB[itemID].lastVerifyAt = floor(time())
+                EpogItemCacheDB[itemID].verified = false
+                dprint(string.format("[cache] slot mismatch for itemID %d: GetItemInfo→equipLoc=%s for slot %d (\"%s\") — query attempt %d/3",
+                    itemID, equipLoc or "?", slot, name or "?", attempts + 1))
+            end
             return false
         end
         dprint(string.format("[cache] giving up verification for itemID %d after 3 attempts (slot %d, equipLoc=%s) — caching unverified",
@@ -827,7 +851,10 @@ local function MarkPendingCache(itemID, itemLink, slot)
     end
     if not pendingCache[itemID] then
         pendingCache[itemID] = { firstSeen = now(), link = itemLink, slot = slot }
-        TriggerItemFetch(itemID)
+        -- v1.1.4: pass the full itemstring so the server query carries
+        -- enchant/gem/suffix data (Ascension custom suffix items may
+        -- resolve differently with vs without the full payload).
+        TriggerItemFetch(itemID, itemLink)
     end
 end
 
