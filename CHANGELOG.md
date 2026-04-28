@@ -15,6 +15,26 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v1.1.5 — Broaden weapon slot acceptance *(2026-04-28)*
+
+User ran v1.1.4 cachebuild on a real DB: 3216 of 3221 items cached cleanly (vs near-zero before the spam fix). Only 3 items kept failing verification:
+
+- `Barman Shanker` (vanilla itemID 12791) — INVTYPE_WEAPONMAINHAND in slot 17
+- `Mam'toth's Fist` (Ascension custom itemID 60454) — INVTYPE_WEAPONMAINHAND in slot 17
+- `Merc Sword` (vanilla itemID 4567) — INVTYPE_2HWEAPON in slot 17
+
+These aren't itemID reassignments — `CMSG_ITEM_QUERY_SINGLE` returns the same equipLoc the client DBC has. Ascension's classless server simply allows MAINHAND-labeled and 2H weapons in slot 17 even without Titan's Grip. The items render correctly (right name, right stats); they're just classified as "wrong sub-type" for the slot they sit in.
+
+The verification was designed to catch **wrong-category** mismatches (boots in a cloak slot — categorically impossible). For weapon-vs-weapon sub-type differences in a weapon slot, the items display fine; the verification was just generating noise.
+
+Fix: slot 16 and slot 17 now accept ALL weapon equipLocs (`INVTYPE_WEAPON`, `INVTYPE_2HWEAPON`, `INVTYPE_WEAPONMAINHAND`, `INVTYPE_WEAPONOFFHAND`). Slot 17 still also accepts `INVTYPE_SHIELD` and `INVTYPE_HOLDABLE` for off-hand non-weapon options. The strict cross-category check (boots vs cloak vs weapon) still fires correctly — only sub-type drift is now ignored.
+
+### Pending-cache backoff re-trigger
+
+Also added a single re-fire of `SetHyperlink` for pending items that haven't received a server response within 10 seconds. The initial fetch goes out on `MarkPendingCache`; if 10s passes with no `GetItemInfo` data arriving, fire once more. Gives the server a second chance without re-introducing the per-tick spam from v1.1.3. Helps for items where the first query was dropped under flood conditions.
+
+---
+
 ## EpogArmory v1.1.4 — Stop fetch-spam, pass full link, bump timeout *(2026-04-28)*
 
 User ran v1.1.3's `/epogarmory cachebuild` on a real DB (3221 items, 1188 needing fetch). Result: the dump showed almost everything still `Cache: (not cached)` after a full minute. Diagnosed three problems with the fetch path; fixed all.

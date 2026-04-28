@@ -666,14 +666,22 @@ local EXPECTED_INVTYPE_BY_SLOT = {
     [13] = { ["INVTYPE_TRINKET"]  = true },
     [14] = { ["INVTYPE_TRINKET"]  = true },
     [15] = { ["INVTYPE_CLOAK"]    = true },
-    -- v1.1.4: kept strict — Ascension does NOT have Titan's Grip, so
-    -- INVTYPE_2HWEAPON in slot 17 is a real reassignment (server reassigned
-    -- a vanilla 2H itemID to its custom offhand item; client DBC returns
-    -- the stale 2H data). Same logic for INVTYPE_WEAPONMAINHAND in offhand.
-    -- These mismatches are REAL bugs to fix via server query, not false
-    -- positives to mask.
-    [16] = { ["INVTYPE_WEAPON"]   = true, ["INVTYPE_2HWEAPON"] = true, ["INVTYPE_WEAPONMAINHAND"] = true },
-    [17] = { ["INVTYPE_WEAPON"]   = true, ["INVTYPE_SHIELD"]   = true, ["INVTYPE_HOLDABLE"]       = true, ["INVTYPE_WEAPONOFFHAND"] = true },
+    -- Empirical Ascension finding: real-world data shows vanilla
+    -- INVTYPE_WEAPONMAINHAND items (e.g. "Barman Shanker") AND Ascension
+    -- custom INVTYPE_WEAPONMAINHAND/INVTYPE_2HWEAPON items being equipped
+    -- in slot 17. Titan's Grip doesn't exist on this server, but the
+    -- classless system still permits these slot/equipLoc combinations
+    -- server-side. CMSG_ITEM_QUERY_SINGLE returns the same equipLoc
+    -- (no reassignment), so the verification can't "fix" them — it
+    -- just keeps logging unverified noise after 3 failed attempts.
+    -- Both weapon slots now accept ALL weapon equipLocs. The verification
+    -- still catches genuine wrong-category mismatches (e.g. INVTYPE_FEET
+    -- in slot 15) — only weapon-vs-weapon sub-type differences pass now.
+    [16] = { ["INVTYPE_WEAPON"] = true, ["INVTYPE_2HWEAPON"] = true,
+             ["INVTYPE_WEAPONMAINHAND"] = true, ["INVTYPE_WEAPONOFFHAND"] = true },
+    [17] = { ["INVTYPE_WEAPON"] = true, ["INVTYPE_2HWEAPON"] = true,
+             ["INVTYPE_WEAPONMAINHAND"] = true, ["INVTYPE_WEAPONOFFHAND"] = true,
+             ["INVTYPE_SHIELD"] = true, ["INVTYPE_HOLDABLE"] = true },
     [18] = { ["INVTYPE_RANGED"]   = true, ["INVTYPE_RANGEDRIGHT"] = true, ["INVTYPE_THROWN"] = true, ["INVTYPE_RELIC"] = true },
     [19] = { ["INVTYPE_TABARD"]   = true },
 }
@@ -866,6 +874,18 @@ local function TryCachePending()
             pendingCache[iid] = nil
         elseif (nowT - info.firstSeen) > CACHE_GIVE_UP then
             pendingCache[iid] = nil -- server never responded; try again on next scan
+        else
+            -- v1.1.5: backoff re-trigger. Initial SetHyperlink fired on
+            -- MarkPendingCache; if the server didn't respond after 10s,
+            -- fire one more. Gives a second chance without per-tick
+            -- spam (which was the v1.1.3 bug).
+            local lastFire = info.lastFiredAt or info.firstSeen
+            if (nowT - lastFire) > 10 then
+                TriggerItemFetch(iid, info.link)
+                info.lastFiredAt = nowT
+                dprint(string.format("[cache] re-firing fetch for itemID %d (%.0fs since first request)",
+                    iid, nowT - info.firstSeen))
+            end
         end
     end
 end
