@@ -15,6 +15,33 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v1.1.2 — Dump command: PvP detection trace *(2026-04-28)*
+
+User clarified their problem trinket actually contained "Insignia" — so v1.1.1's "Medallion broadening" hypothesis didn't apply to their case. Something else caused the routing to miss.
+
+Extended `/epogarmory dump` with a per-set **PvP detection trace** that exposes the actual routing decision for each stored set. For each trinket slot:
+
+```
+PvP detection trace (live, using current patterns):
+  slot 13 (trinket1): "Insignia of the Alliance" — matches pattern "Insignia" → PvP
+  slot 14 (trinket2): (empty)
+  live verdict: would route to sets["pvp"]
+  ⚠ MISMATCH: stored as set 1 but live detection says PvP. Likely cause:
+    scan was made before v0.33 (PvP routing didn't exist), OR GetItemInfo
+    returned nil for the trinket at scan time. Fix: rescan with the
+    trinket equipped.
+```
+
+The trace shows whether the trinket name is currently resolvable, whether any pattern matches, and warns when stored routing disagrees with live evaluation. That diagnoses three cases:
+
+1. **Pre-v0.33 stale scan** — live says PvP, stored says non-PvP, but the trinket name resolves now → "rescan to fix."
+2. **Cache miss at scan time** — live says PvP, stored says non-PvP, name resolves now (was nil then) → also "rescan to fix."
+3. **Pattern coverage gap** — live says non-PvP but the user knows it's a PvP trinket → tells us we need to add a new pattern.
+
+Run `/epogarmory dump <playername>` on the affected entry and the output will tell us which case it is.
+
+---
+
 ## EpogArmory v1.1.1 — Dump diagnostic + broader PvP trinket detection *(2026-04-28)*
 
 Two patches: a forensic dump command for the transmog investigation, and a fix for the "Insignia/Medallion equipped but routed to non-PvP set" bug.

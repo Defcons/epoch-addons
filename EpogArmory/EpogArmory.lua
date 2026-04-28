@@ -2239,6 +2239,40 @@ SlashCmdList["EPOGARMORY"] = function(msg)
             print(string.format("|cffffaa44=== %s [set %s] ===|r scanned by %s at %s, zone %s",
                 target.name, tostring(setKey), set.scannedBy or "?",
                 date("%Y-%m-%d %H:%M:%S", set.scanTime or 0), set.zone or "?"))
+            -- v1.1.2: PvP detection trace. For each trinket slot, show
+            -- exactly what we'd resolve, whether it matches any pattern,
+            -- and what the final routing decision would be. Then flag
+            -- if the stored setKey disagrees.
+            local function classifyTrinket(slot)
+                local str = set.gear and set.gear[slot]
+                if not str or str == "" then return "(empty)", nil, false end
+                local iid = tonumber(str:match("^(%d+)"))
+                if not iid then return string.format("(unparseable: %s)", str), nil, false end
+                local name = GetItemInfo(iid)
+                if not name then return string.format("(GetItemInfo(%d)=nil — not in client cache)", iid), iid, false end
+                for _, pat in ipairs(PVP_TRINKET_NAME_PATTERNS) do
+                    if name:find(pat, 1, true) then
+                        return string.format("\"%s\" — matches pattern \"%s\" → PvP", name, pat), iid, true
+                    end
+                end
+                return string.format("\"%s\" — no PvP pattern match", name), iid, false
+            end
+            local desc13, _, isPvP13 = classifyTrinket(13)
+            local desc14, _, isPvP14 = classifyTrinket(14)
+            local liveSaysPvP = isPvP13 or isPvP14
+            print(string.format("  |cff999999PvP detection trace (live, using current patterns):|r"))
+            print(string.format("    slot 13 (trinket1): %s", desc13))
+            print(string.format("    slot 14 (trinket2): %s", desc14))
+            print(string.format("    live verdict: would route to |cff66ffcc%s|r",
+                liveSaysPvP and "sets[\"pvp\"]" or string.format("sets[%s] (dominant tree)", tostring(setKey))))
+            local storedKey = tostring(setKey)
+            local liveExpectedKey = liveSaysPvP and "pvp" or storedKey -- can't infer dominant tree from set alone
+            if liveSaysPvP and storedKey ~= "pvp" then
+                print("    |cffff6666MISMATCH:|r stored as set " .. storedKey ..
+                    " but live detection says PvP. Likely cause: scan was made before v0.33 (PvP routing didn't exist), OR GetItemInfo returned nil for the trinket at scan time. Fix: rescan with the trinket equipped.")
+            elseif (not liveSaysPvP) and storedKey == "pvp" then
+                print("    |cffffaa44NOTE:|r stored as PvP set but live trinket lookup doesn't match any PvP pattern. May be intentional (older scan, custom trinket) or pattern coverage gap.")
+            end
             for slot = 1, 19 do
                 local itemstring = set.gear and set.gear[slot]
                 if not itemstring or itemstring == "" then
