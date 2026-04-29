@@ -190,6 +190,29 @@ local UTILITY_ENCHANT_TOOLTIP_PATTERNS = {
 
 local MOUNT_ENCHANT_SLOTS = { 8, 10 } -- feet, hands
 
+-- v1.1.7: Ascension's transmog system overrides what `GetInventoryItemLink`
+-- returns for inspected players — we get the visual itemID, not the
+-- gameplay one. The "Reality Recalibrators" aura grants the inspector a
+-- server-side override that makes inspect APIs return TRUE gear data.
+-- Without the aura, scanning groupmates produces transmog visuals (often
+-- "naked" loadouts) which would just pollute the mesh, so we skip
+-- non-self auto-inspects when the aura is absent.
+--
+-- The aura applies only to scanning OTHERS — your own self-scan always
+-- sees real gear regardless (transmog never hides your own items from
+-- you), so self-scans aren't gated.
+local REALITY_AURA_NAME = "Reality Recalibrators"
+
+local function HasRealityAura()
+    if not UnitBuff then return false end
+    for i = 1, 40 do
+        local n = UnitBuff("player", i)
+        if not n then break end
+        if n == REALITY_AURA_NAME then return true end
+    end
+    return false
+end
+
 -- State
 local queue, inQueue, seen = {}, {}, {}
 local current = nil
@@ -206,6 +229,10 @@ local VERSION_PING_RETRY = 60 -- if no broadcast channel available (solo + no gu
 local versionPingAt      = 0
 local versionPingSent    = false
 local versionNotified    = false
+-- v1.1.7: track whether we've shown the "Reality Recalibrators aura
+-- missing" hint this session. Print once when ScanRoster encounters
+-- groupmates while we lack the aura, then stay silent.
+local realityAuraHintShown = false
 
 -- Admin sync protocol (v0.35): a targeted peer can request another peer's
 -- recent stored scans for bulk-catch-up. Hidden slash command:
@@ -1100,6 +1127,13 @@ end
 local function BuildPayload(unit, guid)
     local name = UnitName(unit)
     if not name or name == "" or name == UNKNOWN then return nil, "name unresolved" end
+    -- v1.1.7: aura gate (defense-in-depth — ScanRoster + TryInspect also
+    -- check). Self-scans pass: you always see your own real gear regardless
+    -- of transmog. Other-unit scans require Reality Recalibrators because
+    -- inspect APIs return transmog visuals on Ascension without it.
+    if not UnitIsUnit(unit, "player") and not HasRealityAura() then
+        return nil, "Reality Recalibrators aura not active (transmog would override real gear)"
+    end
     local realm = GetRealmName() or ""
     local _, classFile = UnitClass(unit)
     classFile = classFile or ""
@@ -1973,6 +2007,21 @@ end
 
 local function ScanRoster()
     lastRoster = now()
+    -- v1.1.7: gate auto-scan on Reality Recalibrators aura. Without it,
+    -- inspect data on Ascension is the player's transmog visuals (often
+    -- "naked" or low-level cosmetics), not real gear — bypass so we don't
+    -- pollute the mesh with junk scans. Show a one-time hint when the
+    -- user has groupmates we'd otherwise be scanning.
+    if not HasRealityAura() then
+        local hasGroup = (GetNumRaidMembers() > 0) or (GetNumPartyMembers() > 0)
+        if hasGroup and not realityAuraHintShown then
+            print("|cffffaa44EpogArmory|r: |cffff9966Reality Recalibrators|r aura not active — auto-inspect of groupmates is paused. Get the aura to scan their true gear (Ascension's transmog hides it otherwise). |cff888888Type /epogarmory aura to recheck.|r")
+            realityAuraHintShown = true
+        elseif hasGroup then
+            dprint("[roster] skipped — Reality Recalibrators aura not active")
+        end
+        return
+    end
     local before = #queue
     if GetNumRaidMembers() > 0 then
         for i = 1, 40 do AddUnit("raid" .. i) end
@@ -2007,6 +2056,17 @@ local function TryInspect()
         -- resume from where we left off. Small delay before the next attempt
         -- so we don't busy-loop the OnUpdate driver while it's open.
         nextInspectAt = now() + 1
+        return
+    end
+    -- v1.1.7: defensive aura check. ScanRoster gates entry to the queue,
+    -- but if the aura wore off between queue-add and now, the inspect data
+    -- we'd capture would be transmog visuals. Drain the queue and bail.
+    if not HasRealityAura() then
+        if #queue > 0 then
+            dprint("[inspect] aura wore off — draining queue")
+            for _, q in ipairs(queue) do inQueue[q.guid] = nil end
+            wipe(queue)
+        end
         return
     end
 
@@ -2477,6 +2537,7 @@ local function ShowHelp()
     print("  /epogarmory main [name]   — set/show your main-character identity (consolidates alts in the mesh)")
     print("  /epogarmory merge <newname> <alias1> [alias2] ... — locally re-attribute scans from peer aliases to one canonical name")
     print("  /epogarmory refreshpeers  — ping guildmates for fresh identity + DB-size info (Scanners-view leaderboard)")
+    print("  /epogarmory aura          — check if Reality Recalibrators aura is active (gates auto-inspect of groupmates)")
     print("  /epogarmory dump <name>   — diagnostic dump of every layer (itemstring, GetItemInfo, GetItemStats, cache) for each slot of a stored player")
     print("|cff888888  Source + releases: github.com/Defcons/epogarmory-addon|r")
     -- dumpspec left in place but not advertised — internal diagnostic.
@@ -2709,6 +2770,20 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         local s1, s2, s3 = ReadSpecPoints("player")
         print(string.format("  ReadSpecPoints(player) = %d / %d / %d → DominantTree = %d",
             s1, s2, s3, DominantTree({s1, s2, s3})))
+    elseif msg == "aura" then
+        -- v1.1.7: explicit aura status check. Also resets the
+        -- realityAuraHintShown flag so the one-time hint can fire again
+        -- next time ScanRoster sees a group without the aura — useful if
+        -- the user toggles the aura off/on across sessions.
+        if HasRealityAura() then
+            print(string.format("|cffffaa44EpogArmory|r: |cff00ff66%s|r aura |cff00ff66ACTIVE|r — auto-inspect of groupmates enabled.",
+                REALITY_AURA_NAME))
+        else
+            print(string.format("|cffffaa44EpogArmory|r: |cffff9966%s|r aura |cffff6666NOT ACTIVE|r — auto-inspect of groupmates is paused.",
+                REALITY_AURA_NAME))
+            print("|cff888888  Without the aura, Ascension's transmog hides true gear from inspect. Self-scans still work normally.|r")
+            realityAuraHintShown = false
+        end
     elseif msg == "refreshpeers" or msg == "refresh" then
         -- v0.47: ask everyone in guild/group "give me your latest info".
         -- Each peer running v0.47+ replies with identity + dbSize + version
