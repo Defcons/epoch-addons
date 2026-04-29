@@ -210,6 +210,20 @@ local REALITY_AURA_NAME = "Reality Recalibrators"
 -- world is loading).
 local everSawRealityAura = false
 
+-- v1.1.7+: aura-settle window after PLAYER_ENTERING_WORLD. Zone
+-- transitions (BG exit, instance load) briefly clear all buffs from
+-- the API's perspective; UnitBuff returns nothing for ~3-6 seconds
+-- before the server re-asserts them. During this window we skip the
+-- aura-missing actions (don't drain the queue, don't show hints,
+-- don't process inspects) — just wait for auras to settle. Once the
+-- window expires, normal gating resumes.
+local AURA_SETTLE_WINDOW = 10 -- seconds after PLAYER_ENTERING_WORLD
+local auraSettleUntil    = 0  -- timestamp; if now() < this, we're in the settle window
+
+local function InAuraSettleWindow()
+    return now() < auraSettleUntil
+end
+
 local function HasRealityAura()
     if not UnitBuff then return false end
     for i = 1, 40 do
@@ -2024,10 +2038,16 @@ local function ScanRoster()
     -- user has groupmates we'd otherwise be scanning.
     if not HasRealityAura() then
         local hasGroup = (GetNumRaidMembers() > 0) or (GetNumPartyMembers() > 0)
-        -- v1.1.7+: only nag users who've NEVER had the aura this session.
-        -- If they had it earlier (e.g. before a BG exit zone-load briefly
-        -- cleared auras), they obviously know about the system — don't
-        -- spam them during transient nil states from zone transitions.
+        -- v1.1.7+: skip the hint entirely during the post-zone-change
+        -- settle window. UnitBuff returns nothing for a few seconds after
+        -- PLAYER_ENTERING_WORLD even with an active aura — chat nags here
+        -- are just noise.
+        if InAuraSettleWindow() then
+            if hasGroup then dprint("[roster] aura check skipped — within settle window") end
+            return
+        end
+        -- Only nag users who've NEVER had the aura this session. If they
+        -- had it earlier, they obviously know about the system.
         if hasGroup and not realityAuraHintShown and not everSawRealityAura then
             print("|cffffaa44EpogArmory|r: |cffff9966Reality Recalibrators|r aura not active — auto-inspect of groupmates is paused. Get the aura to scan their true gear (Ascension's transmog hides it otherwise). |cff888888Type /epogarmory aura to recheck.|r")
             realityAuraHintShown = true
@@ -2075,7 +2095,16 @@ local function TryInspect()
     -- v1.1.7: defensive aura check. ScanRoster gates entry to the queue,
     -- but if the aura wore off between queue-add and now, the inspect data
     -- we'd capture would be transmog visuals. Drain the queue and bail.
+    -- v1.1.7+: skip the drain during the post-zone-change settle window
+    -- — UnitBuff briefly returns nothing after PLAYER_ENTERING_WORLD
+    -- even when the aura is active. Just hold the queue and retry next
+    -- tick; auras restore within a few seconds.
     if not HasRealityAura() then
+        if InAuraSettleWindow() then
+            dprint("[inspect] aura check skipped — within settle window (queue held)")
+            nextInspectAt = now() + 1 -- recheck soon
+            return
+        end
         if #queue > 0 then
             dprint("[inspect] aura wore off — draining queue")
             for _, q in ipairs(queue) do inQueue[q.guid] = nil end
@@ -2407,6 +2436,14 @@ f:SetScript("OnEvent", function(self, event, ...)
         if unit == "player" then RequestSelfScan() end
     elseif event == "PLAYER_TALENT_UPDATE" then
         RequestSelfScan()
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- v1.1.7+: zone transitions (BG exit, instance load, login)
+        -- briefly clear all visible buffs from UnitBuff's perspective
+        -- before the server re-asserts them ~3-6s later. Open a settle
+        -- window during which the aura check defers gracefully — no
+        -- false-positive hints, no queue drain — until auras restore.
+        auraSettleUntil = now() + AURA_SETTLE_WINDOW
+        ScanRoster()
     else
         ScanRoster()
     end
