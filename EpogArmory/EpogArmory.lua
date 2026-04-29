@@ -221,7 +221,11 @@ local AURA_SETTLE_WINDOW = 10 -- seconds after PLAYER_ENTERING_WORLD
 local auraSettleUntil    = 0  -- timestamp; if now() < this, we're in the settle window
 
 local function InAuraSettleWindow()
-    return now() < auraSettleUntil
+    -- Use GetTime() directly. This helper is declared before the
+    -- `local function now()` at line ~613, so `now` doesn't resolve to
+    -- the local — at call time it would look up global `now` (nil) and
+    -- error. GetTime is a Blizzard global, always available.
+    return GetTime() < auraSettleUntil
 end
 
 local function HasRealityAura()
