@@ -614,6 +614,75 @@ local function ItemStringFromLink(link)
     return s or ""
 end
 
+-- v1.2: scanner-side item-info hint encoding. Receivers on Ascension can't
+-- always resolve itemIDs via GetItemInfo (server reassigns vanilla IDs and
+-- doesn't always respond to CMSG_ITEM_QUERY_SINGLE for those), so the
+-- scanner — who DOES have correct data right after a fresh inspect via
+-- SMSG_INSPECT_RESULTS — packs name/quality/ilvl/equipLoc/icon/stats into
+-- wire position 40. Receivers seed their EpogItemCacheDB from the hints
+-- and avoid the broken server-query path entirely.
+--
+-- Format:
+--   item entries separated by ';'
+--   fields within an entry separated by '~'
+--   stats encoded as 'KEY=val,KEY=val' (commas separate stat entries)
+--   item entry shape: iid~name~q~ilvl~equipLoc~icon~stats
+--
+-- All wire-control characters (^~;=,) are stripped from string fields
+-- defensively. Receivers ignore the field entirely on older payloads.
+local function StripHintWireChars(s)
+    if not s then return "" end
+    return (s:gsub("[%^~;=,]", " "))
+end
+
+local function EncodeHintStats(stats)
+    if not stats then return "" end
+    local parts = {}
+    for k, v in pairs(stats) do
+        if type(v) == "number" and v ~= 0 then
+            parts[#parts + 1] = k .. "=" .. tostring(v)
+        end
+    end
+    return table.concat(parts, ",")
+end
+
+local function DecodeHintStats(s)
+    if not s or s == "" then return nil end
+    local stats = {}
+    local any = false
+    for kv in s:gmatch("([^,]+)") do
+        local k, v = kv:match("^([^=]+)=(.+)$")
+        if k and v then
+            local n = tonumber(v)
+            if n then
+                stats[k] = n
+                any = true
+            end
+        end
+    end
+    return any and stats or nil
+end
+
+local function ParseItemInfoHints(s)
+    local out = {}
+    if not s or s == "" then return out end
+    for entry in s:gmatch("([^;]+)") do
+        local iid_s, name, q_s, ilvl_s, equipLoc, icon, statsStr = strsplit("~", entry)
+        local iid = tonumber(iid_s)
+        if iid and iid > 0 then
+            out[iid] = {
+                name      = name or "?",
+                quality   = tonumber(q_s) or 0,
+                itemLevel = tonumber(ilvl_s) or 0,
+                equipLoc  = equipLoc or "",
+                icon      = icon or "",
+                stats     = DecodeHintStats(statsStr or ""),
+            }
+        end
+    end
+    return out
+end
+
 -- mark a GUID as inspected at unix timestamp `scanTime`. Called from
 -- both local successful inspects and gossip-reassembled broadcasts. Keeps the
 -- max of current vs new so older arrivals don't overwrite fresh data.
@@ -990,6 +1059,44 @@ local function ScanEnchantTooltip(link)
     return nil
 end
 
+-- v1.2: walk the inspected unit's gear and emit position-40 hints for
+-- every itemID where the inspector's local GetItemInfo has data. Right
+-- after a successful inspect, the SMSG_INSPECT_RESULTS response has
+-- populated the dynamic cache for those items, so GetItemInfo + GetItemStats
+-- return Ascension's server-correct values. Receivers seed their cache
+-- from these hints and bypass the broken server-query path entirely.
+local function BuildItemInfoHints(unit)
+    local pieces = {}
+    for slot = 1, 19 do
+        local link = GetInventoryItemLink(unit, slot)
+        if link then
+            local itemID = tonumber(link:match("item:(%d+)"))
+            if itemID then
+                local nm, _, quality, itemLevel, _, _, _, _, equipLoc, texture = GetItemInfo(link)
+                if nm then
+                    local icon = ""
+                    if texture then
+                        icon = (texture:match("([^\\/]+)$") or texture):lower()
+                    end
+                    local statsStr = ""
+                    if GetItemStats then
+                        statsStr = EncodeHintStats(GetItemStats(link))
+                    end
+                    pieces[#pieces + 1] = string.format("%d~%s~%d~%d~%s~%s~%s",
+                        itemID,
+                        StripHintWireChars(nm),
+                        quality or 0,
+                        itemLevel or 0,
+                        equipLoc or "",
+                        icon,
+                        statsStr)
+                end
+            end
+        end
+    end
+    return table.concat(pieces, ";")
+end
+
 local function BuildPayload(unit, guid)
     local name = UnitName(unit)
     if not name or name == "" or name == UNKNOWN then return nil, "name unresolved" end
@@ -1087,6 +1194,11 @@ local function BuildPayload(unit, guid)
     -- Strip wire-control chars defensively (^ separator, | item-link escape)
     myMain = myMain:gsub("[%^|]", "")
     parts[#parts + 1] = myMain
+    -- v1.2: wire position 40 — item-info hints. Lets receivers populate
+    -- their local cache with server-correct names/stats for itemIDs they
+    -- can't resolve via CMSG_ITEM_QUERY_SINGLE on Ascension. Old receivers
+    -- ignore the unknown trailing field (additive wire-extension rule).
+    parts[#parts + 1] = BuildItemInfoHints(unit)
     return table.concat(parts, "^"), equipped
 end
 
@@ -1286,6 +1398,12 @@ local function ParsePayload(payload)
     if t[39] and t[39] ~= "" then
         entry.senderMain = t[39]
     end
+    -- v1.2: wire position 40 — item-info hints from the scanner. Used by
+    -- Ingest to seed EpogItemCacheDB without per-receiver server queries.
+    -- Absent on older payloads; no-op for receivers that don't apply hints.
+    if t[40] and t[40] ~= "" then
+        entry.itemHints = ParseItemInfoHints(t[40])
+    end
     if entry.name == "" or entry.guid == "" then return nil end
     return entry
 end
@@ -1318,6 +1436,49 @@ local function Ingest(payload, sender)
             lastSeen     = entry.scanTime or time(),
             lastCharName = sender, -- character actually broadcasting (for reachability lookups)
         }
+    end
+
+    -- v1.2: apply scanner-provided item-info hints BEFORE CachePayloadItems
+    -- runs. Hints carry server-correct name/quality/ilvl/equipLoc/icon/stats
+    -- captured by the scanner immediately after a fresh inspect. Receivers
+    -- on Ascension can't always resolve these via CMSG_ITEM_QUERY_SINGLE —
+    -- the scanner's data is the only authoritative source. CachePayloadItems
+    -- then short-circuits on the seeded entries and skips the broken
+    -- server-query path entirely.
+    if entry.itemHints then
+        EpogArmoryDB = EpogArmoryDB or {}
+        EpogItemCacheDB = EpogItemCacheDB or {}
+        local applied = 0
+        for itemID, hint in pairs(entry.itemHints) do
+            local existing = EpogItemCacheDB[itemID]
+            -- Don't overwrite a locally-fetched verified entry (we trust
+            -- our own server-query result over a peer's claim). DO overwrite
+            -- previous hint-sourced entries (newer hint wins) and any
+            -- unverified/stale entry.
+            local skip = existing
+                and existing.v == CACHE_SCHEMA
+                and existing.verified == true
+                and existing.fromHint ~= true
+            if not skip then
+                EpogItemCacheDB[itemID] = {
+                    v          = CACHE_SCHEMA,
+                    name       = hint.name,
+                    quality    = hint.quality,
+                    itemLevel  = hint.itemLevel,
+                    equipLoc   = hint.equipLoc,
+                    icon       = hint.icon,
+                    stats      = hint.stats,
+                    verified   = true,    -- scanner had server-fed data
+                    fromHint   = true,    -- mark as scanner-provided
+                    ts         = floor(time()),
+                }
+                applied = applied + 1
+            end
+        end
+        if applied > 0 then
+            dprint(string.format("[hint] applied %d item-info hint(s) from %s's scan",
+                applied, sender or "?"))
+        end
     end
 
     -- Populate the item-info cache from every scan we observe — even rejected
