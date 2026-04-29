@@ -203,12 +203,22 @@ local MOUNT_ENCHANT_SLOTS = { 8, 10 } -- feet, hands
 -- you), so self-scans aren't gated.
 local REALITY_AURA_NAME = "Reality Recalibrators"
 
+-- v1.1.7+: track whether we've ever seen the aura active this session.
+-- Used to suppress the "aura not active" hint for users who clearly
+-- know about it (avoids false-positive nags during zone transitions
+-- and BG exits, where UnitBuff briefly returns nothing while the
+-- world is loading).
+local everSawRealityAura = false
+
 local function HasRealityAura()
     if not UnitBuff then return false end
     for i = 1, 40 do
         local n = UnitBuff("player", i)
         if not n then break end
-        if n == REALITY_AURA_NAME then return true end
+        if n == REALITY_AURA_NAME then
+            everSawRealityAura = true
+            return true
+        end
     end
     return false
 end
@@ -2014,7 +2024,11 @@ local function ScanRoster()
     -- user has groupmates we'd otherwise be scanning.
     if not HasRealityAura() then
         local hasGroup = (GetNumRaidMembers() > 0) or (GetNumPartyMembers() > 0)
-        if hasGroup and not realityAuraHintShown then
+        -- v1.1.7+: only nag users who've NEVER had the aura this session.
+        -- If they had it earlier (e.g. before a BG exit zone-load briefly
+        -- cleared auras), they obviously know about the system — don't
+        -- spam them during transient nil states from zone transitions.
+        if hasGroup and not realityAuraHintShown and not everSawRealityAura then
             print("|cffffaa44EpogArmory|r: |cffff9966Reality Recalibrators|r aura not active — auto-inspect of groupmates is paused. Get the aura to scan their true gear (Ascension's transmog hides it otherwise). |cff888888Type /epogarmory aura to recheck.|r")
             realityAuraHintShown = true
         elseif hasGroup then
