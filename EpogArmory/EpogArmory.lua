@@ -1439,6 +1439,25 @@ local function CompareVersions(a, b)
     return 0
 end
 
+-- v1.1.5: notify-worthy compare. Only triggers the in-game "newer version
+-- available" message when the major.minor pair changes (1.1 → 1.2, or
+-- 1.x → 2.0). Patch-level bumps (1.1.4 → 1.1.5) don't notify, so iterating
+-- on small fixes between minor releases stays quiet on the mesh.
+-- Returns 1 if a's major.minor > b's, -1 if less, 0 equal-or-only-patch-diff.
+local function CompareMajorMinor(a, b)
+    local function parts(v)
+        local out = {}
+        for n in tostring(v or ""):gmatch("(%d+)") do out[#out+1] = tonumber(n) end
+        return out
+    end
+    local pa, pb = parts(a), parts(b)
+    local aMajor, aMinor = pa[1] or 0, pa[2] or 0
+    local bMajor, bMinor = pb[1] or 0, pb[2] or 0
+    if aMajor ~= bMajor then return aMajor > bMajor and 1 or -1 end
+    if aMinor ~= bMinor then return aMinor > bMinor and 1 or -1 end
+    return 0
+end
+
 local function HandleVersionPing(payload, sender)
     -- payload shape: "VER^<version>"
     local tag, senderVersion = strsplit("^", payload)
@@ -1446,7 +1465,10 @@ local function HandleVersionPing(payload, sender)
     dprint(string.format("[version] %s is on v%s (we're v%s)",
         sender or "?", senderVersion, ADDON_VERSION))
     if versionNotified then return end
-    if CompareVersions(senderVersion, ADDON_VERSION) <= 0 then return end
+    -- v1.1.5: only notify on major.minor bumps. Patch-level bumps
+    -- (1.1.4 → 1.1.5) don't trigger the chat notification — small fixes
+    -- shipped between minor releases stay quiet across the mesh.
+    if CompareMajorMinor(senderVersion, ADDON_VERSION) <= 0 then return end
     versionNotified = true
     print(string.format("|cffffaa44EpogArmory|r: newer version |cff00ff00v%s|r available (you're on v%s). Download: %s",
         senderVersion, ADDON_VERSION, RELEASES_URL))
