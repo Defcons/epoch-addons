@@ -4,6 +4,21 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## LootAppraiser-3.3.5 v1.0 — New addon *(2026-04-30)*
+A live loot tracker with gold-per-hour, AH value, vendor and disenchant pricing. Inspired by ProfitzTV's *LootAppraiser* (TWW retail), rewritten from scratch for 3.3.5 + Ascension's unified cross-faction AH. ~1,100 lines of Lua across 6 source files.
+
+- **Pricing chain:** Aux merged AH price (cross-faction) → TSM2 `DBMarket` → DE expected value (via TSM2's enchanting yield tables, materials priced through the same chain) → vendor sell. Source tag shown per row (`[ah]` / `[tsm]` / `[de]` / `[v]`).
+- **Loot detection:** `LOOT_OPENED` for solo (autoloot or manual), `CHAT_MSG_LOOT` for group loot and self-create (crafting). Self-loot patterns deliberately skipped from the chat path so solo loot isn't double-counted.
+- **Session state machine:** Start / Stop / Pause / Resume / Reset, with paused time excluded from GPH. Single session per game session by design.
+- **UI:** movable frame with live header (Time / GPH / Total / Items + zone), 12-row scrolling loot list with quality colours and tooltip on hover, Shift+Click to chat-link, Ctrl+Click to dressing-room-preview, Esc to hide.
+- **Slash commands:** `/la` toggles. Sub-commands: `start`, `stop`, `pause`, `resume`, `reset`, `de`, `group`, `soulbound`, `quality <0-7>`, `wipecache`, `help`.
+- **Cache invalidation:** AH price cache wipes on `AUCTION_HOUSE_CLOSED` so a fresh Aux scan flows through immediately. DE values share the cache (they reference AH prices) so they invalidate together.
+- **SavedVariables:** `LootAppraiserDB.profile` — minQuality, useDisenchant, showGroupLoot, ignoreSoulbound, autoStart, showOnLoot.
+
+Files: `LootAppraiser-3.3.5.toc` / `LootAppraiser-3.3.5.lua` / `Core/{Const,Pricing,Session,LootManager}.lua` / `UI/Window.lua` / `CHANGELOG.md`.
+
+---
+
 ## Aux-addon v1.4 — Smoother AH scanning on large AHs *(2026-04-24)*
 On dense servers (600+ AH pages, ~30k auctions) the search scan became progressively slower and chewed increasing memory. Root cause: `search.table:SetDatabase()` was called after every page via `on_page_scanned`, and that goes through `UpdateRowInfo` which does an `O(N log N)` sort plus an `O(N)` grouping pass over `search.records`. At 600 pages × 30000 records that's ~260 million comparisons during one scan.
 
