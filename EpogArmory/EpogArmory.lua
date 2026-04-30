@@ -2514,6 +2514,12 @@ end
 -- v0.52: expose MyIdentity so the UI can detect "is this leaderboard row me"
 -- and inject our own DB count (peerInfo never tracks self by design).
 _G.EpogArmory.MyIdentity = function() return MyIdentity() end
+-- v1.2: expose Reality Recalibrators aura state so the Browser + minimap
+-- can render a clear "auto-inspect ON/OFF" banner. Required because
+-- without the aura, inspect APIs return Ascension's transmog visuals
+-- instead of true gear, so we pause auto-scanning when missing.
+_G.EpogArmory.HasRealityAura = HasRealityAura
+_G.EpogArmory.RealityAuraName = REALITY_AURA_NAME
 -- Also resets the 24h HasFreshScan gate for this GUID (by wiping
 -- lastScanned[guid]) and the in-memory 15min inspect cooldown (seen[guid]),
 -- so *this client* can re-inspect immediately if they're in range. If the
@@ -2612,6 +2618,12 @@ SlashCmdList["EPOGARMORY"] = function(msg)
             current and UnitName(current.unit) or "none",
             tostring(InCombatLockdown()),
             ZoneType()))
+        -- v1.2: surface aura status as part of the standard status output
+        if HasRealityAura() then
+            print(string.format("  |cff00ff66%s aura: ACTIVE|r — auto-inspect enabled", REALITY_AURA_NAME))
+        else
+            print(string.format("  |cffff6666%s aura: NOT ACTIVE|r — auto-inspect of groupmates paused (transmog hides true gear)", REALITY_AURA_NAME))
+        end
     elseif msg == "cache" then
         print(string.format("|cffffaa44EpogArmory|r cache: %d items known, %d pending client fetch",
             CountCache(), CountPending()))

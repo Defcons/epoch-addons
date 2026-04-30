@@ -622,6 +622,33 @@ local function BuildBrowser()
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -4, -4)
 
+    -- v1.2: prominent aura status banner under the title. Visible at all
+    -- times so the user immediately understands whether auto-inspect is
+    -- functional. Without the Reality Recalibrators aura, inspect APIs
+    -- return Ascension's transmog visuals instead of real gear — the
+    -- addon pauses auto-scanning of groupmates when missing.
+    f.auraStatus = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.auraStatus:SetPoint("TOP", f.title, "BOTTOM", 0, -4)
+    f.auraStatus:SetWidth(300)
+    f.auraStatus:SetJustifyH("CENTER")
+
+    local function RefreshAuraStatus()
+        local has = (_G.EpogArmory and _G.EpogArmory.HasRealityAura
+            and _G.EpogArmory.HasRealityAura()) or false
+        local auraName = (_G.EpogArmory and _G.EpogArmory.RealityAuraName) or "Reality Recalibrators"
+        if has then
+            f.auraStatus:SetText(string.format(
+                "|cff66ff66✓ %s active|r |cff888888— auto-inspect enabled|r",
+                auraName))
+        else
+            f.auraStatus:SetText(string.format(
+                "|cffff6666✗ %s missing|r |cffff9966— auto-inspect paused (transmog hides true gear)|r",
+                auraName))
+        end
+    end
+    f.RefreshAuraStatus = RefreshAuraStatus
+    RefreshAuraStatus()
+
     -- View-mode toggle: switches between "players" (default — searchable
     -- list of scanned players) and "scanners" (leaderboard of who's
     -- contributed the most sets, useful for picking a sync target).
@@ -634,7 +661,8 @@ local function BuildBrowser()
     f.viewToggle = viewToggle
 
     local searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    searchLabel:SetPoint("TOPLEFT", 22, -46)
+    -- v1.2: pushed down from -46 → -60 to make room for the aura status banner.
+    searchLabel:SetPoint("TOPLEFT", 22, -60)
     searchLabel:SetText("Search:")
     f.searchLabel = searchLabel
 
@@ -719,7 +747,8 @@ local function BuildBrowser()
 
     -- Scroll frame
     local scroll = CreateFrame("ScrollFrame", "EpogArmoryBrowserScroll", f, "FauxScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 18, -80)
+    -- v1.2: TOPLEFT pushed -80 → -94 to make room for the aura status banner.
+    scroll:SetPoint("TOPLEFT", 18, -94)
     scroll:SetPoint("BOTTOMRIGHT", -32, 40)
     f.scroll = scroll
 
@@ -1432,6 +1461,7 @@ local function BuildBrowser()
             self.colHeaderClass:Show()
             self.colHeaderAge:Show()
         end
+        if self.RefreshAuraStatus then self.RefreshAuraStatus() end -- v1.2
         Update()
     end)
 
@@ -1439,10 +1469,13 @@ local function BuildBrowser()
     -- Catches sync countdowns, newly-online guildmates, roster changes,
     -- and peerInfo updates from incoming broadcasts. Trivially cheap
     -- outside Scanners mode (just the increment + mode check).
+    -- v1.2: also refreshes the aura status banner so it tracks gain/loss
+    -- of the Reality Recalibrators aura while the Browser is open.
     f:SetScript("OnUpdate", function(self, elapsed)
         self._tickAcc = (self._tickAcc or 0) + elapsed
         if self._tickAcc < 30 then return end
         self._tickAcc = 0
+        if self.RefreshAuraStatus then self.RefreshAuraStatus() end -- v1.2
         if f.viewMode == "scanners" then
             if IsInGuild() and GuildRoster then GuildRoster() end
             Update()
@@ -1599,6 +1632,20 @@ local function BuildMinimapButton()
     b:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:SetText("EpogArmory")
+        -- v1.2: prominent aura status line so users see at-a-glance whether
+        -- auto-inspect is functional just by hovering the minimap button.
+        local has = (_G.EpogArmory and _G.EpogArmory.HasRealityAura
+            and _G.EpogArmory.HasRealityAura()) or false
+        local auraName = (_G.EpogArmory and _G.EpogArmory.RealityAuraName) or "Reality Recalibrators"
+        if has then
+            GameTooltip:AddLine(string.format("%s: ACTIVE", auraName), 0.4, 1, 0.4)
+            GameTooltip:AddLine("auto-inspect of groupmates enabled", 0.6, 0.6, 0.6)
+        else
+            GameTooltip:AddLine(string.format("%s: NOT ACTIVE", auraName), 1, 0.4, 0.4)
+            GameTooltip:AddLine("auto-inspect paused — Ascension transmog", 1, 0.6, 0.4)
+            GameTooltip:AddLine("hides true gear without this aura", 1, 0.6, 0.4)
+        end
+        GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Left-click: open the armory browser", 1, 1, 1)
         GameTooltip:AddLine("Right-click: menu (status, debug, wipe...)", 1, 1, 1)
         GameTooltip:AddLine("Drag: reposition around the minimap", 0.7, 0.7, 0.7)

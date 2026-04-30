@@ -30,6 +30,91 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v1.2.0 — Reality Recalibrators gating + scanner item hints *(2026-04-29)*
+
+Two big additions on top of v1.1, plus all the v1.1.x patch refinements rolled in.
+
+### 1. Reality Recalibrators aura gating
+
+Ascension's transmog system overrides what `GetInventoryItemLink` returns for inspected players — without an in-game aura, you see the player's *visual* itemID (often "naked" or low-level cosmetic), not the real gameplay item. The addon was happily scanning these and polluting the mesh with junk.
+
+The **Reality Recalibrators** aura grants a server-side override that makes inspect APIs return true gear. Auto-inspect now requires the aura.
+
+**Three layers of gating:**
+
+- `ScanRoster` — bails before queueing any non-self unit when aura missing. Shows a helpful one-time chat hint when groupmates are present.
+- `TryInspect` — defensive recheck right before `NotifyInspect`; drains the queue if the aura wore off mid-cycle.
+- `BuildPayload` — final gate; returns nil for non-self units when aura missing.
+
+**Self-scans pass through** — you always see your own real gear regardless of transmog.
+
+**Smart settle window:** zone transitions (BG exit, instance load, login) briefly clear `UnitBuff` from the API's perspective for ~3-6 seconds before the server restores auras. New 10s settle window after `PLAYER_ENTERING_WORLD` skips aura-missing actions silently — no chat nag, no queue drain — until auras settle. Prevents false-positive hints during normal gameplay.
+
+**Visibility everywhere:**
+- **Browser frame:** prominent banner under the title shows ✓/✗ aura status with explanation. Updates on show + every 30s tick.
+- **Minimap tooltip:** hovering the shield button shows aura status as the first line.
+- **`/epogarmory status`:** includes a green/red aura status line.
+- **`/epogarmory aura`:** new dedicated status command that also resets the one-time hint flag.
+
+### 2. Scanner-side item-info hints (wire position 40)
+
+Ascension reassigns vanilla itemIDs server-side and modifies stats — receivers can't always resolve item info via local `GetItemInfo` or `CMSG_ITEM_QUERY_SINGLE`. But the **scanner** has correct data right after a fresh inspect (the `SMSG_INSPECT_RESULTS` response populates their dynamic cache).
+
+Scanners now piggyback that data on the gear broadcast at wire position 40:
+
+```
+iid~name~q~ilvl~equipLoc~icon~stats;...
+```
+
+Receivers seed `EpogItemCacheDB` from the hints with `verified = true, fromHint = true`. Locally-fetched verified entries take precedence over hints (we trust our own server-query result over a peer's claim).
+
+Wire size grew ~3x (from ~700 bytes to ~2.5 KB per scan), but it's the only way to deliver server-correct stats and names for Ascension custom items. Backward compatible — old senders skip position 40, old receivers ignore unknown trailing fields.
+
+### 3. Cache verification (CACHE_SCHEMA v10 → v11)
+
+Slot-vs-equipLoc verification detects the "boots in cloak slot" reassignment cases:
+
+- New `EXPECTED_INVTYPE_BY_SLOT` map covers all 19 slots
+- Cache entries gain `equipLoc`, `verified`, `verifyAttempts`, `lastVerifyAt` fields
+- Mismatch triggers `SetHyperlink` to refresh the dynamic cache; capped at 3 attempts
+- Verified entries short-circuit on next observation — zero overhead
+
+Fixed in v1.1.4 with critical anti-spam: `TryCachePending` no longer re-fires `TriggerItemFetch` on every retry tick (was 4750 SetHyperlinks/sec for 1188-pending caches), and pending-fetches now use the full itemstring (not bare itemID).
+
+### 4. New `/epogarmory dump` command
+
+Forensic per-slot diagnostic. For each set of a stored player, prints:
+
+- Raw itemstring + Ascension-extra-fields detection
+- `GetItemInfo(itemID)` and `GetItemInfo(fullLink)` (flagged if they differ)
+- `GetItemStats(fullLink)` complete stat dump
+- Cache entry contents (with ✓verified / ✗unverified annotation)
+- **PvP detection trace** per set: shows trinket name resolution, pattern match result, live verdict, and a MISMATCH warning when stored set group disagrees with live evaluation
+
+### 5. Polish + smaller fixes
+
+- Broader PvP trinket detection — pattern set now `{ "Insignia", "Medallion", "Battlemaster's" }` (was just `"Insignia"`)
+- Death Knight removed from class filter (Ascension doesn't ship the DK class)
+- Mousewheel scrollbar thumb fix in the Browser
+- Channel optimizations: skip PARTY/RAID broadcast when group is fully guildies, sync responses go via WHISPER instead of GUILD-broadcasting
+- 4x faster sync (`BROADCAST_STAGGER` 2.0s → 0.5s)
+- Realistic sync ETA based on peer DB size
+- Self DB count shows in Scanners view leaderboard
+- Version notification only fires on major.minor bumps (1.1.x → 1.1.y stays silent; 1.1 → 1.2 notifies)
+
+### Wire format summary
+
+Position 40 is now defined and used for item-info hints. Backward-compatible — pre-v1.2 receivers just ignore the field.
+
+### Stable surface
+
+- Wire protocol positions 1–30 still frozen
+- Position 40 now defined (additive, optional)
+- SavedVariables shape unchanged (`EpogArmoryDB`, `EpogItemCacheDB`)
+- `_G.EpogArmory.*` API: `MyIdentity`, `HasRealityAura`, `RealityAuraName`, plus existing sync/peer accessors
+
+---
+
 ## EpogArmory v1.1.5 — Broaden weapon slot acceptance *(2026-04-28)*
 
 User ran v1.1.4 cachebuild on a real DB: 3216 of 3221 items cached cleanly (vs near-zero before the spam fix). Only 3 items kept failing verification:
