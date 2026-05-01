@@ -59,11 +59,6 @@ local function HandleSlash(input)
         Print("Disenchant pricing: " .. (LA.db.profile.useDisenchant and "ON" or "OFF"))
         return
     end
-    if cmd == "group" then
-        LA.db.profile.showGroupLoot = not LA.db.profile.showGroupLoot
-        Print("Track group loot: " .. (LA.db.profile.showGroupLoot and "ON" or "OFF"))
-        return
-    end
     if cmd == "soulbound" then
         LA.db.profile.ignoreSoulbound = not LA.db.profile.ignoreSoulbound
         Print("Ignore soulbound: " .. (LA.db.profile.ignoreSoulbound and "ON" or "OFF"))
@@ -93,7 +88,6 @@ local function HandleSlash(input)
         Print("  /la pause | resume — pause GPH timer")
         Print("  /la reset          — start a fresh session")
         Print("  /la de             — toggle disenchant pricing")
-        Print("  /la group          — toggle group-loot tracking")
         Print("  /la soulbound      — toggle ignoring BoP items")
         Print("  /la quality <0-7>  — minimum quality (0=grey, 2=green, 3=blue ...)")
         Print("  /la wipecache      — clear cached AH/DE prices")

@@ -56,7 +56,6 @@ LA_DEFAULTS = {
     minValueCopper    = 0,        -- skip items worth less than this for the list (not totals)
     ignoreSoulbound   = false,    -- if true, BoP items are excluded from totals entirely
     useDisenchant     = true,     -- BoP green/blue: substitute DE expected value when AH unknown
-    showGroupLoot     = true,     -- track items others loot in your party
 
     -- Display
     autoStart         = true,     -- start a session automatically on first /la or first loot

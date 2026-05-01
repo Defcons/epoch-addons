@@ -142,18 +142,18 @@ local function BuildPatterns()
         p = p:gsub("%%d", "(%%d+)")
         return "^" .. p .. "$"
     end
-    -- Patterns we DO want from CHAT_MSG_LOOT:
-    --   * Group loot (other player receives) — LOOT_OPENED only fires for the
-    --     player's own loot window, so this is our only signal.
-    --   * Self-created (crafting / engineering bombs / etc) — there is no
-    --     loot window for these, so LOOT_OPENED never fires.
-    -- Patterns we SKIP because LOOT_OPENED already counted them:
-    --   * LOOT_ITEM_SELF / _MULTIPLE — would double-count solo loot.
+    -- Strict "items I personally looted from corpses" mode. LOOT_OPENED
+    -- already captures every corpse the player clicks (autoloot or manual),
+    -- so we deliberately ignore everything from CHAT_MSG_LOOT *except*
+    -- self-create — crafted items don't open a loot window so they have
+    -- no LOOT_OPENED signal.
+    --
+    -- Explicitly NOT parsed:
+    --   * LOOT_ITEM / _MULTIPLE  — other players' group-loot wins
+    --   * LOOT_ITEM_SELF / _MULTIPLE — the player's own group/Need/Greed
+    --     wins. Those are deliveries from a roll, not items the player
+    --     looted off a corpse.
     LOOT_PATTERNS = {
-        -- "Player receives loot: [item]." (LOOT_ITEM)
-        { p = toLua(LOOT_ITEM),                     self = false, multi = false },
-        -- "Player receives loot: [item]xN." (LOOT_ITEM_MULTIPLE)
-        { p = toLua(LOOT_ITEM_MULTIPLE),            self = false, multi = true,  countLast = true },
         -- "You create: [item]." (LOOT_ITEM_CREATED_SELF)
         { p = toLua(LOOT_ITEM_CREATED_SELF),        self = true,  multi = false },
         -- "You create: [item]xN." (LOOT_ITEM_CREATED_SELF_MULTIPLE)
@@ -195,11 +195,6 @@ local function HandleChatMsgLoot(msg)
     if not msg then return end
     local link, count, source = ParseChatLoot(msg)
     if not link then return end
-
-    -- Group loot opt-out
-    local db = LA.db and LA.db.profile or LA_DEFAULTS
-    if source == LA_CONST.SOURCE_GROUP and not db.showGroupLoot then return end
-
     LM.IngestLoot(link, count, source)
 end
 
