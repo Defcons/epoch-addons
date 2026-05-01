@@ -49,13 +49,23 @@ LA_CONST = {
 
 LA_DEFAULTS = {
     -- Filtering
-    minQuality = LA_CONST.QUALITY_UNCOMMON,  -- only show green+ items in the loot list
-    -- "include" means count toward session value; lower-quality loot still counts as vendor
-    -- but doesn't get a row in the list. UI threshold below.
-    minQualityForList = LA_CONST.QUALITY_UNCOMMON,
+    minQuality        = LA_CONST.QUALITY_POOR,  -- include greys/whites by default
+    minQualityForList = LA_CONST.QUALITY_POOR,  -- show every quality in the list too
     minValueCopper    = 0,        -- skip items worth less than this for the list (not totals)
     ignoreSoulbound   = false,    -- if true, BoP items are excluded from totals entirely
     useDisenchant     = true,     -- BoP green/blue: substitute DE expected value when AH unknown
+
+    -- ArkInventory category overrides. When ArkInventory is loaded and a
+    -- looted item has been manually assigned to a custom category whose
+    -- name matches one of these strings (case-insensitive), the pricing
+    -- chain in Core/Pricing.lua is overridden:
+    --   * arkInvValueCategory  -> force the Aux/TSM AH price
+    --                            (whites/greys you treat as AH-saleable)
+    --   * arkInvDECategory     -> force the disenchant expected value
+    --                            (greens/blues you always DE)
+    -- Set either to "" to disable the override entirely.
+    arkInvValueCategory = "Value",
+    arkInvDECategory    = "DE",
 
     -- Display
     autoStart         = true,     -- start a session automatically on first /la or first loot

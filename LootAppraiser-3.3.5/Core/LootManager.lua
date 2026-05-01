@@ -60,7 +60,9 @@ end
 local function PriceItem(link)
     local db = LA.db and LA.db.profile or LA_DEFAULTS
     local copper, src, isBoP = LA.Pricing.GetItemValue(link, {
-        useDisenchant = db.useDisenchant,
+        useDisenchant   = db.useDisenchant,
+        valueCategory   = db.arkInvValueCategory,
+        deCategory      = db.arkInvDECategory,
     })
     return copper or 0, src, isBoP
 end

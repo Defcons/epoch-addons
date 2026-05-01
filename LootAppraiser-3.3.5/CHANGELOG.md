@@ -1,5 +1,33 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.1 — Whites/greys included; ArkInventory category overrides *(2026-04-30)*
+
+- **Default quality threshold lowered to 0** (poor) so greys, whites and
+  everything above are tracked. Existing installs keep their saved value;
+  use `/la quality 0` to switch.
+- **ArkInventory category override** (in `Core/Pricing.lua`):
+  - Items manually assigned to a category named **`Value`** (configurable
+    via `/la valuecat <name>`) are forced through the AH chain — useful
+    for grey/white items that vendor poorly but sell on the AH.
+  - Items manually assigned to a category named **`DE`** (configurable
+    via `/la decat <name>`) are priced as their disenchant expected
+    value via TSM2's enchanting yield tables (mats priced through the
+    same Aux/TSM AH chain).
+  - Lookup uses ArkInventory's profile cache
+    (`db.profile.option.category["item:<id>:<sb>"]`) and walks the
+    `db.global.option.category[type].data[code].name` table to read
+    the category name. No-op if ArkInventory isn't loaded.
+  - Either override falls through to the default chain when the override
+    can't produce a price (e.g. AH unknown for a "Value" item; DE not
+    applicable to whites/greys).
+
+### Bind-on-pickup detection still applies
+The same hidden-tooltip BoP scan determines the soulbound bit used in
+ArkInventory's cache key (`item:ID:0` vs `item:ID:1`) so categorisation
+matches whatever ArkInventory has in its bag scan.
+
+---
+
 ## v1.0 — Initial release *(2026-04-30)*
 
 A live loot tracker with gold-per-hour, AH value, vendor and disenchant pricing.

@@ -64,6 +64,26 @@ local function HandleSlash(input)
         Print("Ignore soulbound: " .. (LA.db.profile.ignoreSoulbound and "ON" or "OFF"))
         return
     end
+    if cmd == "valuecat" then
+        if rest == "" then
+            Print("ArkInventory 'value' category name: '" .. tostring(LA.db.profile.arkInvValueCategory or "") .. "'  (set to '' to disable)")
+        else
+            LA.db.profile.arkInvValueCategory = rest
+            LA.Pricing.WipeAHCache()
+            Print("Value-category override set to '" .. rest .. "'.")
+        end
+        return
+    end
+    if cmd == "decat" then
+        if rest == "" then
+            Print("ArkInventory 'DE' category name: '" .. tostring(LA.db.profile.arkInvDECategory or "") .. "'  (set to '' to disable)")
+        else
+            LA.db.profile.arkInvDECategory = rest
+            LA.Pricing.WipeAHCache()
+            Print("DE-category override set to '" .. rest .. "'.")
+        end
+        return
+    end
     if cmd == "quality" then
         local q = tonumber(rest)
         if q and q >= 0 and q <= 7 then
@@ -90,6 +110,8 @@ local function HandleSlash(input)
         Print("  /la de             — toggle disenchant pricing")
         Print("  /la soulbound      — toggle ignoring BoP items")
         Print("  /la quality <0-7>  — minimum quality (0=grey, 2=green, 3=blue ...)")
+        Print("  /la valuecat <name>— ArkInventory category to force-AH-price (default: 'Value')")
+        Print("  /la decat <name>   — ArkInventory category to force-DE-price (default: 'DE')")
         Print("  /la wipecache      — clear cached AH/DE prices")
         return
     end

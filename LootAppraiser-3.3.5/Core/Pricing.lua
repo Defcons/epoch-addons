@@ -207,13 +207,67 @@ function Pricing.GetDisenchantValue(link)
     return total > 0 and total or nil
 end
 
+-- ----- ArkInventory category lookup --------------------------------------
+-- Returns the (lower-cased) category name a looted item has been manually
+-- assigned to in ArkInventory's profile, or nil if ArkInventory isn't loaded
+-- or the item has no explicit assignment.
+--
+-- Lookup chain mirrors ArkInventory's own ItemCategoryGetPrimary:
+--   profile.option.category["item:<id>:<sb>"]   -> "<type>!<code>" string
+--   global.option.category[<type>].data[<code>] -> { name = "Value", ... }
+--
+-- Only explicit Custom/Rule assignments are returned — ArkInventory's rule
+-- engine classifies items dynamically and keeps the result on the in-bag
+-- `i.cat` field, which we don't have for a fresh loot row.
+local function GetArkInvCategoryName(itemID, isBoP)
+    if not itemID then return nil end
+    if not (ArkInventory and ArkInventory.db) then return nil end
+    local sb = isBoP and 1 or 0
+    local cacheKey = string.format("item:%d:%d", itemID, sb)
+    local prof = ArkInventory.db.profile
+    local catID = prof and prof.option and prof.option.category
+                  and prof.option.category[cacheKey]
+    if not catID then return nil end
+    local catType, catCode = catID:match("^(%d+)!(%d+)$")
+    catType, catCode = tonumber(catType), tonumber(catCode)
+    if not catType or not catCode then return nil end
+    local glob = ArkInventory.db.global
+    local data = glob and glob.option and glob.option.category
+                 and glob.option.category[catType]
+                 and glob.option.category[catType].data
+                 and glob.option.category[catType].data[catCode]
+    local name = data and data.name
+    return (type(name) == "string" and name ~= "") and name:lower() or nil
+end
+
 -- ----- top-level: GetItemValue -------------------------------------------
 -- Returns: copper, sourceTag, isBoP
 function Pricing.GetItemValue(link, opts)
     if not link then return 0, LA_CONST.PRICE_VENDOR, false end
     opts = opts or {}
-    local key  = ItemKeyFromLink(link)
+    local key   = ItemKeyFromLink(link)
+    local id    = ItemIDFromLink(link)
     local isBoP = Pricing.IsBindOnPickup(link)
+
+    -- ----- ArkInventory category override -------------------------------
+    -- "Value" (or whatever name the user configured) forces the AH chain
+    -- even for greys/whites the user has marked AH-saleable. "DE" forces
+    -- disenchant expected value regardless of bind/quality. Both fall back
+    -- to the rest of the chain if the override path can't produce a price.
+    local valueCat = (opts.valueCategory or ""):lower()
+    local deCat    = (opts.deCategory    or ""):lower()
+    local catName  = (valueCat ~= "" or deCat ~= "") and GetArkInvCategoryName(id, isBoP) or nil
+    if catName then
+        if valueCat ~= "" and catName == valueCat then
+            local ah = key and GetAHPrice(key)
+            if ah and ah > 0 then return ah, LA_CONST.PRICE_AUX, isBoP end
+            -- AH unknown for this item — fall through to vendor floor below
+        elseif deCat ~= "" and catName == deCat then
+            local de = Pricing.GetDisenchantValue(link)
+            if de and de > 0 then return de, LA_CONST.PRICE_DE, isBoP end
+            -- DE produced nothing — fall through
+        end
+    end
 
     -- Tradeable (not BoP, not quest) → AH price chain
     if not isBoP and key then

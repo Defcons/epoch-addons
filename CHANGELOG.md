@@ -4,6 +4,13 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## LootAppraiser-3.3.5 v1.1 — Whites/greys + ArkInventory category overrides *(2026-04-30)*
+- **Strict personal-loot mode:** only items you click-loot from corpses (autoloot or manual via `LOOT_OPENED`) plus items you craft (`LOOT_ITEM_CREATED_SELF`) are tracked. Group-loot deliveries (Need/Greed wins, others' wins) are ignored — including your own roll wins. The `showGroupLoot` option / `/la group` command were removed.
+- **Default quality threshold lowered to 0** (poor) so greys and whites are tracked alongside greens+. Existing installs keep their saved value; use `/la quality 0` to switch.
+- **ArkInventory custom-category overrides** (`Core/Pricing.lua`): items the user has manually assigned to a category named `Value` are force-priced through the Aux/TSM AH chain; items in a category named `DE` are priced as their disenchant expected value via TSM2's enchanting yield tables. Names configurable via `/la valuecat <name>` and `/la decat <name>` (set to empty string to disable). Lookup walks `ArkInventory.db.profile.option.category["item:<id>:<sb>"]` then `db.global.option.category[type].data[code].name`. No-op if ArkInventory isn't loaded. Both overrides fall through to the default chain when they can't produce a price.
+
+---
+
 ## LootAppraiser-3.3.5 v1.0 — New addon *(2026-04-30)*
 A live loot tracker with gold-per-hour, AH value, vendor and disenchant pricing. Inspired by ProfitzTV's *LootAppraiser* (TWW retail), rewritten from scratch for 3.3.5 + Ascension's unified cross-faction AH. ~1,100 lines of Lua across 6 source files.
 
