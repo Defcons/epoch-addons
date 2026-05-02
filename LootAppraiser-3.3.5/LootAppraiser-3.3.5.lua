@@ -155,6 +155,14 @@ local function HandleSlash(input)
         Print("AH/DE price cache wiped — next loot will re-query.")
         return
     end
+    if cmd == "verbose" then
+        LA._verboseLoot = not LA._verboseLoot
+        Print("Verbose CHAT_MSG_LOOT logging: " .. (LA._verboseLoot and "ON" or "OFF"))
+        if LA._verboseLoot then
+            Print("Now loot any item — every CHAT_MSG_LOOT line + the ingest decision will print here.")
+        end
+        return
+    end
     if cmd == "price" then
         -- Parse the first item link out of `rest` (input was lower-cased
         -- earlier, but we need the *original* casing for the link to match
@@ -192,6 +200,7 @@ local function HandleSlash(input)
         Print("  /la skipzero       — toggle dropping 0-copper rows from the list")
         Print("  /la wipecache      — clear cached AH/DE prices")
         Print("  /la price <link>   — debug: dump pricing trace for one item (shift-click link)")
+        Print("  /la verbose        — debug: log every CHAT_MSG_LOOT line + ingest decision")
         return
     end
 

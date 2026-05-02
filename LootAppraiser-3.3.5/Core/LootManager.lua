@@ -75,6 +75,9 @@ function LM.IngestLoot(link, count, source)
 
     local quality = select(3, GetItemInfo(link)) or 0
     local keep, _ = ShouldRecord(link, quality)
+    if LA._verboseLoot then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA verbose]|r   ingest q=" .. tostring(quality) .. " keep=" .. tostring(keep))
+    end
     if not keep then return end
 
     local entry = BuildEntry(link, count, source)
@@ -84,7 +87,13 @@ function LM.IngestLoot(link, count, source)
     -- with no economy value, or anything the user has dumped into a
     -- "Junk" category that also vendors for nothing.
     local db = LA.db and LA.db.profile or LA_DEFAULTS
+    if LA._verboseLoot then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA verbose]|r   entry.unit=" .. tostring(entry.unit) .. " src=" .. tostring(entry.src))
+    end
     if (db.skipZeroValueRows ~= false) and (not entry.unit or entry.unit <= 0) then
+        if LA._verboseLoot then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA verbose]|r   DROPPED: zero value")
+        end
         return
     end
 
@@ -92,7 +101,16 @@ function LM.IngestLoot(link, count, source)
     if db.autoStart and not LA.Session.IsRunning() then
         LA.Session.Start()
     end
-    if not LA.Session.IsRunning() then return end
+    if not LA.Session.IsRunning() then
+        if LA._verboseLoot then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA verbose]|r   DROPPED: session not running")
+        end
+        return
+    end
+
+    if LA._verboseLoot then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA verbose]|r   ADDED to session")
+    end
 
     LA.Session.AddLoot(entry)
 
@@ -152,6 +170,10 @@ end
 local function HandleChatMsgLoot(msg)
     if not msg then return end
     local link, count = ParseChatLoot(msg)
+    if LA._verboseLoot then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA verbose]|r CHAT_MSG_LOOT: " .. tostring(msg))
+        DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA verbose]|r   matched? link=" .. tostring(link) .. " count=" .. tostring(count))
+    end
     if not link then return end
     LM.IngestLoot(link, count, LA_CONST.SOURCE_SOLO)
 end
