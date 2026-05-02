@@ -4,6 +4,11 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## LootAppraiser-3.3.5 v1.7 — Need/Greed wins are tracked again *(2026-05-02)*
+Removed the v1.2 "loot window recently open" gate on `LOOT_ITEM_SELF`. The gate was meant to keep group-roll deliveries out of the session but was over-aggressive: greed-wins fire `LOOT_ITEM_SELF` *without* opening a loot window, so items the player genuinely received via Need/Greed never reached `IngestLoot`. Trust `LOOT_ITEM_SELF` unconditionally now — it only fires when the item enters your bags, regardless of source. Other players' wins still ignored (they fire `LOOT_ITEM`, intentionally absent from our patterns); peeking at mob loot still ignored (no chat-loot delivery line for just opening the frame). LOOT_OPENED/LOOT_CLOSED registrations dropped — gate state was their only consumer.
+
+---
+
 ## LootAppraiser-3.3.5 v1.6 — Consume category routes to AH pricing *(2026-05-02)*
 - `arkInvValueCategory` default expanded from `"Value"` to `"Value,Consume"`. Items in a `Consume` custom category (potions, food, reagents) go through the AH chain. The comma-separated list support already plumbed through `CatNameInList` since v1.4 — just plugged the second name in.
 - Migration 1.5 → 1.6: existing installs on `"Value"` auto-rewritten to `"Value,Consume"`. Customised values untouched.

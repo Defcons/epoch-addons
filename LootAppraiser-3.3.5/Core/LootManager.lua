@@ -1,30 +1,24 @@
 -- Core/LootManager.lua
 -- Loot detection on 3.3.5.
 --
--- We use CHAT_MSG_LOOT's LOOT_ITEM_SELF as the *single* source of truth for
--- "an item just landed in my bags". LOOT_OPENED is unreliable for tracking
--- because it fires whenever a loot window appears — including when the
--- player merely peeks at a mob and closes without looting, or repeatedly
--- opens the same corpse. Items in the frame would get counted whether
--- they were actually taken or not.
+-- Single source of truth: CHAT_MSG_LOOT's "You receive loot:" patterns.
+-- These fire only when an item actually lands in the player's bags, so we
+-- trust them unconditionally — regardless of whether the item came from a
+-- corpse loot, a Need/Greed roll win, master-loot assignment, an auto-
+-- granted quest reward, or a crafted-item creation.
 --
--- LOOT_ITEM_SELF alone over-counts in the opposite direction though: it
--- also fires for Need/Greed roll deliveries, which the user explicitly
--- doesn't want tracked. So we GATE LOOT_ITEM_SELF on a "loot window
--- recently open" flag set by LOOT_OPENED and cleared shortly after
--- LOOT_CLOSED. Net result:
+-- Patterns that fire on someone-else-receives-loot (LOOT_ITEM /
+-- LOOT_ITEM_MULTIPLE) are deliberately NOT parsed — those are other
+-- players' wins, never the local player's.
 --
---   loot window opened → all CHAT_MSG_LOOT self-loot lines counted
---   roll-delivered     → no loot window → flag never set → ignored
---   crafting           → no loot window, but LOOT_ITEM_CREATED_SELF
---                        is counted unconditionally (no loot frame
---                        exists for crafting)
+-- Earlier versions tried to gate LOOT_ITEM_SELF on a "loot window recently
+-- open" flag (set by LOOT_OPENED, cleared after LOOT_CLOSED) to filter
+-- out group-roll deliveries. That was wrong: greed-wins fire
+-- LOOT_ITEM_SELF without ever opening a loot window, so the gate
+-- silently dropped items the player actually received. Gate removed.
 LA = LA or {}
 LA.LootManager = {}
 local LM = LA.LootManager
-
-local lootWindowOpenUntil = 0  -- GetTime() until which we trust self-loot lines
-local LOOT_CLOSE_GRACE    = 0.5  -- seconds after LOOT_CLOSED to still accept trailing messages
 
 -- Returns whether the loot row should be kept (quality & soulbound filter)
 -- and whether it should appear in the visible list (vs. counted in totals).
@@ -123,42 +117,33 @@ local function BuildPatterns()
         p = p:gsub("%%d", "(%%d+)")
         return "^" .. p .. "$"
     end
-    -- Two pattern groups, with different gating behaviour:
-    --   * needsWindow=true  — only ingested when a loot window was recently
-    --                        open. Distinguishes corpse-loot from
-    --                        Need/Greed-roll deliveries.
-    --   * needsWindow=false — always ingested. Crafting fires
-    --                        LOOT_ITEM_CREATED_SELF without ever opening
-    --                        a loot frame, so we can't gate it.
-    --
-    -- Explicitly NOT parsed:
-    --   * LOOT_ITEM / _MULTIPLE — other players' loot. Never tracked.
+    -- All "you receive" / "you create" self patterns are trusted equally.
+    -- LOOT_ITEM (other-player) patterns are intentionally absent — those
+    -- never represent the local player's loot.
     LOOT_PATTERNS = {
         -- "You receive loot: [item]." (LOOT_ITEM_SELF)
-        { p = toLua(LOOT_ITEM_SELF),                  self = true, multi = false, needsWindow = true },
+        { p = toLua(LOOT_ITEM_SELF),                  multi = false },
         -- "You receive loot: [item]xN." (LOOT_ITEM_SELF_MULTIPLE)
-        { p = toLua(LOOT_ITEM_SELF_MULTIPLE),         self = true, multi = true,  countLast = true, needsWindow = true },
+        { p = toLua(LOOT_ITEM_SELF_MULTIPLE),         multi = true },
         -- "You create: [item]." (LOOT_ITEM_CREATED_SELF)
-        { p = toLua(LOOT_ITEM_CREATED_SELF),          self = true, multi = false, needsWindow = false },
+        { p = toLua(LOOT_ITEM_CREATED_SELF),          multi = false },
         -- "You create: [item]xN." (LOOT_ITEM_CREATED_SELF_MULTIPLE)
-        { p = toLua(LOOT_ITEM_CREATED_SELF_MULTIPLE), self = true, multi = true,  countLast = true, needsWindow = false },
+        { p = toLua(LOOT_ITEM_CREATED_SELF_MULTIPLE), multi = true },
     }
 end
 
--- Returns: link, count, needsWindow (or nil if no pattern matched)
+-- Returns: link, count (or nil if no pattern matched)
 local function ParseChatLoot(msg)
     BuildPatterns()
     for _, pat in ipairs(LOOT_PATTERNS) do
         if pat.p then
             local a, b = msg:match(pat.p)
             if a then
-                local link, count
                 if pat.multi then
-                    link, count = a, tonumber(b) or 1
+                    return a, tonumber(b) or 1
                 else
-                    link, count = a, 1
+                    return a, 1
                 end
-                return link, count, pat.needsWindow
             end
         end
     end
@@ -166,11 +151,8 @@ end
 
 local function HandleChatMsgLoot(msg)
     if not msg then return end
-    local link, count, needsWindow = ParseChatLoot(msg)
+    local link, count = ParseChatLoot(msg)
     if not link then return end
-    -- Gate corpse-loot lines on a recent loot window. Crafted-item lines
-    -- bypass the gate (no loot window ever opens for crafting).
-    if needsWindow and GetTime() > lootWindowOpenUntil then return end
     LM.IngestLoot(link, count, LA_CONST.SOURCE_SOLO)
 end
 
@@ -184,36 +166,25 @@ local pendingReconcile = false
 local reconcileAccum = 0
 
 -- ----- event hookup ------------------------------------------------------
--- LOOT_OPENED  → arm the gate (math.huge = trust messages while window is open)
--- LOOT_CLOSED  → disarm with a small grace so trailing CHAT_MSG_LOOT lines
---                that the server may emit slightly after the close packet
---                still get counted
--- CHAT_MSG_LOOT → the actual loot signal; gated via needsWindow
+-- CHAT_MSG_LOOT → the loot signal (see comment block at top of file)
 -- BAG_UPDATE   → mark a reconciliation pass needed (debounced via OnUpdate)
 -- UNIT_SPELLCAST_SUCCEEDED → also trigger a reconcile when the player casts
---                a destructive consumable spell (Disenchant, Mill, Prospect,
---                Smelt). Belt-and-suspenders against any path where the
---                BAG_UPDATE order can leave an item undebited while the
---                produced mats are already ingested — the user-visible
---                symptom would be the source item still hanging in the
---                row list while the mats also appear.
+--                a destructive consumable spell (Disenchant, Mill, Prospect).
+--                These spells consume an item and produce mats in a single
+--                client tick; hooking the spell directly is the most
+--                robust signal for triggering reconciliation, even if
+--                BAG_UPDATE order is unusual.
 local CONSUMING_SPELLS = {
     [13262] = true,  -- Disenchant
     [51005] = true,  -- Milling
     [31252] = true,  -- Prospecting
 }
 local frame = CreateFrame("Frame", "LA_LootEventFrame")
-frame:RegisterEvent("LOOT_OPENED")
-frame:RegisterEvent("LOOT_CLOSED")
 frame:RegisterEvent("CHAT_MSG_LOOT")
 frame:RegisterEvent("BAG_UPDATE")
 frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 frame:SetScript("OnEvent", function(self, event, msg, _, _, _, spellID)
-    if event == "LOOT_OPENED" then
-        lootWindowOpenUntil = math.huge
-    elseif event == "LOOT_CLOSED" then
-        lootWindowOpenUntil = GetTime() + LOOT_CLOSE_GRACE
-    elseif event == "CHAT_MSG_LOOT" then
+    if event == "CHAT_MSG_LOOT" then
         HandleChatMsgLoot(msg)
     elseif event == "BAG_UPDATE" then
         pendingReconcile = true

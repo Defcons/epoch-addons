@@ -1,5 +1,31 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.7 — Need/Greed wins are tracked again *(2026-05-02)*
+
+Removed the v1.2 "loot window recently open" gate on `LOOT_ITEM_SELF`.
+That gate was meant to keep group-roll deliveries out of the session,
+but the side effect was over-aggressive: greed-wins fire
+`LOOT_ITEM_SELF` *without* opening a loot window, so items the player
+genuinely received via Need/Greed never reached `IngestLoot`.
+
+Net effect of the new flow:
+
+* Solo loot (corpse / chest / mining node) → counted (unchanged)
+* Need/Greed win → **counted (regression fix)**
+* Master-loot assigned to player → counted
+* Crafted item → counted (unchanged, via LOOT_ITEM_CREATED_SELF)
+* Other player's Need/Greed win → still ignored — those fire
+  LOOT_ITEM, not LOOT_ITEM_SELF, and the LOOT_ITEM patterns are
+  intentionally absent from our parser
+* Peeking at a mob loot table without taking → still ignored — no
+  CHAT_MSG_LOOT delivery line is emitted just for opening the frame
+
+LOOT_OPENED / LOOT_CLOSED event registrations dropped (the gate state
+was their only consumer). BAG_UPDATE and UNIT_SPELLCAST_SUCCEEDED
+hooks for reconciliation are unchanged.
+
+---
+
 ## v1.6 — Consume category routes to AH pricing *(2026-05-02)*
 
 `arkInvValueCategory` default expanded from `"Value"` to
