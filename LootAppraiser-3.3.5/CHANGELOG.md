@@ -1,5 +1,20 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.6 — Consume category routes to AH pricing *(2026-05-02)*
+
+`arkInvValueCategory` default expanded from `"Value"` to
+`"Value,Consume"`. Items the user has placed in a `Consume` custom
+category (potions, food, reagents, etc) now go through the AH price
+chain alongside `Value`. No new code path — the comma-separated list
+support already plumbed through `CatNameInList` since v1.4 just plugs
+the second name in.
+
+Migration 1.5 → 1.6: existing installs with the previous default
+`"Value"` are auto-rewritten to `"Value,Consume"`. Customised values
+are left untouched.
+
+---
+
 ## v1.5 — Catch uncategorised items via System "Default" *(2026-05-02)*
 
 The v1.4 vendor-category override only matched items the user had

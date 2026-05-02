@@ -13,7 +13,7 @@ end
 
 -- One-shot migrations keyed off LootAppraiserDB._dbVersion. Bump this when
 -- you change a default that existing installs should pick up automatically.
-local DB_VERSION = 1.5
+local DB_VERSION = 1.6
 
 local function MigrateDB(db)
     local v = tonumber(db._dbVersion) or 0
@@ -34,6 +34,15 @@ local function MigrateDB(db)
     if v < 1.5 then
         if (db.profile.arkInvVendorCategory or "") == "Junk,Trash" then
             db.profile.arkInvVendorCategory = "Junk,Trash,Default"
+        end
+    end
+
+    -- 1.5 -> 1.6: add "Consume" to arkInvValueCategory so consumables go
+    -- through the AH chain by default. Same conditional rewrite —
+    -- preserves customisation.
+    if v < 1.6 then
+        if (db.profile.arkInvValueCategory or "") == "Value" then
+            db.profile.arkInvValueCategory = "Value,Consume"
         end
     end
 

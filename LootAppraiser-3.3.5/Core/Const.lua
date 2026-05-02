@@ -67,7 +67,7 @@ LA_DEFAULTS = {
     --                            (Junk/Trash that you always vendor; this
     --                            bypasses any incidental AH listing)
     -- Set any to "" to disable that override entirely.
-    arkInvValueCategory  = "Value",
+    arkInvValueCategory  = "Value,Consume",       -- AH-priced (Value items + consumables)
     arkInvDECategory     = "DE",
     arkInvVendorCategory = "Junk,Trash,Default",  -- "Default" catches uncategorised items
 

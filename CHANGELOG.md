@@ -4,6 +4,12 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## LootAppraiser-3.3.5 v1.6 — Consume category routes to AH pricing *(2026-05-02)*
+- `arkInvValueCategory` default expanded from `"Value"` to `"Value,Consume"`. Items in a `Consume` custom category (potions, food, reagents) go through the AH chain. The comma-separated list support already plumbed through `CatNameInList` since v1.4 — just plugged the second name in.
+- Migration 1.5 → 1.6: existing installs on `"Value"` auto-rewritten to `"Value,Consume"`. Customised values untouched.
+
+---
+
 ## LootAppraiser-3.3.5 v1.5 — Catch uncategorised items via System "Default" *(2026-05-02)*
 The v1.4 vendor override only matched manually-dragged custom categories; uncategorised items (most of a typical loot stream) silently bypassed it and fell through to the AH chain. Fixed by returning `"default"` from `GetArkInvCategoryName` when no explicit assignment exists, and bumping the default `arkInvVendorCategory` to `"Junk,Trash,Default"`. Existing installs on the v1.4 default are auto-migrated; customised values are left alone. Workflow: tag profitable items into `Value` (→ AH), DE-able items into `DE` (→ disenchant), leave the rest uncategorised (→ vendor).
 
