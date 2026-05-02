@@ -4,6 +4,14 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## LootAppraiser-3.3.5 v1.3 — Bag reconciliation (deleted/sold items leave the session) *(2026-05-02)*
+- **`Session.Start()`** now snapshots current bag contents into a per-itemID **baseline**, and `Session.AddLoot()` keeps a parallel **`bagOwn`** ledger of session intake.
+- **`BAG_UPDATE`** is hooked in `Core/LootManager.lua` (debounced 0.3s after the last in a burst) and triggers **`Session.ReconcileBags()`**. The pass re-scans bags and debits any per-itemID loss against `bagOwn` first, falling back to the baseline only if the entire session-tracked amount is already gone.
+- **`ApplyLossToLootRows()`** walks `lootRows` newest-first (LIFO), decrementing or removing rows until the loss is satisfied. Partial losses reduce a row's count and value proportionally; depleted rows are removed.
+- Net effect: destroying / vendoring / mailing / trading loot during a session correctly drops `lootTotal` and `itemCount`, and the GPH recalculates on the next refresh tick. No double-count against `GoldDelta` because the two streams are independent (vendoring drops `lootTotal` while `GoldDelta` rises by the sale amount; destroying drops `lootTotal` and leaves `GoldDelta` flat).
+
+---
+
 ## LootAppraiser-3.3.5 v1.2 — Real-loot-only detection + quality migration *(2026-05-02)*
 - **Loot detection switched from `LOOT_OPENED` to gated `CHAT_MSG_LOOT`.** Peeking at a mob's loot table no longer counts items as looted, and re-opening the same corpse no longer creates duplicate rows. Now only items that actually land in your bags are tracked: `LOOT_ITEM_SELF` / `LOOT_ITEM_SELF_MULTIPLE` lines, gated on a "loot window was recently open" flag set by `LOOT_OPENED` and cleared 500ms after `LOOT_CLOSED`. Need/Greed roll deliveries (which fire `LOOT_ITEM_SELF` without ever opening a loot window) stay excluded. Crafted-item lines (`LOOT_ITEM_CREATED_SELF`) bypass the gate since crafting has no loot frame. Recent-seen dedup buffer removed — with one event source there's nothing to dedup against.
 - **One-shot DB migration** keyed off `LootAppraiserDB._dbVersion`: existing installs with v1.0's saved `minQuality=2` are auto-reset to `minQuality=0` on first v1.2 launch, so whites/greys finally show without manual `/la quality 0`.

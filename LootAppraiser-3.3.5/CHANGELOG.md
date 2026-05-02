@@ -1,5 +1,42 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.3 — Bag reconciliation: deleted/sold/mailed items leave the session *(2026-05-02)*
+
+When loot leaves your bags — destroyed, vendored, mailed, traded — the
+session totals and GPH now decrement to match. Previously they only
+ever grew, which inflated GPH for any farm where you destroyed greys
+along the way.
+
+### Mechanics
+- `Session.Start()` snapshots current bag contents into a per-itemID
+  baseline. Any loot ingested after that bumps a parallel `bagOwn`
+  ledger.
+- `BAG_UPDATE` (debounced 0.3s after the last in a burst) triggers
+  `Session.ReconcileBags()`. It re-scans bags and, for each tracked
+  item where current count is below `baseline + bagOwn`, debits the
+  loss — preferring the session ledger first, falling back to the
+  baseline only if the entire session-tracked amount of that item is
+  already gone.
+- `ApplyLossToLootRows()` walks `lootRows` newest-first (LIFO),
+  decrementing or removing rows until the loss count is satisfied.
+  Per-row value is reduced proportionally for partial losses.
+
+### Why no double-counting against `GoldDelta`
+`GoldDelta` (current gold − start gold) and `lootTotal` are independent.
+Vendoring an item drops `lootTotal` (item left bags) but raises
+`GoldDelta` by the same amount (vendor sale). Net session value
+unchanged. Destroying drops `lootTotal` and leaves `GoldDelta` flat —
+correct: you really did lose that value. Loot adds to `lootTotal`
+without touching `GoldDelta` until you sell.
+
+### Bag scope
+Reconciliation scans the regular bags (backpack + 4 bag slots, ids 0
+through `NUM_BAG_SLOTS`). Keyring and ammo bag are excluded — they
+shouldn't carry tracked loot, and including them caused false
+positives on quiver swaps in early prototypes.
+
+---
+
 ## v1.2 — Loot detection: only what actually entered your bags *(2026-05-02)*
 
 Two related bugs:

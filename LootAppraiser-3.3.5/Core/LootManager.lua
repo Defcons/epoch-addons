@@ -164,16 +164,27 @@ local function HandleChatMsgLoot(msg)
     LM.IngestLoot(link, count, LA_CONST.SOURCE_SOLO)
 end
 
+-- ----- BAG_UPDATE → debounced reconciliation -----------------------------
+-- BAG_UPDATE fires repeatedly during a single inventory change (often once
+-- per affected slot). Coalesce all of them into a single reconciliation
+-- pass ~0.3s after the burst settles. The pass scans bags, debits any
+-- loss against state.bagOwn / lootRows, and asks the UI to re-render.
+local BAG_DEBOUNCE = 0.3
+local pendingReconcile = false
+local reconcileAccum = 0
+
 -- ----- event hookup ------------------------------------------------------
 -- LOOT_OPENED  → arm the gate (math.huge = trust messages while window is open)
 -- LOOT_CLOSED  → disarm with a small grace so trailing CHAT_MSG_LOOT lines
 --                that the server may emit slightly after the close packet
 --                still get counted
 -- CHAT_MSG_LOOT → the actual loot signal; gated via needsWindow
+-- BAG_UPDATE   → mark a reconciliation pass needed (debounced via OnUpdate)
 local frame = CreateFrame("Frame", "LA_LootEventFrame")
 frame:RegisterEvent("LOOT_OPENED")
 frame:RegisterEvent("LOOT_CLOSED")
 frame:RegisterEvent("CHAT_MSG_LOOT")
+frame:RegisterEvent("BAG_UPDATE")
 frame:SetScript("OnEvent", function(self, event, msg)
     if event == "LOOT_OPENED" then
         lootWindowOpenUntil = math.huge
@@ -181,5 +192,21 @@ frame:SetScript("OnEvent", function(self, event, msg)
         lootWindowOpenUntil = GetTime() + LOOT_CLOSE_GRACE
     elseif event == "CHAT_MSG_LOOT" then
         HandleChatMsgLoot(msg)
+    elseif event == "BAG_UPDATE" then
+        pendingReconcile = true
+        reconcileAccum   = 0
+    end
+end)
+frame:SetScript("OnUpdate", function(self, elapsed)
+    if not pendingReconcile then return end
+    reconcileAccum = reconcileAccum + elapsed
+    if reconcileAccum < BAG_DEBOUNCE then return end
+    pendingReconcile = false
+    reconcileAccum   = 0
+    if LA.Session and LA.Session.IsRunning() then
+        local changed = LA.Session.ReconcileBags()
+        if changed and LA.UI and LA.UI.RefreshUIs then
+            LA.UI.RefreshUIs()
+        end
     end
 end)

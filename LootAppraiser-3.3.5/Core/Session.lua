@@ -21,7 +21,71 @@ local state = {
     itemCount  = 0,        -- total stack count
     lootRows   = {},       -- chronological list, newest at index 1
     zone       = "",       -- zone name at session start (informational)
+    -- ----- bag-loss reconciliation ----------------------------------------
+    -- Snapshot of bag contents at session start. Items already in bags
+    -- before we started farming aren't ours; if their count drops we
+    -- debit the baseline first, then session-tracked items, so destroying
+    -- a pre-session stack of [Linen Cloth] doesn't wrongly nuke the
+    -- looted-this-session counter.
+    bagBaseline = {},      -- [itemID] = count present at Start()
+    bagOwn      = {},      -- [itemID] = total count looted into bags this session
 }
+
+-- ----- bag scanning ------------------------------------------------------
+-- Sums every item we currently carry across the regular bags (backpack +
+-- 4 bag slots). Specialty bags like the keyring (-2) and ammo bag (-1)
+-- are excluded — they shouldn't carry tracked loot, and including them
+-- mostly causes false positives when the user equips/swaps a quiver.
+local function ScanBagsToCounts()
+    local counts = {}
+    for bag = 0, NUM_BAG_SLOTS do
+        local n = GetContainerNumSlots(bag) or 0
+        for slot = 1, n do
+            local link = GetContainerItemLink(bag, slot)
+            if link then
+                local _, count = GetContainerItemInfo(bag, slot)
+                local id = tonumber(link:match("item:(%d+)"))
+                if id then
+                    counts[id] = (counts[id] or 0) + (count or 1)
+                end
+            end
+        end
+    end
+    return counts
+end
+
+-- Reduce session totals by the value/count of `lostCount` of itemID,
+-- iterating lootRows newest-first (LIFO) and applying per-row pricing
+-- proportionally for partial losses.
+local function ApplyLossToLootRows(id, lostCount)
+    local i = 1
+    while i <= #state.lootRows and lostCount > 0 do
+        local row = state.lootRows[i]
+        local rowID = tonumber((row.link or ""):match("item:(%d+)"))
+        if rowID == id and (row.count or 0) > 0 then
+            local take = math.min(row.count, lostCount)
+            local perItem = (row.value or 0) / row.count
+            row.count = row.count - take
+            row.value = row.value - perItem * take
+            state.lootTotal = state.lootTotal - perItem * take
+            state.itemCount = state.itemCount - take
+            lostCount = lostCount - take
+            if row.count <= 0 then
+                table.remove(state.lootRows, i)
+                -- intentionally don't increment i: the next row took this slot
+            else
+                i = i + 1
+            end
+        else
+            i = i + 1
+        end
+    end
+    -- Floors against floating-point accumulation (per-item division) and
+    -- any tracking drift if the player started with items in bags that
+    -- somehow ended up double-debited.
+    if state.lootTotal < 0 then state.lootTotal = 0 end
+    if state.itemCount < 0 then state.itemCount = 0 end
+end
 
 function Session.IsRunning() return state.isRunning end
 function Session.IsPaused()  return state.isPaused  end
@@ -37,6 +101,8 @@ function Session.Start()
     state.itemCount   = 0
     state.lootRows    = {}
     state.zone        = GetRealZoneText() or GetZoneText() or ""
+    state.bagBaseline = ScanBagsToCounts()
+    state.bagOwn      = {}
 end
 
 function Session.End()
@@ -106,6 +172,55 @@ function Session.AddLoot(entry)
     while #state.lootRows > LA_CONST.MAX_LOOT_ROWS do
         table.remove(state.lootRows)
     end
+
+    -- Track the intake against the bag-reconciliation ledger so
+    -- ReconcileBags() can later debit the right amount when the item
+    -- leaves bags (destroy/vendor/mail/trade).
+    local id = tonumber((entry.link or ""):match("item:(%d+)"))
+    if id then
+        state.bagOwn[id] = (state.bagOwn[id] or 0) + (entry.count or 1)
+    end
+end
+
+-- ----- bag-loss reconciliation -------------------------------------------
+-- Compare current bag contents against what we expect (baseline + bagOwn).
+-- For any item where the current count is below expected, debit the loss:
+-- prefer reducing bagOwn (and lootRows) first; only fall back to baseline
+-- if the entire session-looted amount of that item is already gone. This
+-- is the right ordering because session items are "newer" — a player
+-- generally vendors/destroys what they just looted before pre-existing
+-- stacks.
+--
+-- Returns true iff lootTotal/itemCount actually changed (UI refresh needed).
+function Session.ReconcileBags()
+    if not state.isRunning then return false end
+
+    local current = ScanBagsToCounts()
+    local changed = false
+
+    for id, own in pairs(state.bagOwn) do
+        local base = state.bagBaseline[id] or 0
+        local cur  = current[id] or 0
+        local expected = base + own
+        if cur < expected then
+            local loss     = expected - cur
+            local fromOwn  = math.min(own, loss)
+            local fromBase = loss - fromOwn
+
+            state.bagOwn[id] = own - fromOwn
+            if state.bagOwn[id] == 0 then state.bagOwn[id] = nil end
+            if fromBase > 0 then
+                state.bagBaseline[id] = math.max(0, base - fromBase)
+            end
+
+            if fromOwn > 0 then
+                ApplyLossToLootRows(id, fromOwn)
+                changed = true
+            end
+        end
+    end
+
+    return changed
 end
 
 function Session.GetRows() return state.lootRows end
