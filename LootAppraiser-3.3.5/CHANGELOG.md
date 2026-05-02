@@ -1,5 +1,46 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.4 — Junk/Trash override, zero-value filter, disenchant fix *(2026-05-02)*
+
+### Junk/Trash vendor override
+A third ArkInventory category-name list, default `"Junk,Trash"`. Items
+the player has manually placed in any of these categories are forced
+to vendor pricing — bypasses any incidental AH listing the item may
+have. Configurable via `/la vendorcat <comma-list>`. Empty string
+disables the override.
+
+The lookup uses the same `db.profile.option.category["item:<id>:<sb>"]`
+→ `db.global.option.category[type].data[code].name` chain as the
+existing Value/DE lookups; all three configs now also accept
+comma-separated lists (e.g. `/la decat "DE,Disenchant"`).
+
+### Zero-copper rows are dropped
+New `skipZeroValueRows` profile setting, default `true`. After pricing
+runs, rows whose final per-item value is 0 copper aren't added to the
+session — typically vendor-fallback items where the vendor sell price
+is also 0 (poor-quality vendor trash, certain quest items, low-tier
+crafted reagents). Toggle via `/la skipzero`.
+
+### Disenchant double-counting fix
+Two real bugs were causing disenchant to show both the original item
+*and* the produced mats in totals:
+
+1. **`Session.ReconcileBags()` was modifying `state.bagOwn` while
+   iterating it with `pairs()`** — undefined behaviour in Lua 5.1.
+   Depending on hash bucket layout some entries were silently skipped
+   per pass, leaving the disenchanted source item in the row list
+   while the new mats appeared as fresh rows. Rewrote to collect IDs
+   into a local list first, then iterate that list while mutating
+   `state.bagOwn`.
+2. **Belt-and-suspenders**: also force a reconcile pass on
+   `UNIT_SPELLCAST_SUCCEEDED` for `player` casts of Disenchant
+   (13262), Milling (51005), or Prospecting (31252). Even with the
+   pairs-iteration fix, hooking the spell directly is the most
+   robust signal — these are the spells that consume an item and
+   produce mats in a single client tick.
+
+---
+
 ## v1.3 — Bag reconciliation: deleted/sold/mailed items leave the session *(2026-05-02)*
 
 When loot leaves your bags — destroyed, vendored, mailed, traded — the

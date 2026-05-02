@@ -103,6 +103,21 @@ local function HandleSlash(input)
         end
         return
     end
+    if cmd == "vendorcat" then
+        if rest == "" then
+            Print("ArkInventory 'vendor' categories: '" .. tostring(LA.db.profile.arkInvVendorCategory or "") .. "'  (comma-separated; set to '' to disable)")
+        else
+            LA.db.profile.arkInvVendorCategory = rest
+            LA.Pricing.WipeAHCache()
+            Print("Vendor-category override set to '" .. rest .. "'.")
+        end
+        return
+    end
+    if cmd == "skipzero" then
+        LA.db.profile.skipZeroValueRows = not (LA.db.profile.skipZeroValueRows ~= false)
+        Print("Skip 0-copper rows: " .. (LA.db.profile.skipZeroValueRows and "ON" or "OFF"))
+        return
+    end
     if cmd == "quality" then
         local q = tonumber(rest)
         if q and q >= 0 and q <= 7 then
@@ -131,6 +146,8 @@ local function HandleSlash(input)
         Print("  /la quality <0-7>  — minimum quality (0=grey, 2=green, 3=blue ...)")
         Print("  /la valuecat <name>— ArkInventory category to force-AH-price (default: 'Value')")
         Print("  /la decat <name>   — ArkInventory category to force-DE-price (default: 'DE')")
+        Print("  /la vendorcat <list>— ArkInventory categories to force vendor sell (default: 'Junk,Trash')")
+        Print("  /la skipzero       — toggle dropping 0-copper rows from the list")
         Print("  /la wipecache      — clear cached AH/DE prices")
         return
     end

@@ -57,15 +57,24 @@ LA_DEFAULTS = {
 
     -- ArkInventory category overrides. When ArkInventory is loaded and a
     -- looted item has been manually assigned to a custom category whose
-    -- name matches one of these strings (case-insensitive), the pricing
-    -- chain in Core/Pricing.lua is overridden:
+    -- name matches one of these strings (case-insensitive, comma-separated
+    -- lists supported), the default pricing chain is overridden:
     --   * arkInvValueCategory  -> force the Aux/TSM AH price
     --                            (whites/greys you treat as AH-saleable)
     --   * arkInvDECategory     -> force the disenchant expected value
     --                            (greens/blues you always DE)
-    -- Set either to "" to disable the override entirely.
-    arkInvValueCategory = "Value",
-    arkInvDECategory    = "DE",
+    --   * arkInvVendorCategory -> force the vendor sell price
+    --                            (Junk/Trash that you always vendor; this
+    --                            bypasses any incidental AH listing)
+    -- Set any to "" to disable that override entirely.
+    arkInvValueCategory  = "Value",
+    arkInvDECategory     = "DE",
+    arkInvVendorCategory = "Junk,Trash",
+
+    -- Drop entries whose final priced value is 0 copper. Mostly catches
+    -- vendor-fallback items with a vendor price of 0 (white poor quality
+    -- vendor trash, certain quest items, etc).
+    skipZeroValueRows    = true,
 
     -- Display
     autoStart         = true,     -- start a session automatically on first /la or first loot

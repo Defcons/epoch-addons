@@ -241,6 +241,20 @@ local function GetArkInvCategoryName(itemID, isBoP)
 end
 
 -- ----- top-level: GetItemValue -------------------------------------------
+
+-- Returns true if `catName` (already lower-cased) appears in `csv`, where
+-- csv is a comma-separated case-insensitive list (e.g. "Junk, Trash"). An
+-- empty/nil csv always returns false — that's how callers disable an
+-- override entirely (set the config string to "").
+local function CatNameInList(catName, csv)
+    if not catName or not csv or csv == "" then return false end
+    for entry in csv:gmatch("[^,]+") do
+        local trimmed = entry:gsub("^%s+", ""):gsub("%s+$", ""):lower()
+        if trimmed ~= "" and catName == trimmed then return true end
+    end
+    return false
+end
+
 -- Returns: copper, sourceTag, isBoP
 function Pricing.GetItemValue(link, opts)
     if not link then return 0, LA_CONST.PRICE_VENDOR, false end
@@ -250,22 +264,33 @@ function Pricing.GetItemValue(link, opts)
     local isBoP = Pricing.IsBindOnPickup(link)
 
     -- ----- ArkInventory category override -------------------------------
-    -- "Value" (or whatever name the user configured) forces the AH chain
-    -- even for greys/whites the user has marked AH-saleable. "DE" forces
-    -- disenchant expected value regardless of bind/quality. Both fall back
-    -- to the rest of the chain if the override path can't produce a price.
-    local valueCat = (opts.valueCategory or ""):lower()
-    local deCat    = (opts.deCategory    or ""):lower()
-    local catName  = (valueCat ~= "" or deCat ~= "") and GetArkInvCategoryName(id, isBoP) or nil
+    -- Three lists of category names (each comma-separated, case-insensitive):
+    --   * valueCategory  → force the AH chain (whites you AH-sell)
+    --   * deCategory     → force disenchant expected value
+    --   * vendorCategory → force vendor sell (Junk/Trash you always vendor;
+    --                       skips even an incidental AH listing)
+    -- Each branch falls through to the default chain if its preferred
+    -- price source returns nil / 0 — useful for new items the AH hasn't
+    -- yet seen, or items in "DE" that aren't actually disenchantable.
+    local valueCat  = opts.valueCategory  or ""
+    local deCat     = opts.deCategory     or ""
+    local vendorCat = opts.vendorCategory or ""
+    local needLookup = valueCat ~= "" or deCat ~= "" or vendorCat ~= ""
+    local catName  = needLookup and GetArkInvCategoryName(id, isBoP) or nil
     if catName then
-        if valueCat ~= "" and catName == valueCat then
+        if CatNameInList(catName, valueCat) then
             local ah = key and GetAHPrice(key)
             if ah and ah > 0 then return ah, LA_CONST.PRICE_AUX, isBoP end
             -- AH unknown for this item — fall through to vendor floor below
-        elseif deCat ~= "" and catName == deCat then
+        elseif CatNameInList(catName, deCat) then
             local de = Pricing.GetDisenchantValue(link)
             if de and de > 0 then return de, LA_CONST.PRICE_DE, isBoP end
             -- DE produced nothing — fall through
+        elseif CatNameInList(catName, vendorCat) then
+            -- Force vendor; bypass AH/DE entirely. Returning the vendor
+            -- price (even 0) is intentional — IngestLoot's zero-value
+            -- filter is what suppresses 0-copper rows from the list.
+            return Pricing.GetVendorPrice(link), LA_CONST.PRICE_VENDOR, isBoP
         end
     end
 

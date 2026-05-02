@@ -4,6 +4,15 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## LootAppraiser-3.3.5 v1.4 — Junk/Trash vendor override + 0c filter + disenchant fix *(2026-05-02)*
+- **Junk/Trash vendor override:** new ArkInventory-category list (default `"Junk,Trash"`). Items the user assigns to any of these categories are forced to vendor pricing, bypassing any incidental AH listing. `/la vendorcat <comma-list>`. All three category configs (Value/DE/Vendor) now accept comma-separated lists.
+- **Zero-copper rows dropped from the list** (`skipZeroValueRows`, default on). Items priced at 0c (vendor-0 quest items, low-tier reagents, vendor trash) no longer pollute the row list. Toggle via `/la skipzero`.
+- **Disenchant double-counting fix.** Two bugs:
+  1. `Session.ReconcileBags()` was modifying `state.bagOwn` while iterating it via `pairs()` — undefined in Lua 5.1; entries were silently skipped per pass, which surfaced as the disenchanted source item lingering in the row list while the produced mats also appeared. Rewrote to materialise IDs first, mutate second.
+  2. Added `UNIT_SPELLCAST_SUCCEEDED` hook for `player` casts of Disenchant (13262), Milling (51005), and Prospecting (31252). Forces a reconcile pass on cast — these spells consume an item and produce mats in a single client tick, so hooking the spell directly is the most robust signal even with the pairs-iteration fix in place.
+
+---
+
 ## LootAppraiser-3.3.5 v1.3 — Bag reconciliation (deleted/sold items leave the session) *(2026-05-02)*
 - **`Session.Start()`** now snapshots current bag contents into a per-itemID **baseline**, and `Session.AddLoot()` keeps a parallel **`bagOwn`** ledger of session intake.
 - **`BAG_UPDATE`** is hooked in `Core/LootManager.lua` (debounced 0.3s after the last in a burst) and triggers **`Session.ReconcileBags()`**. The pass re-scans bags and debits any per-itemID loss against `bagOwn` first, falling back to the baseline only if the entire session-tracked amount is already gone.

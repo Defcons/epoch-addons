@@ -198,24 +198,35 @@ function Session.ReconcileBags()
     local current = ScanBagsToCounts()
     local changed = false
 
-    for id, own in pairs(state.bagOwn) do
-        local base = state.bagBaseline[id] or 0
-        local cur  = current[id] or 0
-        local expected = base + own
-        if cur < expected then
-            local loss     = expected - cur
-            local fromOwn  = math.min(own, loss)
-            local fromBase = loss - fromOwn
+    -- Collect IDs first, then mutate. Modifying state.bagOwn while iterating
+    -- it via pairs() is undefined in Lua 5.1 — depending on hash bucket
+    -- layout some entries can be skipped, which presents to the user as
+    -- "loot rows aren't going away" (most visible when disenchanting: the
+    -- source item should be debited at the same time the mats arrive).
+    local ids = {}
+    for id in pairs(state.bagOwn) do ids[#ids + 1] = id end
 
-            state.bagOwn[id] = own - fromOwn
-            if state.bagOwn[id] == 0 then state.bagOwn[id] = nil end
-            if fromBase > 0 then
-                state.bagBaseline[id] = math.max(0, base - fromBase)
-            end
+    for _, id in ipairs(ids) do
+        local own = state.bagOwn[id]
+        if own and own > 0 then
+            local base = state.bagBaseline[id] or 0
+            local cur  = current[id] or 0
+            local expected = base + own
+            if cur < expected then
+                local loss     = expected - cur
+                local fromOwn  = math.min(own, loss)
+                local fromBase = loss - fromOwn
 
-            if fromOwn > 0 then
-                ApplyLossToLootRows(id, fromOwn)
-                changed = true
+                state.bagOwn[id] = own - fromOwn
+                if state.bagOwn[id] == 0 then state.bagOwn[id] = nil end
+                if fromBase > 0 then
+                    state.bagBaseline[id] = math.max(0, base - fromBase)
+                end
+
+                if fromOwn > 0 then
+                    ApplyLossToLootRows(id, fromOwn)
+                    changed = true
+                end
             end
         end
     end

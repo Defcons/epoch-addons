@@ -51,6 +51,7 @@ local function PriceItem(link)
         useDisenchant   = db.useDisenchant,
         valueCategory   = db.arkInvValueCategory,
         deCategory      = db.arkInvDECategory,
+        vendorCategory  = db.arkInvVendorCategory,
     })
     return copper or 0, src, isBoP
 end
@@ -82,14 +83,23 @@ function LM.IngestLoot(link, count, source)
     local keep, _ = ShouldRecord(link, quality)
     if not keep then return end
 
-    -- Auto-start a session if the user enabled it
+    local entry = BuildEntry(link, count, source)
+
+    -- Drop entries with no realisable value (vendor 0 + no AH/DE source).
+    -- These are typically vendor-0 quest items, certain crafted reagents
+    -- with no economy value, or anything the user has dumped into a
+    -- "Junk" category that also vendors for nothing.
     local db = LA.db and LA.db.profile or LA_DEFAULTS
+    if (db.skipZeroValueRows ~= false) and (not entry.unit or entry.unit <= 0) then
+        return
+    end
+
+    -- Auto-start a session if the user enabled it
     if db.autoStart and not LA.Session.IsRunning() then
         LA.Session.Start()
     end
     if not LA.Session.IsRunning() then return end
 
-    local entry = BuildEntry(link, count, source)
     LA.Session.AddLoot(entry)
 
     if LA.UI and LA.UI.OnLootAdded then
@@ -180,12 +190,25 @@ local reconcileAccum = 0
 --                still get counted
 -- CHAT_MSG_LOOT → the actual loot signal; gated via needsWindow
 -- BAG_UPDATE   → mark a reconciliation pass needed (debounced via OnUpdate)
+-- UNIT_SPELLCAST_SUCCEEDED → also trigger a reconcile when the player casts
+--                a destructive consumable spell (Disenchant, Mill, Prospect,
+--                Smelt). Belt-and-suspenders against any path where the
+--                BAG_UPDATE order can leave an item undebited while the
+--                produced mats are already ingested — the user-visible
+--                symptom would be the source item still hanging in the
+--                row list while the mats also appear.
+local CONSUMING_SPELLS = {
+    [13262] = true,  -- Disenchant
+    [51005] = true,  -- Milling
+    [31252] = true,  -- Prospecting
+}
 local frame = CreateFrame("Frame", "LA_LootEventFrame")
 frame:RegisterEvent("LOOT_OPENED")
 frame:RegisterEvent("LOOT_CLOSED")
 frame:RegisterEvent("CHAT_MSG_LOOT")
 frame:RegisterEvent("BAG_UPDATE")
-frame:SetScript("OnEvent", function(self, event, msg)
+frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+frame:SetScript("OnEvent", function(self, event, msg, _, _, _, spellID)
     if event == "LOOT_OPENED" then
         lootWindowOpenUntil = math.huge
     elseif event == "LOOT_CLOSED" then
@@ -195,6 +218,12 @@ frame:SetScript("OnEvent", function(self, event, msg)
     elseif event == "BAG_UPDATE" then
         pendingReconcile = true
         reconcileAccum   = 0
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        -- arg1 (here `msg`) is the unit; spellID is the 4th vararg in 3.3.5.
+        if msg == "player" and spellID and CONSUMING_SPELLS[spellID] then
+            pendingReconcile = true
+            reconcileAccum   = 0
+        end
     end
 end)
 frame:SetScript("OnUpdate", function(self, elapsed)
