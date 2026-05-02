@@ -336,6 +336,65 @@ function Pricing.WipeAHCache()
     deCache    = {}  -- DE values reference AH prices, so invalidate together
 end
 
+-- ----- debug helper ------------------------------------------------------
+-- Dumps the full pricing trace for a single link to chat. Used by the
+-- /la price <link> slash command in LootAppraiser-3.3.5.lua to diagnose
+-- unexpected category/source outcomes (e.g. items in a Value or Trash
+-- category that aren't surfacing as expected).
+function Pricing.DebugTrace(link, opts)
+    opts = opts or {}
+    local function out(s) DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA debug]|r " .. tostring(s)) end
+    if not link then out("no link") return end
+
+    local id    = ItemIDFromLink(link)
+    local key   = ItemKeyFromLink(link)
+    local isBoP = Pricing.IsBindOnPickup(link)
+    out("link     = " .. link)
+    out("itemID   = " .. tostring(id) .. "   itemKey = " .. tostring(key) .. "   isBoP = " .. tostring(isBoP))
+
+    -- ArkInventory cache key and raw stored value
+    local sb = isBoP and 1 or 0
+    local cacheKey = id and string.format("item:%d:%d", id, sb) or "(no id)"
+    out("ArkInv cacheKey = " .. cacheKey)
+    if ArkInventory and ArkInventory.db and ArkInventory.db.profile and ArkInventory.db.profile.option
+       and ArkInventory.db.profile.option.category then
+        local raw = ArkInventory.db.profile.option.category[cacheKey]
+        out("  raw catID     = " .. tostring(raw))
+        if raw then
+            local t, c = tostring(raw):match("^(%d+)!(%d+)$")
+            t, c = tonumber(t), tonumber(c)
+            out("  type/code     = " .. tostring(t) .. " / " .. tostring(c))
+            if t and c and ArkInventory.db.global and ArkInventory.db.global.option
+               and ArkInventory.db.global.option.category and ArkInventory.db.global.option.category[t]
+               and ArkInventory.db.global.option.category[t].data then
+                local d = ArkInventory.db.global.option.category[t].data[c]
+                out("  global name   = " .. tostring(d and d.name))
+            end
+        end
+    else
+        out("  (ArkInventory db.profile.option.category not present)")
+    end
+
+    -- What our resolver actually returns
+    local catName = id and GetArkInvCategoryName(id, isBoP)
+    out("resolver returns -> " .. tostring(catName))
+
+    -- Show the active config strings
+    out("config valueCategory  = '" .. tostring(opts.valueCategory or "") .. "'")
+    out("config deCategory     = '" .. tostring(opts.deCategory or "") .. "'")
+    out("config vendorCategory = '" .. tostring(opts.vendorCategory or "") .. "'")
+
+    -- AH / DE / vendor source values
+    local ah = key and GetAHPrice(key) or nil
+    local de = Pricing.GetDisenchantValue(link)
+    local v  = Pricing.GetVendorPrice(link)
+    out("AH price  = " .. tostring(ah) .. "   DE value  = " .. tostring(de) .. "   Vendor = " .. tostring(v))
+
+    -- Final pricing decision
+    local copper, src, bop = Pricing.GetItemValue(link, opts)
+    out("FINAL    copper = " .. tostring(copper) .. "   source = " .. tostring(src) .. "   isBoP = " .. tostring(bop))
+end
+
 -- For the UI: short label for the source tag
 LA_CONST.PRICE_LABEL = {
     [LA_CONST.PRICE_AUX]    = "ah",

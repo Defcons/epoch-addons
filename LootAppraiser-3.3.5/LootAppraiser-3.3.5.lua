@@ -155,6 +155,28 @@ local function HandleSlash(input)
         Print("AH/DE price cache wiped — next loot will re-query.")
         return
     end
+    if cmd == "price" then
+        -- Parse the first item link out of `rest` (input was lower-cased
+        -- earlier, but we need the *original* casing for the link to match
+        -- ArkInventory's stored key). Re-parse from the raw input.
+        local raw = input
+        -- input was lowered earlier with input:lower() — we need the original.
+        -- Re-pull from the slash dispatch via the global hack below.
+        if LA._lastSlashRaw then raw = LA._lastSlashRaw end
+        local link = raw:match("(|c%x+|H[^|]+|h%[[^%]]+%]|h|r)")
+        if not link then
+            Print("Usage: /la price <shift-click an item link here>")
+            return
+        end
+        local db = LA.db and LA.db.profile or LA_DEFAULTS
+        LA.Pricing.DebugTrace(link, {
+            useDisenchant   = db.useDisenchant,
+            valueCategory   = db.arkInvValueCategory,
+            deCategory      = db.arkInvDECategory,
+            vendorCategory  = db.arkInvVendorCategory,
+        })
+        return
+    end
     if cmd == "help" or cmd == "?" then
         Print("Commands:")
         Print("  /la                — toggle window")
@@ -169,6 +191,7 @@ local function HandleSlash(input)
         Print("  /la vendorcat <list>— ArkInventory categories to force vendor sell (default: 'Junk,Trash')")
         Print("  /la skipzero       — toggle dropping 0-copper rows from the list")
         Print("  /la wipecache      — clear cached AH/DE prices")
+        Print("  /la price <link>   — debug: dump pricing trace for one item (shift-click link)")
         return
     end
 
@@ -178,7 +201,14 @@ end
 -- Register the slash names
 SLASH_LOOTAPPRAISER1 = "/la"
 SLASH_LOOTAPPRAISER2 = "/lootappraiser"
-SlashCmdList["LOOTAPPRAISER"] = HandleSlash
+SlashCmdList["LOOTAPPRAISER"] = function(input)
+    -- Stash the original (case-preserving) input so /la price can pull the
+    -- item link with its hex codes intact; HandleSlash lower-cases for cmd
+    -- dispatch which mangles |cFFFFFFFF... colour codes.
+    LA._lastSlashRaw = input
+    HandleSlash(input)
+    LA._lastSlashRaw = nil
+end
 
 -- ----- bootstrap on PLAYER_LOGIN -----------------------------------------
 local boot = CreateFrame("Frame")

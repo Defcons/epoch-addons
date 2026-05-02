@@ -1,5 +1,29 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.8 — `/la price` debug trace *(2026-05-02)*
+
+Added `/la price <link>` which dumps the full pricing trace for a
+single item to chat:
+
+* itemID / itemKey / isBoP
+* The exact `item:<id>:<sb>` cache key we look up in
+  `ArkInventory.db.profile.option.category`
+* The raw `<type>!<code>` value found there (or nil)
+* The decoded type/code and the `name` field from
+  `db.global.option.category[type].data[code]`
+* What `GetArkInvCategoryName` returned (the lower-cased name)
+* The active `valueCategory` / `deCategory` / `vendorCategory`
+  config strings
+* AH price / DE expected value / vendor sell price for the item
+* Final `(copper, source, isBoP)` decision
+
+Usage: type `/la price ` then shift-click an item from your bag.
+Useful for diagnosing "this item is in my Value/Trash custom
+category but doesn't show up" — the trace tells us whether the
+cache lookup hit, what name resolved, and which branch fired.
+
+---
+
 ## v1.7 — Need/Greed wins are tracked again *(2026-05-02)*
 
 Removed the v1.2 "loot window recently open" gate on `LOOT_ITEM_SELF`.

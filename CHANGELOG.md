@@ -4,6 +4,11 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## LootAppraiser-3.3.5 v1.8 — `/la price` debug trace *(2026-05-02)*
+Added `/la price <link>` to dump the full pricing trace for a single item: itemID/itemKey/isBoP, ArkInventory cache key, raw `type!code` stored value, resolved name, active config strings, AH/DE/vendor source values, and the final `(copper, source, isBoP)` decision. Usage: type `/la price ` then shift-click an item from bag. Used for diagnosing items in Value/Trash categories that aren't surfacing as expected.
+
+---
+
 ## LootAppraiser-3.3.5 v1.7 — Need/Greed wins are tracked again *(2026-05-02)*
 Removed the v1.2 "loot window recently open" gate on `LOOT_ITEM_SELF`. The gate was meant to keep group-roll deliveries out of the session but was over-aggressive: greed-wins fire `LOOT_ITEM_SELF` *without* opening a loot window, so items the player genuinely received via Need/Greed never reached `IngestLoot`. Trust `LOOT_ITEM_SELF` unconditionally now — it only fires when the item enters your bags, regardless of source. Other players' wins still ignored (they fire `LOOT_ITEM`, intentionally absent from our patterns); peeking at mob loot still ignored (no chat-loot delivery line for just opening the frame). LOOT_OPENED/LOOT_CLOSED registrations dropped — gate state was their only consumer.
 
