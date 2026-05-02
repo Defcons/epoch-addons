@@ -69,7 +69,7 @@ LA_DEFAULTS = {
     -- Set any to "" to disable that override entirely.
     arkInvValueCategory  = "Value",
     arkInvDECategory     = "DE",
-    arkInvVendorCategory = "Junk,Trash",
+    arkInvVendorCategory = "Junk,Trash,Default",  -- "Default" catches uncategorised items
 
     -- Drop entries whose final priced value is 0 copper. Mostly catches
     -- vendor-fallback items with a vendor price of 0 (white poor quality

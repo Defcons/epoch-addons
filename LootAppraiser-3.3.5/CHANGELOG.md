@@ -1,5 +1,43 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.5 — Catch uncategorised items via System "Default" *(2026-05-02)*
+
+The v1.4 vendor-category override only matched items the user had
+*manually* dragged into a custom category. ArkInventory's actual
+classification chain falls back to System categories (most commonly
+SYSTEM_DEFAULT, localised "Default") for everything else — so most of
+a typical loot stream still went through LootAppraiser's default
+AH/DE/vendor chain instead of being force-vendored.
+
+### Fix
+`GetArkInvCategoryName` now returns the string `"default"` when no
+explicit assignment exists. Combined with the new default
+`arkInvVendorCategory = "Junk,Trash,Default"`, this catches:
+
+* Items the user manually placed in a `Junk` or `Trash` custom
+  category → vendor (existing behaviour)
+* Items with no manual assignment → reported as `default` →
+  matched against the vendor list → vendor
+
+This implements the user's actual workflow:
+* Tag valuable items into a `Value` custom category → AH pricing
+* Tag DE-able items into a `DE` custom category → disenchant pricing
+* Leave everything else alone → force vendor pricing
+
+### Migration (1.4 → 1.5)
+Existing installs running the v1.4 default `Junk,Trash` are
+auto-migrated to `Junk,Trash,Default`. If you customised the
+list (e.g. you added or removed names), the migration leaves
+your value alone.
+
+### Caveat
+If you don't categorise items at all, every loot row will now
+price at vendor regardless of AH potential. To get the old
+"AH-by-default" behaviour back, run
+`/la vendorcat "Junk,Trash"` (without "Default").
+
+---
+
 ## v1.4 — Junk/Trash override, zero-value filter, disenchant fix *(2026-05-02)*
 
 ### Junk/Trash vendor override

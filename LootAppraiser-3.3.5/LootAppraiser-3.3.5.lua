@@ -13,7 +13,7 @@ end
 
 -- One-shot migrations keyed off LootAppraiserDB._dbVersion. Bump this when
 -- you change a default that existing installs should pick up automatically.
-local DB_VERSION = 1.2
+local DB_VERSION = 1.5
 
 local function MigrateDB(db)
     local v = tonumber(db._dbVersion) or 0
@@ -24,6 +24,17 @@ local function MigrateDB(db)
     if v < 1.2 then
         db.profile.minQuality        = 0
         db.profile.minQualityForList = 0
+    end
+
+    -- 1.4 -> 1.5: rewrite arkInvVendorCategory to include "Default" so
+    -- uncategorised items (the System Default category in ArkInventory)
+    -- get force-vendored alongside the Junk/Trash custom categories.
+    -- Only rewrite if the user is on the previous default to avoid
+    -- clobbering manual customisation.
+    if v < 1.5 then
+        if (db.profile.arkInvVendorCategory or "") == "Junk,Trash" then
+            db.profile.arkInvVendorCategory = "Junk,Trash,Default"
+        end
     end
 
     db._dbVersion = DB_VERSION

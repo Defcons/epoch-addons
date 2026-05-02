@@ -208,17 +208,27 @@ function Pricing.GetDisenchantValue(link)
 end
 
 -- ----- ArkInventory category lookup --------------------------------------
--- Returns the (lower-cased) category name a looted item has been manually
--- assigned to in ArkInventory's profile, or nil if ArkInventory isn't loaded
--- or the item has no explicit assignment.
+-- Returns the (lower-cased) category name for a looted item, or nil if
+-- ArkInventory isn't loaded.
 --
--- Lookup chain mirrors ArkInventory's own ItemCategoryGetPrimary:
---   profile.option.category["item:<id>:<sb>"]   -> "<type>!<code>" string
---   global.option.category[<type>].data[<code>] -> { name = "Value", ... }
+-- ArkInventory's classification is layered:
+--   1. Explicit manual assignment, stored in
+--      `db.profile.option.category["item:<id>:<sb>"]`. This is what we get
+--      when the user drags an item into a Custom category in the bag UI.
+--      The value is a "<type>!<code>" string we resolve to a name through
+--      `db.global.option.category[type].data[code]`.
+--   2. If unset, ArkInventory's `ItemCategoryGetPrimary` falls back to
+--      `ItemCategoryGetDefault`, which classifies dynamically — most items
+--      land in the System category SYSTEM_DEFAULT (localised "Default").
+--      We don't run that engine here; instead we conservatively return the
+--      string "default" so callers can list "Default" in their vendor
+--      override to catch ALL uncategorised items.
 --
--- Only explicit Custom/Rule assignments are returned — ArkInventory's rule
--- engine classifies items dynamically and keeps the result on the in-bag
--- `i.cat` field, which we don't have for a fresh loot row.
+-- Returning "default" for unassigned items lets the user run the workflow:
+--   * Tag profitable items into a "Value" custom category → AH pricing
+--   * Tag DE-able items into a "DE" custom category → disenchant pricing
+--   * Leave junk uncategorised → vendor pricing (when "Default" is in
+--     arkInvVendorCategory)
 local function GetArkInvCategoryName(itemID, isBoP)
     if not itemID then return nil end
     if not (ArkInventory and ArkInventory.db) then return nil end
@@ -227,7 +237,13 @@ local function GetArkInvCategoryName(itemID, isBoP)
     local prof = ArkInventory.db.profile
     local catID = prof and prof.option and prof.option.category
                   and prof.option.category[cacheKey]
-    if not catID then return nil end
+    if not catID then
+        -- No explicit assignment. ArkInventory itself would resolve this
+        -- through ItemCategoryGetDefault — which for the vast majority of
+        -- items returns SYSTEM_DEFAULT. Surface that as "default" so the
+        -- vendor-override list can opt to absorb uncategorised items.
+        return "default"
+    end
     local catType, catCode = catID:match("^(%d+)!(%d+)$")
     catType, catCode = tonumber(catType), tonumber(catCode)
     if not catType or not catCode then return nil end

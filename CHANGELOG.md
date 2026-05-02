@@ -4,6 +4,11 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## LootAppraiser-3.3.5 v1.5 — Catch uncategorised items via System "Default" *(2026-05-02)*
+The v1.4 vendor override only matched manually-dragged custom categories; uncategorised items (most of a typical loot stream) silently bypassed it and fell through to the AH chain. Fixed by returning `"default"` from `GetArkInvCategoryName` when no explicit assignment exists, and bumping the default `arkInvVendorCategory` to `"Junk,Trash,Default"`. Existing installs on the v1.4 default are auto-migrated; customised values are left alone. Workflow: tag profitable items into `Value` (→ AH), DE-able items into `DE` (→ disenchant), leave the rest uncategorised (→ vendor).
+
+---
+
 ## LootAppraiser-3.3.5 v1.4 — Junk/Trash vendor override + 0c filter + disenchant fix *(2026-05-02)*
 - **Junk/Trash vendor override:** new ArkInventory-category list (default `"Junk,Trash"`). Items the user assigns to any of these categories are forced to vendor pricing, bypassing any incidental AH listing. `/la vendorcat <comma-list>`. All three category configs (Value/DE/Vendor) now accept comma-separated lists.
 - **Zero-copper rows dropped from the list** (`skipZeroValueRows`, default on). Items priced at 0c (vendor-0 quest items, low-tier reagents, vendor trash) no longer pollute the row list. Toggle via `/la skipzero`.
