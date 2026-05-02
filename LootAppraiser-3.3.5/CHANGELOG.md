@@ -1,5 +1,37 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.2 — Loot detection: only what actually entered your bags *(2026-05-02)*
+
+Two related bugs:
+
+### Duplicate items from peeking at mob loot tables
+`LOOT_OPENED` fires every time a loot window appears, regardless of whether
+items are actually taken. Clicking a corpse, glancing at the contents, and
+closing the loot frame still counted everything as looted. Re-opening the
+same corpse — or another mob with the same drops — counted again.
+
+**Fix:** dropped `LOOT_OPENED`-based ingestion entirely. Loot is now
+detected solely from `CHAT_MSG_LOOT`'s `LOOT_ITEM_SELF` /
+`LOOT_ITEM_SELF_MULTIPLE` lines, which fire only when an item actually
+lands in your bags. Need/Greed roll deliveries also fire those lines —
+to keep them excluded, the self-loot patterns are gated on a
+"loot window recently open" flag set by `LOOT_OPENED` and cleared
+500ms after `LOOT_CLOSED`. Crafted-item lines (`LOOT_ITEM_CREATED_SELF`)
+bypass the gate since crafting never opens a loot window.
+
+The recent-seen dedup buffer is gone — with one event source there's
+nothing to dedup against.
+
+### Whites/greys still missing despite v1.1 lowering the default
+v1.1's `ApplyDefaults` only fills `nil` keys, so installs from v1.0 kept
+their saved `minQuality=2` and never picked up the new floor.
+
+**Fix:** added a one-shot migration keyed off `LootAppraiserDB._dbVersion`
+that resets `minQuality` and `minQualityForList` to 0 on the v1.2 upgrade.
+Future migrations bump `DB_VERSION` and add their own conditional block.
+
+---
+
 ## v1.1 — Whites/greys included; ArkInventory category overrides *(2026-04-30)*
 
 - **Default quality threshold lowered to 0** (poor) so greys, whites and

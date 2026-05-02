@@ -11,10 +11,29 @@ local function ApplyDefaults(profile, defaults)
     end
 end
 
+-- One-shot migrations keyed off LootAppraiserDB._dbVersion. Bump this when
+-- you change a default that existing installs should pick up automatically.
+local DB_VERSION = 1.2
+
+local function MigrateDB(db)
+    local v = tonumber(db._dbVersion) or 0
+
+    -- 1.0/1.1 -> 1.2: lower the quality-floor defaults to 0 (greys/whites).
+    -- ApplyDefaults only fills nil keys, so existing installs kept the old
+    -- minQuality=2 (uncommon+) until we explicitly migrate.
+    if v < 1.2 then
+        db.profile.minQuality        = 0
+        db.profile.minQualityForList = 0
+    end
+
+    db._dbVersion = DB_VERSION
+end
+
 local function InitDB()
     LootAppraiserDB = LootAppraiserDB or {}
     LootAppraiserDB.profile = LootAppraiserDB.profile or {}
     ApplyDefaults(LootAppraiserDB.profile, LA_DEFAULTS)
+    MigrateDB(LootAppraiserDB)
     LA.db = LootAppraiserDB
 end
 

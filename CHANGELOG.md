@@ -4,6 +4,12 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## LootAppraiser-3.3.5 v1.2 — Real-loot-only detection + quality migration *(2026-05-02)*
+- **Loot detection switched from `LOOT_OPENED` to gated `CHAT_MSG_LOOT`.** Peeking at a mob's loot table no longer counts items as looted, and re-opening the same corpse no longer creates duplicate rows. Now only items that actually land in your bags are tracked: `LOOT_ITEM_SELF` / `LOOT_ITEM_SELF_MULTIPLE` lines, gated on a "loot window was recently open" flag set by `LOOT_OPENED` and cleared 500ms after `LOOT_CLOSED`. Need/Greed roll deliveries (which fire `LOOT_ITEM_SELF` without ever opening a loot window) stay excluded. Crafted-item lines (`LOOT_ITEM_CREATED_SELF`) bypass the gate since crafting has no loot frame. Recent-seen dedup buffer removed — with one event source there's nothing to dedup against.
+- **One-shot DB migration** keyed off `LootAppraiserDB._dbVersion`: existing installs with v1.0's saved `minQuality=2` are auto-reset to `minQuality=0` on first v1.2 launch, so whites/greys finally show without manual `/la quality 0`.
+
+---
+
 ## LootAppraiser-3.3.5 v1.1 — Whites/greys + ArkInventory category overrides *(2026-04-30)*
 - **Strict personal-loot mode:** only items you click-loot from corpses (autoloot or manual via `LOOT_OPENED`) plus items you craft (`LOOT_ITEM_CREATED_SELF`) are tracked. Group-loot deliveries (Need/Greed wins, others' wins) are ignored — including your own roll wins. The `showGroupLoot` option / `/la group` command were removed.
 - **Default quality threshold lowered to 0** (poor) so greys and whites are tracked alongside greens+. Existing installs keep their saved value; use `/la quality 0` to switch.

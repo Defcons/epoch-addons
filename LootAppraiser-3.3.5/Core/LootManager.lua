@@ -1,42 +1,30 @@
 -- Core/LootManager.lua
 -- Loot detection on 3.3.5.
 --
--- We use the LOOT_OPENED + GetLootSlotInfo / GetLootSlotLink path rather
--- than CHAT_MSG_LOOT alone. CHAT_MSG_LOOT misses items that disappear from
--- the loot frame after autoloot, and it doesn't fire for currency. The
--- LOOT_OPENED snapshot also gives us reliable item counts and a single
--- iteration site (no per-line regex parsing).
+-- We use CHAT_MSG_LOOT's LOOT_ITEM_SELF as the *single* source of truth for
+-- "an item just landed in my bags". LOOT_OPENED is unreliable for tracking
+-- because it fires whenever a loot window appears — including when the
+-- player merely peeks at a mob and closes without looting, or repeatedly
+-- opens the same corpse. Items in the frame would get counted whether
+-- they were actually taken or not.
 --
--- We also subscribe to CHAT_MSG_LOOT as a backup and de-dupe via a small
--- "recently seen" buffer keyed by (link, count, time-floor).
-
+-- LOOT_ITEM_SELF alone over-counts in the opposite direction though: it
+-- also fires for Need/Greed roll deliveries, which the user explicitly
+-- doesn't want tracked. So we GATE LOOT_ITEM_SELF on a "loot window
+-- recently open" flag set by LOOT_OPENED and cleared shortly after
+-- LOOT_CLOSED. Net result:
+--
+--   loot window opened → all CHAT_MSG_LOOT self-loot lines counted
+--   roll-delivered     → no loot window → flag never set → ignored
+--   crafting           → no loot window, but LOOT_ITEM_CREATED_SELF
+--                        is counted unconditionally (no loot frame
+--                        exists for crafting)
 LA = LA or {}
 LA.LootManager = {}
 local LM = LA.LootManager
 
-local recent = {}  -- { ["link|count|tslot"] = expireTime }
-local DEDUP_WINDOW = 1.5  -- seconds
-
-local function MarkSeen(key)
-    recent[key] = GetTime() + DEDUP_WINDOW
-end
-
-local function AlreadySeen(key)
-    local exp = recent[key]
-    if not exp then return false end
-    if exp < GetTime() then
-        recent[key] = nil
-        return false
-    end
-    return true
-end
-
-local function PruneRecent()
-    local now = GetTime()
-    for k, exp in pairs(recent) do
-        if exp < now then recent[k] = nil end
-    end
-end
+local lootWindowOpenUntil = 0  -- GetTime() until which we trust self-loot lines
+local LOOT_CLOSE_GRACE    = 0.5  -- seconds after LOOT_CLOSED to still accept trailing messages
 
 -- Returns whether the loot row should be kept (quality & soulbound filter)
 -- and whether it should appear in the visible list (vs. counted in totals).
@@ -85,13 +73,10 @@ local function BuildEntry(link, count, source)
     }
 end
 
--- Public: ingest one looted stack. De-dupes against the recent-seen buffer.
+-- Public: ingest one looted stack. With our single-event-source design
+-- (CHAT_MSG_LOOT only) there's no need for a dedup buffer.
 function LM.IngestLoot(link, count, source)
     if not link then return end
-    PruneRecent()
-    local key = link .. "|" .. tostring(count) .. "|" .. tostring(math.floor(GetTime() * 4))
-    if AlreadySeen(key) then return end
-    MarkSeen(key)
 
     local quality = select(3, GetItemInfo(link)) or 0
     local keep, _ = ShouldRecord(link, quality)
@@ -107,28 +92,12 @@ function LM.IngestLoot(link, count, source)
     local entry = BuildEntry(link, count, source)
     LA.Session.AddLoot(entry)
 
-    -- Notify the UI for incremental refresh; the window debounces internally.
     if LA.UI and LA.UI.OnLootAdded then
         LA.UI.OnLootAdded(entry)
     end
 end
 
--- ----- LOOT_OPENED scan --------------------------------------------------
--- Walks every loot slot, captures item link + count, then ingests. Plays
--- nicely with both manual loot and autoloot — the loot frame is created
--- and torn down identically in both modes; LOOT_OPENED fires once per loot.
-local function HandleLootOpened()
-    local n = GetNumLootItems() or 0
-    for slot = 1, n do
-        local _, _, qty, _, locked, _, _, _, isQuestItem = GetLootSlotInfo(slot)
-        local link = GetLootSlotLink(slot)
-        if link and qty and qty > 0 and not locked then
-            LM.IngestLoot(link, qty, LA_CONST.SOURCE_SOLO)
-        end
-    end
-end
-
--- ----- CHAT_MSG_LOOT backup ----------------------------------------------
+-- ----- CHAT_MSG_LOOT (sole loot signal) ----------------------------------
 -- Catches: group loot ("Player receives loot: [Item] x2"), bonus rolls,
 -- crafted-item drops on close-target loot. Solo loot has already been
 -- counted via LOOT_OPENED, but the time-bucketed dedup key catches doubles.
@@ -144,50 +113,42 @@ local function BuildPatterns()
         p = p:gsub("%%d", "(%%d+)")
         return "^" .. p .. "$"
     end
-    -- Strict "items I personally looted from corpses" mode. LOOT_OPENED
-    -- already captures every corpse the player clicks (autoloot or manual),
-    -- so we deliberately ignore everything from CHAT_MSG_LOOT *except*
-    -- self-create — crafted items don't open a loot window so they have
-    -- no LOOT_OPENED signal.
+    -- Two pattern groups, with different gating behaviour:
+    --   * needsWindow=true  — only ingested when a loot window was recently
+    --                        open. Distinguishes corpse-loot from
+    --                        Need/Greed-roll deliveries.
+    --   * needsWindow=false — always ingested. Crafting fires
+    --                        LOOT_ITEM_CREATED_SELF without ever opening
+    --                        a loot frame, so we can't gate it.
     --
     -- Explicitly NOT parsed:
-    --   * LOOT_ITEM / _MULTIPLE  — other players' group-loot wins
-    --   * LOOT_ITEM_SELF / _MULTIPLE — the player's own group/Need/Greed
-    --     wins. Those are deliveries from a roll, not items the player
-    --     looted off a corpse.
+    --   * LOOT_ITEM / _MULTIPLE — other players' loot. Never tracked.
     LOOT_PATTERNS = {
+        -- "You receive loot: [item]." (LOOT_ITEM_SELF)
+        { p = toLua(LOOT_ITEM_SELF),                  self = true, multi = false, needsWindow = true },
+        -- "You receive loot: [item]xN." (LOOT_ITEM_SELF_MULTIPLE)
+        { p = toLua(LOOT_ITEM_SELF_MULTIPLE),         self = true, multi = true,  countLast = true, needsWindow = true },
         -- "You create: [item]." (LOOT_ITEM_CREATED_SELF)
-        { p = toLua(LOOT_ITEM_CREATED_SELF),        self = true,  multi = false },
+        { p = toLua(LOOT_ITEM_CREATED_SELF),          self = true, multi = false, needsWindow = false },
         -- "You create: [item]xN." (LOOT_ITEM_CREATED_SELF_MULTIPLE)
-        { p = toLua(LOOT_ITEM_CREATED_SELF_MULTIPLE), self = true, multi = true,  countLast = true },
+        { p = toLua(LOOT_ITEM_CREATED_SELF_MULTIPLE), self = true, multi = true,  countLast = true, needsWindow = false },
     }
 end
 
+-- Returns: link, count, needsWindow (or nil if no pattern matched)
 local function ParseChatLoot(msg)
     BuildPatterns()
     for _, pat in ipairs(LOOT_PATTERNS) do
         if pat.p then
-            local a, b, c = msg:match(pat.p)
+            local a, b = msg:match(pat.p)
             if a then
-                local link, count, source
-                if pat.self then
-                    if pat.multi then
-                        link, count = a, tonumber(b) or 1
-                    else
-                        link = a
-                        count = 1
-                    end
-                    source = LA_CONST.SOURCE_SOLO
+                local link, count
+                if pat.multi then
+                    link, count = a, tonumber(b) or 1
                 else
-                    -- group loot: a=playerName, b=link, c=count(if multi)
-                    if pat.multi then
-                        link, count = b, tonumber(c) or 1
-                    else
-                        link, count = b, 1
-                    end
-                    source = LA_CONST.SOURCE_GROUP
+                    link, count = a, 1
                 end
-                return link, count, source
+                return link, count, pat.needsWindow
             end
         end
     end
@@ -195,18 +156,29 @@ end
 
 local function HandleChatMsgLoot(msg)
     if not msg then return end
-    local link, count, source = ParseChatLoot(msg)
+    local link, count, needsWindow = ParseChatLoot(msg)
     if not link then return end
-    LM.IngestLoot(link, count, source)
+    -- Gate corpse-loot lines on a recent loot window. Crafted-item lines
+    -- bypass the gate (no loot window ever opens for crafting).
+    if needsWindow and GetTime() > lootWindowOpenUntil then return end
+    LM.IngestLoot(link, count, LA_CONST.SOURCE_SOLO)
 end
 
 -- ----- event hookup ------------------------------------------------------
+-- LOOT_OPENED  → arm the gate (math.huge = trust messages while window is open)
+-- LOOT_CLOSED  → disarm with a small grace so trailing CHAT_MSG_LOOT lines
+--                that the server may emit slightly after the close packet
+--                still get counted
+-- CHAT_MSG_LOOT → the actual loot signal; gated via needsWindow
 local frame = CreateFrame("Frame", "LA_LootEventFrame")
 frame:RegisterEvent("LOOT_OPENED")
+frame:RegisterEvent("LOOT_CLOSED")
 frame:RegisterEvent("CHAT_MSG_LOOT")
 frame:SetScript("OnEvent", function(self, event, msg)
     if event == "LOOT_OPENED" then
-        HandleLootOpened()
+        lootWindowOpenUntil = math.huge
+    elseif event == "LOOT_CLOSED" then
+        lootWindowOpenUntil = GetTime() + LOOT_CLOSE_GRACE
     elseif event == "CHAT_MSG_LOOT" then
         HandleChatMsgLoot(msg)
     end
