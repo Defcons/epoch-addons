@@ -12,6 +12,12 @@ Three visual bugs fixed in the in-game talent tree panel (`BuildTalentFrame`):
 
 ---
 
+## LootAppraiser-3.3.5 v1.12 — Compact UI + persistent window position *(2026-05-03)*
+- **Compact layout.** Dropped the big "Loot Appraiser" title and zone subtitle for a two-line summary header (`Zone  Time  GPH/h` / `Total  · N items`) with inline colour coding. Window dimensions: 320→290 wide, 288→226 tall (~21% smaller). Row height 14→12, visible rows 12→14, footer buttons 60×20→56×18.
+- **Window position remembered.** New `LootAppraiserDB.profile.windowPos = {point, x, y}` saved on drag-stop and restored in `UI.Build()`. Falls back to `CENTER, 0, 0` when nil. `SetClampedToScreen` keeps the frame on-screen after resolution changes.
+
+---
+
 ## LootAppraiser-3.3.5 v1.11 — `/la dump` + stack-aware loot patterns *(2026-05-03)*
 - **Stack support for Ascension wins.** The custom `"You won: …"` format wasn't capturing stack counts — looting 5 Runecloth via group greed ingested as a single. Added a stack-aware variant `"^You won: (.+)x(%d+)$"` placed *before* the single-item `"^You won: (.+)$"` so Lua's first-match semantics catches the count. Same ordering fix applied to the Blizzard `_MULTIPLE` patterns (now precede their single counterparts).
 - **`/la dump <link>`** comprehensive single-item diagnostic. Replaces v1.8's `/la price` (kept as alias). Five sections: Identity (link, itemKey, isBoP, GetItemInfo basics), ArkInventory (cache key, raw catID, decoded type/code, global name, bag-scan slot.cat fallback, resolver result), Config (live profile values for all four pricing options + quality floors), Pricing (AH, DE, vendor + final decision), Session (zone, total, GPH, matching rows with count/unit/value/src/age, bag-tracking ledger via new `Session.GetBagLedger`), plus current bag location.

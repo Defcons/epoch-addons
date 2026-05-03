@@ -7,13 +7,15 @@ LA = LA or {}
 LA.UI = LA.UI or {}
 local UI = LA.UI
 
-local WINDOW_W, HEADER_H, FOOTER_H = 320, 92, 28
-local ROW_H, MAX_ROWS = 14, 12
+-- Compact layout: one-line summary header (no big title, no separate
+-- zone subtitle), 14 visible rows at 12px each, smaller footer buttons.
+-- Saves ~50px height vs v1.0.
+local WINDOW_W, HEADER_H, FOOTER_H = 290, 36, 22
+local ROW_H, MAX_ROWS = 12, 14
 local WINDOW_H = HEADER_H + ROW_H * MAX_ROWS + FOOTER_H
 
 local frame
-local titleText, zoneText
-local timerText, gphText, totalText, countText
+local headerLine1, headerLine2
 local rows = {}        -- visual row frames
 local scrollFrame
 local pendingRefresh = false
@@ -91,21 +93,26 @@ local function BuildRow(parent, index)
 end
 
 -- ----- header refresh ----------------------------------------------------
+-- Compact two-line summary:
+--   line 1: zone · time · GPH      (e.g.  "Stratholme · 4:32 · 1g 8s/h")
+--   line 2: total · items          (e.g.  "58g 58s · 11 items")
+-- Pause indicator is appended to the time on line 1 when applicable.
 local function RefreshHeader()
     if not LA.Session.IsRunning() then
-        timerText:SetText("--:--")
-        gphText:SetText("0g/h")
-        totalText:SetText("0g")
-        countText:SetText("0 items")
-        zoneText:SetText("|cff999999not running|r")
+        headerLine1:SetText("|cff999999not running|r")
+        headerLine2:SetText("|cff666666/la start to begin|r")
         return
     end
     local snap = LA.Session.Snapshot()
-    timerText:SetText(FormatTimer(snap.elapsed) .. (snap.isPaused and " |cffffff00(paused)|r" or ""))
-    gphText:SetText(FormatMoney(snap.gph) .. "/h")
-    totalText:SetText(FormatMoney(snap.lootTotal))
-    countText:SetText(tostring(snap.itemCount) .. " items")
-    zoneText:SetText("|cff999999" .. (snap.zone ~= "" and snap.zone or "?") .. "|r")
+    local zone   = (snap.zone ~= "" and snap.zone) or "?"
+    local timeS  = FormatTimer(snap.elapsed)
+    if snap.isPaused then timeS = timeS .. "|cffffff00*|r" end
+    headerLine1:SetText(string.format(
+        "|cffaaaaaa%s|r  |cffeeeeee%s|r  |cff66ff66%s/h|r",
+        zone, timeS, FormatMoney(snap.gph)))
+    headerLine2:SetText(string.format(
+        "|cffeeeeee%s|r  |cff999999· %d items|r",
+        FormatMoney(snap.lootTotal), snap.itemCount))
 end
 
 -- ----- body refresh ------------------------------------------------------
@@ -180,13 +187,30 @@ function UI.Build()
     frame = CreateFrame("Frame", "LootAppraiserFrame", UIParent)
     frame:SetWidth(WINDOW_W)
     frame:SetHeight(WINDOW_H)
-    frame:SetPoint("CENTER", 0, 0)
     frame:SetMovable(true)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        -- Persist the window's anchor point + offset so the next
+        -- /reload (or fresh login) opens at the same spot.
+        if LA.db and LA.db.profile then
+            local point, _, _, x, y = self:GetPoint()
+            LA.db.profile.windowPos = { point = point, x = x, y = y }
+        end
+    end)
     frame:SetClampedToScreen(true)
+
+    -- Restore the saved position if we have one; otherwise centre the
+    -- window. SetClampedToScreen() above keeps it visible even if the
+    -- saved coordinates are now offscreen (e.g. after a resolution change).
+    local pos = LA.db and LA.db.profile and LA.db.profile.windowPos
+    if pos and pos.point then
+        frame:SetPoint(pos.point, UIParent, pos.point, pos.x or 0, pos.y or 0)
+    else
+        frame:SetPoint("CENTER", 0, 0)
+    end
 
     frame:SetBackdrop({
         bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -198,38 +222,27 @@ function UI.Build()
     frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
     tinsert(UISpecialFrames, "LootAppraiserFrame")  -- escape closes
 
-    -- Title
-    titleText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    titleText:SetPoint("TOP", 0, -8)
-    titleText:SetText("|cff33ccffLoot Appraiser|r")
+    -- Compact two-line header: line 1 = zone · time · GPH, line 2 = total · items.
+    -- Both anchored to the frame's top-left so layout stays stable regardless
+    -- of zone-name length. No big title — the frame's borders are recognisable.
+    headerLine1 = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    headerLine1:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -6)
+    headerLine1:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -6)
+    headerLine1:SetJustifyH("LEFT")
+    headerLine1:SetText("--")
 
-    zoneText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    zoneText:SetPoint("TOP", titleText, "BOTTOM", 0, -2)
+    headerLine2 = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    headerLine2:SetPoint("TOPLEFT", headerLine1, "BOTTOMLEFT", 0, -2)
+    headerLine2:SetPoint("TOPRIGHT", headerLine1, "BOTTOMRIGHT", 0, -2)
+    headerLine2:SetJustifyH("LEFT")
+    headerLine2:SetText("--")
 
-    -- Stats grid (2 rows x 2 columns), anchored to the frame so layout stays
-    -- stable regardless of zone-name length.
-    local function MakeLabel(text, x, y)
-        local lab = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        lab:SetPoint("TOPLEFT", frame, "TOPLEFT", x, y)
-        lab:SetText("|cff999999" .. text .. "|r")
-        local val = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        val:SetPoint("LEFT", lab, "RIGHT", 4, 0)
-        val:SetText("--")
-        return val
-    end
-
-    -- Header rows are inside the HEADER_H band; coordinates measured from frame TL.
-    timerText = MakeLabel("Time:",   16, -52)
-    gphText   = MakeLabel("GPH:",   170, -52)
-    totalText = MakeLabel("Total:",  16, -68)
-    countText = MakeLabel("Items:", 170, -68)
-
-    -- Separator
+    -- Separator under the header band.
     local sep = frame:CreateTexture(nil, "ARTWORK")
     sep:SetTexture(0.4, 0.4, 0.4, 0.6)
     sep:SetHeight(1)
-    sep:SetPoint("TOPLEFT", 8, -HEADER_H + 4)
-    sep:SetPoint("TOPRIGHT", -8, -HEADER_H + 4)
+    sep:SetPoint("TOPLEFT", 8, -HEADER_H + 2)
+    sep:SetPoint("TOPRIGHT", -8, -HEADER_H + 2)
 
     -- Body: scroll frame + content
     scrollFrame = CreateFrame("ScrollFrame", "LootAppraiserFauxScroll", frame, "FauxScrollFrameTemplate")
@@ -246,14 +259,15 @@ function UI.Build()
         rows[i] = BuildRow(content, i)
     end
 
-    -- Footer buttons
+    -- Footer buttons (compact). UIPanelButtonTemplate's font is fixed-size
+    -- but the button itself can be shrunk; small labels still fit.
     local function MakeButton(label, anchor, xOff, onClick)
         local b = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-        b:SetWidth(60); b:SetHeight(20)
+        b:SetWidth(56); b:SetHeight(18)
         if anchor then
             b:SetPoint("LEFT", anchor, "RIGHT", xOff, 0)
         else
-            b:SetPoint("BOTTOMLEFT", 8, 6)
+            b:SetPoint("BOTTOMLEFT", 6, 4)
         end
         b:SetText(label)
         b:SetScript("OnClick", onClick)

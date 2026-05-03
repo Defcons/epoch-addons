@@ -1,5 +1,38 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.12 — Compact UI + persistent window position *(2026-05-03)*
+
+### Compact layout
+Dropped the big "Loot Appraiser" title and the separate zone subtitle.
+Two-line summary header now reads:
+
+```
+Stratholme  4:32  190g/h
+58g 58s  · 11 items
+```
+
+Numbers are colour-coded inline (zone grey, time bright, GPH green,
+total bright, item count grey). Pause indicator is a small `*` after
+the time instead of the previous `(paused)` parenthetical.
+
+Sizing changes:
+* Window width  320 → 290
+* Header height  92 →  36 (2 lines + 1px separator)
+* Row height     14 →  12
+* Footer height  28 →  22 (smaller buttons: 56×18)
+* Visible rows   12 →  14 (more density, still capped at
+  `MAX_LOOT_ROWS = 200` total)
+* Total height  288 → 226 (about 21% smaller)
+
+### Window position remembered between sessions
+New profile field `windowPos = { point, x, y }` saved on
+`OnDragStop` and restored in `UI.Build()`. Falls back to
+`CENTER, 0, 0` when nil (fresh install). `SetClampedToScreen`
+keeps it visible after resolution changes even if the saved
+coordinates would otherwise land off-screen.
+
+---
+
 ## v1.11 — `/la dump` + stack-aware loot patterns *(2026-05-03)*
 
 ### Stack support for Ascension wins

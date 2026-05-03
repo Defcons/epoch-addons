@@ -80,7 +80,11 @@ LA_DEFAULTS = {
     autoStart         = true,     -- start a session automatically on first /la or first loot
     showOnLoot        = true,     -- pop the window on first loot if hidden
     windowAlpha       = 0.85,
-    rowHeight         = 14,
+    rowHeight         = 12,
+    -- Window position. Saved on drag-stop (point, x-offset, y-offset
+    -- relative to UIParent at the same anchor point). Nil on first
+    -- install — Build() falls back to "CENTER, 0, 0".
+    windowPos         = nil,
 
     -- Persistence
     rememberLastSession = true,   -- restore last session totals on /reload (within the same play session)
