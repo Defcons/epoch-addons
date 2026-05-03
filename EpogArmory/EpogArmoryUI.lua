@@ -704,39 +704,31 @@ local function BuildTalentFrame()
                 GRID_LEFT + (col - 1) * (CELL + GAP),
                 GRID_TOP - (tier - 1) * (CELL + GAP))
 
-            -- SetBackdrop gives a solid dark background + colored 2px border.
-            -- This replaces the old UI-EmptySlot-Disabled texture which had
-            -- an opaque center that covered the icon. The border color is set
-            -- per-talent in RenderTab via SetBackdropBorderColor.
-            -- Claude: SetBackdrop border replaces opaque texture, icon always visible
-            b:SetBackdrop({
-                bgFile   = "Interface\\Buttons\\WHITE8X8",
-                edgeFile = "Interface\\Buttons\\WHITE8X8",
-                tile = false, tileSize = 8, edgeSize = 2,
-                insets = { left = 2, right = 2, top = 2, bottom = 2 },
-            })
-            b:SetBackdropColor(0, 0, 0, 0.85)
-            b:SetBackdropBorderColor(0.35, 0.35, 0.35, 1)
+            -- Background texture fills the full button. Doubles as the "border"
+            -- because the icon is inset 2px, leaving a 2px strip of bg color
+            -- visible around the edge. Colored in RenderTab via SetVertexColor.
+            -- Avoids SetBackdrop (can fail on Button frames in 3.3.5) entirely.
+            -- Claude: CreateTexture bg replaces SetBackdrop — tooltip-safe, always works
+            b.bg = b:CreateTexture(nil, "BACKGROUND")
+            b.bg:SetAllPoints(b)
+            b.bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+            b.bg:SetVertexColor(0.12, 0.12, 0.12, 1)
 
-            -- Icon fills the button interior (inside the 2px border)
+            -- Icon fills the interior (2px inset so bg strip shows as border)
             b.icon = b:CreateTexture(nil, "ARTWORK")
             b.icon:SetPoint("TOPLEFT", 2, -2)
             b.icon:SetPoint("BOTTOMRIGHT", -2, 2)
             b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-            -- Rank text at bottom-right corner. No diamond texture — the
-            -- TalentFrame-RankBorder asset causes sizing/placement issues.
-            -- Plain FontString with shadow is readable on any background.
-            -- Claude: removed rankBG diamond, anchored rankText to button corner
+            -- Rank text at bottom-right corner, drawn above icon
             b.rankText = b:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            b.rankText:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -2, 2)
+            b.rankText:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 2)
             b.rankText:SetShadowOffset(1, -1)
 
+            b:EnableMouse(true)  -- Claude: explicit — Button default but be safe
             b:SetScript("OnEnter", function(self)
-                -- Claude: guard empty string too, not just nil
-                if not self.talentName or self.talentName == "" then return end
+                if not self.talentName then return end
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:ClearLines()  -- Claude: flush stale tooltip content
                 GameTooltip:SetText(self.talentName, 1, 1, 1)
                 if self.talentRank and self.talentRank > 0 then
                     GameTooltip:AddLine(string.format("Rank %d / %d",
@@ -785,15 +777,21 @@ local function BuildTalentFrame()
         local meta  = EpogTalentTreeDB and EpogTalentTreeDB[cls]
             and EpogTalentTreeDB[cls].tabs and EpogTalentTreeDB[cls].tabs[tabIdx]
 
-        -- Claude: L/R halves with correct WotLK suffix; ARTWORK layer shows above backdrop
+        -- Claude: try class-specific L/R art; fall back to solid dark if missing/empty
         local bgBase = meta and meta.background
         if bgBase and bgBase ~= "" then
             local p = "Interface\\TalentFrame\\" .. bgBase
             t.bgLeft:SetTexture(p .. "-L")
             t.bgRight:SetTexture(p .. "-R")
+            t.bgLeft:SetVertexColor(1, 1, 1, 1)
+            t.bgRight:SetVertexColor(1, 1, 1, 1)
         else
-            t.bgLeft:SetTexture(nil)
-            t.bgRight:SetTexture(nil)
+            -- No class art available — render a solid dark panel so the grid
+            -- area is visually distinct from the frame edge tile.
+            t.bgLeft:SetTexture("Interface\\Buttons\\WHITE8X8")
+            t.bgRight:SetTexture("Interface\\Buttons\\WHITE8X8")
+            t.bgLeft:SetVertexColor(0.06, 0.05, 0.04, 0.92)
+            t.bgRight:SetVertexColor(0.06, 0.05, 0.04, 0.92)
         end
 
         -- Subtitle: spec name + points spent
@@ -819,33 +817,36 @@ local function BuildTalentFrame()
                 local key = talent.tier .. "," .. talent.column
                 local cell = t.gridCells[key]
                 if cell then
+                    -- Set data fields FIRST — tooltip reads these on hover
+                    -- Claude: talentName assigned before any call that could error
+                    cell.talentName    = talent.name
+                    cell.talentRank    = ranks[i] or 0
+                    cell.talentMaxRank = talent.maxRank or 0
+
+                    local rank    = cell.talentRank
+                    local maxRank = cell.talentMaxRank
+
                     cell.icon:SetTexture(
                         (talent.icon and talent.icon ~= "") and talent.icon
                         or "Interface\\Icons\\INV_Misc_QuestionMark")
-                    local rank = ranks[i] or 0
-                    local maxRank = talent.maxRank or 0
+
+                    -- bg:SetVertexColor colors the 2px border strip around icon
                     if rank > 0 then
                         cell.icon:SetDesaturated(false)
                         if rank >= maxRank then
-                            -- Maxed — green border + green rank text
-                            cell:SetBackdropBorderColor(0.2, 0.9, 0.2, 1)
+                            cell.bg:SetVertexColor(0.15, 0.55, 0.15, 1)  -- green
                             cell.rankText:SetTextColor(0.2, 1, 0.2)
-                            cell.rankText:SetText(tostring(rank))
                         else
-                            -- Partial — yellow border + yellow rank text
-                            cell:SetBackdropBorderColor(1, 0.82, 0.2, 1)
+                            cell.bg:SetVertexColor(0.5, 0.4, 0.05, 1)    -- amber
                             cell.rankText:SetTextColor(1, 0.95, 0.5)
-                            cell.rankText:SetText(tostring(rank))
                         end
+                        cell.rankText:SetText(tostring(rank))
                     else
                         cell.icon:SetDesaturated(true)
-                        cell:SetBackdropBorderColor(0.35, 0.35, 0.35, 1)
+                        cell.bg:SetVertexColor(0.12, 0.12, 0.12, 1)      -- dark gray
                         cell.rankText:SetTextColor(0.55, 0.55, 0.55)
                         cell.rankText:SetText("0")
                     end
-                    cell.talentName    = talent.name
-                    cell.talentRank    = rank
-                    cell.talentMaxRank = maxRank
                     cell:Show()
                 end
             end
