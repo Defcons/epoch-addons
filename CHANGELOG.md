@@ -12,6 +12,14 @@ Three visual bugs fixed in the in-game talent tree panel (`BuildTalentFrame`):
 
 ---
 
+## LootAppraiser-3.3.5 v1.13 — Single-line header + button-fit width + 8-row scroll *(2026-05-03)*
+- **Single-line header**: `Zone · M:SS · TotalValue · GPH/h · Nx`. Total field now displays `lootTotal + goldDelta`, so coin drops and vendor sales are reflected in the session total alongside item-loot value (no double-count — `lootTotal` and `goldDelta` are independent streams).
+- **Width fits exactly 4 buttons**: WINDOW_W 290→248 (`6 + 56*4 + 4*3 + 6`). No more dead space.
+- **8 visible rows** (was 14) with FauxScrollFrame scrollbar appearing past row 8. Row layout switched from fixed name-width to anchor-to-anchor so names truncate gracefully (`SetWordWrap(false)`).
+- Total window: 226 → 136 px tall, ~40% smaller area than v1.12.
+
+---
+
 ## LootAppraiser-3.3.5 v1.12 — Compact UI + persistent window position *(2026-05-03)*
 - **Compact layout.** Dropped the big "Loot Appraiser" title and zone subtitle for a two-line summary header (`Zone  Time  GPH/h` / `Total  · N items`) with inline colour coding. Window dimensions: 320→290 wide, 288→226 tall (~21% smaller). Row height 14→12, visible rows 12→14, footer buttons 60×20→56×18.
 - **Window position remembered.** New `LootAppraiserDB.profile.windowPos = {point, x, y}` saved on drag-stop and restored in `UI.Build()`. Falls back to `CENTER, 0, 0` when nil. `SetClampedToScreen` keeps the frame on-screen after resolution changes.

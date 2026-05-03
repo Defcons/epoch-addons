@@ -7,15 +7,17 @@ LA = LA or {}
 LA.UI = LA.UI or {}
 local UI = LA.UI
 
--- Compact layout: one-line summary header (no big title, no separate
--- zone subtitle), 14 visible rows at 12px each, smaller footer buttons.
--- Saves ~50px height vs v1.0.
-local WINDOW_W, HEADER_H, FOOTER_H = 290, 36, 22
-local ROW_H, MAX_ROWS = 12, 14
+-- Compact single-line header. Frame width sized to fit exactly 4 footer
+-- buttons (56px each + 4px gaps + 6px outer margin = 248). Visible rows
+-- limited to 8; the FauxScrollFrame handles overflow up to MAX_LOOT_ROWS.
+--   width  = 6 + 56*4 + 4*3 + 6 = 248
+--   height = 18 (single header line) + 8*12 (rows) + 22 (footer) = 136
+local WINDOW_W, HEADER_H, FOOTER_H = 248, 18, 22
+local ROW_H, MAX_ROWS = 12, 8
 local WINDOW_H = HEADER_H + ROW_H * MAX_ROWS + FOOTER_H
 
 local frame
-local headerLine1, headerLine2
+local headerText
 local rows = {}        -- visual row frames
 local scrollFrame
 local pendingRefresh = false
@@ -59,14 +61,18 @@ local function BuildRow(parent, index)
     row.bg:SetAllPoints(true)
     row.bg:SetTexture(0, 0, 0, 0.0)
 
-    row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    row.name:SetPoint("LEFT", 2, 0)
-    row.name:SetJustifyH("LEFT")
-    row.name:SetWidth(200)
-
+    -- Value sits flush right; name expands from the left edge to the value's
+    -- left edge so it adjusts dynamically with the value's width and truncates
+    -- gracefully on long item names instead of overflowing into the value column.
     row.value = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     row.value:SetPoint("RIGHT", -2, 0)
     row.value:SetJustifyH("RIGHT")
+
+    row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.name:SetPoint("LEFT", 2, 0)
+    row.name:SetPoint("RIGHT", row.value, "LEFT", -4, 0)
+    row.name:SetJustifyH("LEFT")
+    row.name:SetWordWrap(false)
 
     row:SetScript("OnEnter", function(self)
         if self.link then
@@ -93,26 +99,29 @@ local function BuildRow(parent, index)
 end
 
 -- ----- header refresh ----------------------------------------------------
--- Compact two-line summary:
---   line 1: zone · time · GPH      (e.g.  "Stratholme · 4:32 · 1g 8s/h")
---   line 2: total · items          (e.g.  "58g 58s · 11 items")
--- Pause indicator is appended to the time on line 1 when applicable.
+-- Single-line summary:
+--   "Zone · M:SS · TotalValue · GPH/h · Nx"
+--
+-- TotalValue is `lootTotal + goldDelta` — the full session value. Gold
+-- and silver looted directly from mob corpses (which arrive as currency
+-- via GetMoney(), not as item rows) ARE counted: GoldDelta = current
+-- money − money at session start, so any coin pickup increments it.
+-- Vendoring an item also increases GoldDelta but lootTotal drops by the
+-- same amount via `Session.ReconcileBags`, so the sum stays consistent
+-- (no double count).
 local function RefreshHeader()
     if not LA.Session.IsRunning() then
-        headerLine1:SetText("|cff999999not running|r")
-        headerLine2:SetText("|cff666666/la start to begin|r")
+        headerText:SetText("|cff999999not running — /la start|r")
         return
     end
     local snap = LA.Session.Snapshot()
     local zone   = (snap.zone ~= "" and snap.zone) or "?"
     local timeS  = FormatTimer(snap.elapsed)
     if snap.isPaused then timeS = timeS .. "|cffffff00*|r" end
-    headerLine1:SetText(string.format(
-        "|cffaaaaaa%s|r  |cffeeeeee%s|r  |cff66ff66%s/h|r",
-        zone, timeS, FormatMoney(snap.gph)))
-    headerLine2:SetText(string.format(
-        "|cffeeeeee%s|r  |cff999999· %d items|r",
-        FormatMoney(snap.lootTotal), snap.itemCount))
+    local sessionValue = (snap.lootTotal or 0) + (snap.goldDelta or 0)
+    headerText:SetText(string.format(
+        "|cffaaaaaa%s|r |cff666666·|r |cffeeeeee%s|r |cff666666·|r |cffeeeeee%s|r |cff666666·|r |cff66ff66%s/h|r |cff666666·|r |cff999999%dx|r",
+        zone, timeS, FormatMoney(sessionValue), FormatMoney(snap.gph), snap.itemCount))
 end
 
 -- ----- body refresh ------------------------------------------------------
@@ -222,27 +231,22 @@ function UI.Build()
     frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
     tinsert(UISpecialFrames, "LootAppraiserFrame")  -- escape closes
 
-    -- Compact two-line header: line 1 = zone · time · GPH, line 2 = total · items.
-    -- Both anchored to the frame's top-left so layout stays stable regardless
-    -- of zone-name length. No big title — the frame's borders are recognisable.
-    headerLine1 = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    headerLine1:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -6)
-    headerLine1:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -6)
-    headerLine1:SetJustifyH("LEFT")
-    headerLine1:SetText("--")
-
-    headerLine2 = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    headerLine2:SetPoint("TOPLEFT", headerLine1, "BOTTOMLEFT", 0, -2)
-    headerLine2:SetPoint("TOPRIGHT", headerLine1, "BOTTOMRIGHT", 0, -2)
-    headerLine2:SetJustifyH("LEFT")
-    headerLine2:SetText("--")
+    -- Single-line summary header. Anchored across the full top of the
+    -- frame; centre-justified keeps the layout balanced as values change
+    -- length. No title or subtitle — the frame border identifies the
+    -- addon and the chat-loaded `[LA dump]` slash output names it explicitly.
+    headerText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    headerText:SetPoint("TOPLEFT", frame, "TOPLEFT", 6, -4)
+    headerText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -4)
+    headerText:SetJustifyH("CENTER")
+    headerText:SetText("--")
 
     -- Separator under the header band.
     local sep = frame:CreateTexture(nil, "ARTWORK")
     sep:SetTexture(0.4, 0.4, 0.4, 0.6)
     sep:SetHeight(1)
-    sep:SetPoint("TOPLEFT", 8, -HEADER_H + 2)
-    sep:SetPoint("TOPRIGHT", -8, -HEADER_H + 2)
+    sep:SetPoint("TOPLEFT", 6, -HEADER_H + 1)
+    sep:SetPoint("TOPRIGHT", -6, -HEADER_H + 1)
 
     -- Body: scroll frame + content
     scrollFrame = CreateFrame("ScrollFrame", "LootAppraiserFauxScroll", frame, "FauxScrollFrameTemplate")
@@ -259,8 +263,10 @@ function UI.Build()
         rows[i] = BuildRow(content, i)
     end
 
-    -- Footer buttons (compact). UIPanelButtonTemplate's font is fixed-size
-    -- but the button itself can be shrunk; small labels still fit.
+    -- Footer buttons (compact). Sized so 4 buttons fill the 248-px frame
+    -- exactly: 6 (left margin) + 56*4 (buttons) + 4*3 (gaps) + 6 (right
+    -- margin) = 248. UIPanelButtonTemplate's font is fixed; small labels
+    -- still fit within 56×18.
     local function MakeButton(label, anchor, xOff, onClick)
         local b = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
         b:SetWidth(56); b:SetHeight(18)

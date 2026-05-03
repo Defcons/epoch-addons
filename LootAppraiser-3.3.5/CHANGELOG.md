@@ -1,5 +1,46 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.13 — Single-line header, button-fit width, 8-row scroll *(2026-05-03)*
+
+### Single-line summary header
+Two-line v1.12 header collapses to one line:
+
+```
+Stratholme · 4:32 · 12g 50s · 1500g/h · 11x
+```
+
+The Total field now shows `lootTotal + goldDelta` — the full session
+value including gold/silver looted directly from mob corpses (which
+arrive as currency via `GetMoney()`, not as item rows). Vendoring an
+item raises `goldDelta` while `lootTotal` drops by the same amount
+via `Session.ReconcileBags`, so the displayed total stays correct
+without double-counting.
+
+### Width fits the 4 buttons exactly
+WINDOW_W 290 → 248. Maths:
+`6 (left margin) + 56*4 (buttons) + 4*3 (gaps) + 6 (right margin)
+ = 248`. No more dead space to the right of the Hide button.
+
+### 8 visible rows with scroll for the rest
+MAX_ROWS 14 → 8. Beyond 8, the existing FauxScrollFrame scrollbar
+shows up and you can scroll through the full session history (still
+capped at `MAX_LOOT_ROWS = 200`). Loot rows now use anchor-to-anchor
+layout so the name field expands to whatever space is left after the
+value, with `SetWordWrap(false)` for graceful truncation on long
+item names.
+
+### Sizing summary
+| Dim | v1.12 | v1.13 |
+|-----|-------|-------|
+| Width  | 290 | 248 |
+| Header | 36  | 18  |
+| Rows   | 14  |  8  |
+| Total  | 226 | 136 |
+
+About **40% smaller** than v1.12 by area.
+
+---
+
 ## v1.12 — Compact UI + persistent window position *(2026-05-03)*
 
 ### Compact layout
