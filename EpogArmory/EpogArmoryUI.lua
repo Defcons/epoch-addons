@@ -594,10 +594,10 @@ end
 --   - Blizzard-style rank overlay (small diamond texture)
 local talentFrame
 local function BuildTalentFrame()
-    local TIERS = 7
+    local TIERS = 9    -- Claude: Ascension has TBC trees with up to 9 tiers
     local COLS  = 4
-    local CELL  = 40    -- bumped from 36 — better visual presence
-    local GAP   = 8
+    local CELL  = 36   -- Claude: slightly smaller to keep 9-row frame on screen
+    local GAP   = 6
     local TIER_LABEL_W = 20  -- column on left for tier numbers
     local GRID_LEFT = 14 + TIER_LABEL_W
     local GRID_TOP  = -86
@@ -733,8 +733,10 @@ local function BuildTalentFrame()
             b.rankText:SetShadowOffset(1, -1)
 
             b:SetScript("OnEnter", function(self)
-                if not self.talentName then return end
+                -- Claude: guard empty string too, not just nil
+                if not self.talentName or self.talentName == "" then return end
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:ClearLines()  -- Claude: flush stale tooltip content
                 GameTooltip:SetText(self.talentName, 1, 1, 1)
                 if self.talentRank and self.talentRank > 0 then
                     GameTooltip:AddLine(string.format("Rank %d / %d",
