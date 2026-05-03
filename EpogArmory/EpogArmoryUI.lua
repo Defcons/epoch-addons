@@ -644,24 +644,16 @@ local function BuildTalentFrame()
         t.tabBtns[tabIdx] = tb
     end
 
-    -- v1.3+: class-themed background. Blizzard's PlayerTalentFrame uses
-    -- 4 quadrant tiles named "<base>-TopLeft", "-TopRight", "-BotLeft",
-    -- "-BotRight" under Interface\TalentFrame\, where <base> comes from
-    -- GetTalentTabInfo's background field. We mirror that. If the file
-    -- doesn't exist, the texture renders blank (no harm done).
-    local BG_INSET = 2 -- inset the background slightly inside the grid area
-    local function makeBgQuad(point, x, y)
-        local tex = t:CreateTexture(nil, "BACKGROUND")
-        tex:SetWidth(GRID_W / 2)
-        tex:SetHeight(GRID_H / 2)
-        tex:SetPoint(point, t, "TOPLEFT", GRID_LEFT + x, GRID_TOP - y)
-        tex:SetVertexColor(0.55, 0.55, 0.55, 0.85) -- dim a bit so icons pop
-        return tex
-    end
-    t.bgTL = makeBgQuad("TOPLEFT",  BG_INSET,                BG_INSET)
-    t.bgTR = makeBgQuad("TOPLEFT",  BG_INSET + GRID_W / 2,   BG_INSET)
-    t.bgBL = makeBgQuad("TOPLEFT",  BG_INSET,                BG_INSET + GRID_H / 2)
-    t.bgBR = makeBgQuad("TOPLEFT",  BG_INSET + GRID_W / 2,   BG_INSET + GRID_H / 2)
+    -- v1.3+: class-themed background. WotLK 3.3.5 uses a single texture per
+    -- spec tree (no quadrant tiling). Path is Interface\TalentFrame\<base>
+    -- where <base> comes from GetTalentTabInfo's background field. If the
+    -- file doesn't exist the texture renders blank — no harm done.
+    -- Claude: single background texture replacing broken 4-quad approach
+    t.bgTexture = t:CreateTexture(nil, "BACKGROUND")
+    t.bgTexture:SetWidth(GRID_W)
+    t.bgTexture:SetHeight(GRID_H)
+    t.bgTexture:SetPoint("TOPLEFT", t, "TOPLEFT", GRID_LEFT, GRID_TOP)
+    t.bgTexture:SetVertexColor(0.6, 0.6, 0.6, 0.9) -- dim slightly so icons pop
 
     -- Tier labels down the left side. 7 rows of "1" through "7" so the
     -- viewer immediately recognizes the talent-tree row structure.
@@ -708,8 +700,11 @@ local function BuildTalentFrame()
                 GRID_LEFT + (col - 1) * (CELL + GAP),
                 GRID_TOP - (tier - 1) * (CELL + GAP))
 
-            -- Inner icon (slightly inset for the border to show)
-            b.icon = b:CreateTexture(nil, "BORDER")
+            -- Inner icon on ARTWORK so it renders above BORDER but below
+            -- OVERLAY — the OVERLAY border frame will draw on top of it
+            -- while the transparent border center lets the icon show through.
+            -- Claude: BORDER → ARTWORK fixes icon hidden behind OVERLAY border
+            b.icon = b:CreateTexture(nil, "ARTWORK")
             b.icon:SetPoint("TOPLEFT", 3, -3)
             b.icon:SetPoint("BOTTOMRIGHT", -3, 3)
             b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -722,18 +717,12 @@ local function BuildTalentFrame()
             b.border:SetPoint("TOPLEFT", -2, 2)
             b.border:SetPoint("BOTTOMRIGHT", 2, -2)
 
-            -- Rank background — small diamond at the bottom-right, mimicking
-            -- Blizzard's PlayerTalentFrame talent-rank badge. Texture is the
-            -- standard talent rank border; if missing on this client we just
-            -- show the text alone (rankBG renders blank, no harm).
-            b.rankBG = b:CreateTexture(nil, "OVERLAY", nil, 1)
-            b.rankBG:SetTexture("Interface\\TalentFrame\\TalentFrame-RankBorder")
-            b.rankBG:SetWidth(CELL * 0.55)
-            b.rankBG:SetHeight(CELL * 0.55)
-            b.rankBG:SetPoint("BOTTOMRIGHT", 4, -4)
-
+            -- Rank text at bottom-right corner. No diamond texture — the
+            -- TalentFrame-RankBorder asset causes sizing/placement issues.
+            -- Plain FontString with shadow is readable on any background.
+            -- Claude: removed rankBG diamond, anchored rankText to button corner
             b.rankText = b:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-            b.rankText:SetPoint("CENTER", b.rankBG, "CENTER", -1, 1)
+            b.rankText:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -2, 2)
             b.rankText:SetShadowOffset(1, -1)
 
             b:SetScript("OnEnter", function(self)
@@ -787,21 +776,12 @@ local function BuildTalentFrame()
         local meta  = EpogTalentTreeDB and EpogTalentTreeDB[cls]
             and EpogTalentTreeDB[cls].tabs and EpogTalentTreeDB[cls].tabs[tabIdx]
 
-        -- v1.3+: load class-themed background. Blizzard texture path is
-        -- Interface\TalentFrame\<base>-TopLeft.blp etc., where <base>
-        -- comes from GetTalentTabInfo's `background` field. If the file
-        -- doesn't exist on this client (older Ascension build, etc.) the
-        -- texture renders transparent and only the dialog backdrop shows.
+        -- Claude: single texture, no quadrant suffix — matches WotLK 3.3.5 asset layout
         local bgBase = meta and meta.background
         if bgBase and bgBase ~= "" then
-            local p = "Interface\\TalentFrame\\" .. bgBase
-            t.bgTL:SetTexture(p .. "-TopLeft")
-            t.bgTR:SetTexture(p .. "-TopRight")
-            t.bgBL:SetTexture(p .. "-BottomLeft")
-            t.bgBR:SetTexture(p .. "-BottomRight")
+            t.bgTexture:SetTexture("Interface\\TalentFrame\\" .. bgBase)
         else
-            t.bgTL:SetTexture(nil); t.bgTR:SetTexture(nil)
-            t.bgBL:SetTexture(nil); t.bgBR:SetTexture(nil)
+            t.bgTexture:SetTexture(nil)
         end
 
         -- Subtitle: spec name + points spent

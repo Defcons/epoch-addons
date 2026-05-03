@@ -4,6 +4,14 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.3.1 — Talent tree visual fixes *(2026-04-30)*
+Three visual bugs fixed in the in-game talent tree panel (`BuildTalentFrame`):
+- **Icon behind border**: icon texture layer changed from `BORDER` → `ARTWORK`. Draw order is BORDER → ARTWORK → OVERLAY, so the icon now renders above any per-button background but the OVERLAY slot border still frames it correctly.
+- **Background completely off**: replaced 4-quadrant tile approach (`bgTL/TR/BL/BR` with `-TopLeft`/`-TopRight` etc. suffixes) with a single `t.bgTexture` covering the full grid area. WotLK 3.3.5 uses a single texture per spec (`Interface\TalentFrame\<base>`), not quadrant tiles.
+- **Scaling off (rank badge)**: removed `rankBG` diamond texture (`TalentFrame-RankBorder`) which was over-sized and misplaced. Rank text is now a plain `GameFontNormal` FontString anchored to the button's `BOTTOMRIGHT` corner with a drop shadow — readable on any background.
+
+---
+
 ## LootAppraiser-3.3.5 v1.8 — `/la price` debug trace *(2026-05-02)*
 Added `/la price <link>` to dump the full pricing trace for a single item: itemID/itemKey/isBoP, ArkInventory cache key, raw `type!code` stored value, resolved name, active config strings, AH/DE/vendor source values, and the final `(copper, source, isBoP)` decision. Usage: type `/la price ` then shift-click an item from bag. Used for diagnosing items in Value/Trash categories that aren't surfacing as expected.
 
