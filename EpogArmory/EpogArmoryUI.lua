@@ -330,6 +330,21 @@ local function BuildInspectFrame()
     end)
     f.delete = delete
 
+    -- v1.3: opens the talent tree side-panel for the active player + spec.
+    -- Talent metadata accumulates locally as users self-scan / inspect
+    -- each class; when missing, the panel shows a "no metadata yet" hint.
+    local talents = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    talents:SetWidth(52); talents:SetHeight(20)
+    talents:SetPoint("TOPLEFT", delete, "BOTTOMLEFT", 0, -4)
+    talents:SetText("Talents")
+    talents:SetScript("OnClick", function()
+        if not f.activePlayer then return end
+        if _G.EpogArmory_OpenTalentsFor then
+            _G.EpogArmory_OpenTalentsFor(f.activePlayer, f.activeGroup)
+        end
+    end)
+    f.talentsBtn = talents
+
     f.nameText = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.nameText:SetPoint("TOP", 0, -42)
 
@@ -565,12 +580,231 @@ RenderActiveSet = function()
     end
 end
 
+-- v1.3: in-game talent tree renderer. Anchored to the right of the
+-- inspect frame when shown. Reads metadata from EpogTalentTreeDB
+-- (populated locally as the user scans/inspects players of each class)
+-- and rank distribution from set.talentRanks (wire pos 41).
+--
+-- 4 columns × 7 tiers grid per tab (matches Blizzard's standard talent
+-- tree layout). Talents render with full color when learned, desaturated
+-- when not. Rank overlay color: green at maxed, yellow when partial,
+-- gray at 0.
+local talentFrame
+local function BuildTalentFrame()
+    local TIERS = 7
+    local COLS  = 4
+    local CELL  = 36
+    local GAP   = 6
+    local GRID_LEFT = 16
+    local GRID_TOP  = -86
+
+    local t = CreateFrame("Frame", "EpogArmoryTalentFrame", UIParent)
+    t:SetWidth(GRID_LEFT * 2 + COLS * (CELL + GAP) - GAP) -- ~210
+    t:SetHeight((-GRID_TOP) + TIERS * (CELL + GAP) - GAP + 18) -- ~388
+    t:SetFrameStrata("DIALOG")
+    t:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    })
+    t:SetMovable(true); t:EnableMouse(true)
+    t:RegisterForDrag("LeftButton")
+    t:SetScript("OnDragStart", t.StartMoving)
+    t:SetScript("OnDragStop", t.StopMovingOrSizing)
+    t:Hide()
+
+    t.title = t:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    t.title:SetPoint("TOP", 0, -16)
+    t.title:SetText("Talents")
+
+    local close = CreateFrame("Button", nil, t, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -4, -4)
+
+    -- Subtitle: tab name + total points spent (e.g. "Holy 19")
+    t.subtitle = t:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    t.subtitle:SetPoint("TOP", t.title, "BOTTOM", 0, -2)
+
+    -- 3 tab buttons across the top, just under the subtitle
+    t.tabBtns = {}
+    for tabIdx = 1, 3 do
+        local tb = CreateFrame("Button", nil, t, "UIPanelButtonTemplate")
+        tb:SetWidth(60); tb:SetHeight(20)
+        tb:SetPoint("TOP", t, "TOP", (tabIdx - 2) * 64, -56)
+        tb:SetText("Tab " .. tabIdx)
+        tb:SetScript("OnClick", function()
+            if t.RenderTab then t.RenderTab(tabIdx) end
+        end)
+        t.tabBtns[tabIdx] = tb
+    end
+
+    -- Pre-create 4×7 grid of talent buttons. Hidden by default; populated
+    -- only when the active tab has a talent at that (tier, column).
+    t.gridCells = {}
+    for tier = 1, TIERS do
+        for col = 1, COLS do
+            local b = CreateFrame("Button", nil, t)
+            b:SetWidth(CELL); b:SetHeight(CELL)
+            b:SetPoint("TOPLEFT", t, "TOPLEFT",
+                GRID_LEFT + (col - 1) * (CELL + GAP),
+                GRID_TOP - (tier - 1) * (CELL + GAP))
+            b.icon = b:CreateTexture(nil, "ARTWORK")
+            b.icon:SetAllPoints()
+            b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            b.border = b:CreateTexture(nil, "BORDER")
+            b.border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+            b.border:SetPoint("CENTER")
+            b.border:SetWidth(CELL * 1.6); b.border:SetHeight(CELL * 1.6)
+            b.rankText = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            b.rankText:SetPoint("BOTTOMRIGHT", -1, 1)
+            b.rankText:SetShadowOffset(1, -1)
+            b:SetScript("OnEnter", function(self)
+                if not self.talentName then return end
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(self.talentName, 1, 1, 1)
+                if self.talentRank and self.talentRank > 0 then
+                    GameTooltip:AddLine(string.format("Rank %d / %d",
+                        self.talentRank, self.talentMaxRank or 0), 0.4, 1, 0.4)
+                else
+                    GameTooltip:AddLine(string.format("Not learned  (max %d)",
+                        self.talentMaxRank or 0), 0.6, 0.6, 0.6)
+                end
+                GameTooltip:Show()
+            end)
+            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            b:Hide()
+            t.gridCells[tier .. "," .. col] = b
+        end
+    end
+
+    -- "No metadata yet" placeholder, shown when EpogTalentTreeDB doesn't
+    -- have data for this class+tab combo.
+    t.emptyText = t:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    t.emptyText:SetPoint("CENTER", 0, -20)
+    t.emptyText:SetWidth(180)
+    t.emptyText:SetJustifyH("CENTER")
+    t.emptyText:Hide()
+
+    function t.RenderTab(tabIdx)
+        t.activeTab = tabIdx
+        for _, c in pairs(t.gridCells) do c:Hide() end
+        t.emptyText:Hide()
+
+        for i, btn in ipairs(t.tabBtns) do
+            if i == tabIdx then btn:LockHighlight() else btn:UnlockHighlight() end
+        end
+
+        if not t.activePlayer then return end
+        local cls   = t.activePlayer.class or ""
+        local ranks = t.activeRanks and t.activeRanks[tabIdx] or {}
+        local meta  = EpogTalentTreeDB and EpogTalentTreeDB[cls]
+            and EpogTalentTreeDB[cls].tabs and EpogTalentTreeDB[cls].tabs[tabIdx]
+
+        -- Subtitle: spec name + points spent
+        local pts = 0
+        for _, r in ipairs(ranks) do pts = pts + r end
+        local tabName = (meta and meta.name) or
+            (t.activePlayer.tabNames and t.activePlayer.tabNames[tabIdx]) or
+            ("Tab " .. tabIdx)
+        t.subtitle:SetText(string.format("|cffffd200%s|r |cff888888%d points|r", tabName, pts))
+
+        if not meta or not meta.talents or not next(meta.talents) then
+            t.emptyText:SetText(string.format(
+                "No talent metadata yet for |cffffd200%s|r — %s.\n\n|cff888888Self-scan as %s, or inspect a %s with the Reality Recalibrators aura, to populate.|r",
+                cls, tabName, cls, cls))
+            t.emptyText:Show()
+            return
+        end
+
+        for i, talent in pairs(meta.talents) do
+            if talent.tier and talent.tier > 0 and talent.column and talent.column > 0 then
+                local key = talent.tier .. "," .. talent.column
+                local cell = t.gridCells[key]
+                if cell then
+                    cell.icon:SetTexture(
+                        (talent.icon and talent.icon ~= "") and talent.icon
+                        or "Interface\\Icons\\INV_Misc_QuestionMark")
+                    local rank = ranks[i] or 0
+                    local maxRank = talent.maxRank or 0
+                    if rank > 0 then
+                        cell.icon:SetDesaturated(false)
+                        if rank >= maxRank then
+                            cell.rankText:SetTextColor(0.4, 1, 0.4) -- green: maxed
+                        else
+                            cell.rankText:SetTextColor(1, 0.85, 0.4) -- yellow: partial
+                        end
+                        cell.rankText:SetText(string.format("%d/%d", rank, maxRank))
+                    else
+                        cell.icon:SetDesaturated(true)
+                        cell.rankText:SetTextColor(0.5, 0.5, 0.5)
+                        cell.rankText:SetText(string.format("0/%d", maxRank))
+                    end
+                    cell.talentName    = talent.name
+                    cell.talentRank    = rank
+                    cell.talentMaxRank = maxRank
+                    cell:Show()
+                end
+            end
+        end
+    end
+
+    -- Update tab labels with the player's actual tree names whenever a new
+    -- player is opened. Falls back to "Tab N" if names aren't available.
+    function t.SetPlayer(player, group)
+        t.activePlayer = player
+        t.activeRanks  = nil
+        if player and player.sets and player.sets[group] then
+            t.activeRanks = player.sets[group].talentRanks
+        end
+        local names = (player and player.tabNames) or {}
+        local cls   = (player and player.class) or ""
+        local meta  = EpogTalentTreeDB and EpogTalentTreeDB[cls]
+        for i = 1, 3 do
+            local label = names[i] or (meta and meta.tabs and meta.tabs[i] and meta.tabs[i].name) or ("Tab " .. i)
+            -- Trim long names to fit the 60-wide button
+            if #label > 9 then label = label:sub(1, 8) .. "." end
+            t.tabBtns[i]:SetText(label)
+        end
+        t.title:SetText(string.format("Talents — %s", (player and player.name) or "?"))
+        -- Default to the dominant tree if we have spec data; otherwise tab 1
+        local defaultTab = 1
+        if player and player.spec then
+            local maxV, maxI = 0, 1
+            for i = 1, 3 do
+                if (player.spec[i] or 0) > maxV then maxV, maxI = player.spec[i], i end
+            end
+            if maxV > 0 then defaultTab = maxI end
+        end
+        t.RenderTab(defaultTab)
+    end
+
+    tinsert(UISpecialFrames, "EpogArmoryTalentFrame") -- Esc closes
+    return t
+end
+
+-- Public opener — called from the inspect frame's "Talents" button.
+function _G.EpogArmory_OpenTalentsFor(player, group)
+    if not talentFrame then talentFrame = BuildTalentFrame() end
+    talentFrame:ClearAllPoints()
+    if inspectFrame and inspectFrame:IsShown() then
+        talentFrame:SetPoint("LEFT", inspectFrame, "RIGHT", 4, 0)
+    else
+        talentFrame:SetPoint("CENTER")
+    end
+    talentFrame:Show()
+    talentFrame.SetPlayer(player, group)
+end
+
 local function ShowInspect(player, group)
     if not inspectFrame then inspectFrame = BuildInspectFrame() end
     inspectFrame.activePlayer = player
     inspectFrame.activeGroup  = group or FindLatestGroup(player)
 
     RenderActiveSet()
+    -- v1.3: if the talent frame is open, refresh it for the new player
+    if talentFrame and talentFrame:IsShown() and _G.EpogArmory_OpenTalentsFor then
+        talentFrame.SetPlayer(player, inspectFrame.activeGroup)
+    end
 
     local pending = RefreshIcons()
     inspectFrame:Show()
@@ -1547,6 +1781,11 @@ BackToBrowser = function()
     if inspectFrame then
         CopyFramePosition(inspectFrame, browserFrame)
         inspectFrame:Hide()
+    end
+    -- v1.3: hide the talent side-panel too — it has no meaning without
+    -- the inspect frame providing context.
+    if _G.EpogArmoryTalentFrame and _G.EpogArmoryTalentFrame:IsShown() then
+        _G.EpogArmoryTalentFrame:Hide()
     end
     browserFrame:Show()
 end

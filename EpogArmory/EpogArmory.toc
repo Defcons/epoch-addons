@@ -4,7 +4,7 @@
 ## X-Credits: Made by Defcon
 ## Author: Defcon
 ## Version: 1.3.0
-## SavedVariables: EpogArmoryDB, EpogItemCacheDB
+## SavedVariables: EpogArmoryDB, EpogItemCacheDB, EpogTalentTreeDB
 
 EpogArmory.lua
 EpogArmoryUI.lua

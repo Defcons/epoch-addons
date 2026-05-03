@@ -1132,6 +1132,55 @@ local function ParseTalentRanks(s)
     return out
 end
 
+-- v1.3: capture per-class talent tree METADATA (name, icon, tier, column,
+-- maxRank for each talent) into a new account-wide SavedVariable. The
+-- broadcast wire only carries ranks (position 41) — metadata is too big
+-- to ship every scan. So each client captures metadata locally whenever
+-- it has access to GetTalentInfo for a given class (self-scans always,
+-- inspect-scans for the inspected unit's class).
+--
+-- Result: over time everyone's local EpogTalentTreeDB accumulates metadata
+-- for every class they encounter. The in-game inspect frame's talent
+-- tree renderer + the website's tree renderer both use this data.
+local function CaptureTalentMetadata(unit, classFile)
+    if not (GetNumTalents and GetTalentInfo and GetTalentTabInfo) then return end
+    if not classFile or classFile == "" then return end
+    local isInspect = (not UnitIsUnit(unit, "player")) and 1 or nil
+    EpogTalentTreeDB = EpogTalentTreeDB or {}
+    EpogTalentTreeDB[classFile] = EpogTalentTreeDB[classFile] or { tabs = {} }
+    local cls = EpogTalentTreeDB[classFile]
+    cls.tabs = cls.tabs or {}
+    local function cleanIcon(s) return (s or ""):gsub("[%^|]", "") end
+    for tab = 1, 3 do
+        local tabName, tabIcon = GetTalentTabInfo(tab, isInspect)
+        local n = GetNumTalents(tab, isInspect) or 0
+        local talents = {}
+        for i = 1, n do
+            local name, icon, tier, column, _, maxRank = GetTalentInfo(tab, i, isInspect)
+            if name then
+                talents[i] = {
+                    name    = name,
+                    icon    = cleanIcon(icon),
+                    tier    = tier or 0,
+                    column  = column or 0,
+                    maxRank = maxRank or 0,
+                }
+            end
+        end
+        -- Only update the tab record when we got a non-empty talent list —
+        -- defensive against transient nil returns mid-inspect that would
+        -- otherwise blow away good cached metadata.
+        if next(talents) then
+            cls.tabs[tab] = {
+                name    = tabName or "",
+                icon    = cleanIcon(tabIcon or ""),
+                talents = talents,
+            }
+        end
+    end
+    cls.lastUpdate = floor(time())
+end
+
 -- Scan the enchant description lines of an equipped item for blacklisted
 -- patterns (Mithril Spurs etc.). Returns the first matching pattern or nil.
 -- Only called on sender side (BuildPayload) so received broadcasts don't
@@ -1306,6 +1355,11 @@ local function BuildPayload(unit, guid)
     -- interactive talent tree on epoglogs.com. Format described at
     -- BuildTalentRanks. Backward compatible — pre-v1.3 receivers ignore.
     parts[#parts + 1] = BuildTalentRanks(unit)
+    -- v1.3: capture talent metadata locally for this class (name, icon,
+    -- tier, column, maxRank per talent). Stored in EpogTalentTreeDB.
+    -- Doesn't go on the wire — it's bulky and stable per-class. Each
+    -- client builds its own metadata DB by observing scans.
+    CaptureTalentMetadata(unit, classFile)
     return table.concat(parts, "^"), equipped
 end
 
@@ -2482,6 +2536,7 @@ f:SetScript("OnEvent", function(self, event, ...)
         end
 
         EpogItemCacheDB = EpogItemCacheDB or {}
+        EpogTalentTreeDB = EpogTalentTreeDB or {} -- v1.3: per-class talent metadata
         MigratePlayers() -- wrap pre-v0.13 flat entries into sets[1]
         RequestSelfScan(SELF_SCAN_LOGIN_DELAY) -- initial self-scan after talent data warms up
         versionPingAt = now() + VERSION_PING_DELAY -- one-shot version broadcast, 2min after login

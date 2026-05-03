@@ -81,9 +81,9 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
-## EpogArmory v1.3.0 — Per-talent rank capture (wire position 41) *(2026-05-03)*
+## EpogArmory v1.3.0 — Per-talent rank capture + in-game talent tree *(2026-05-03)*
 
-Capture full talent point distribution per scan, not just per-tab totals. Powers an interactive talent tree renderer on epoglogs.com (next session's work on the web side).
+Capture full talent point distribution per scan, not just per-tab totals. Renders an in-game talent tree side-panel on the inspect frame and seeds the data for an interactive web renderer on epoglogs.com.
 
 ### What we capture now
 
@@ -124,14 +124,40 @@ Indices are stable per class on a given Ascension build — the website maps tal
 
 `BuildTalentRanks(unit)` works for `"player"` and inspected units alike. Self-scans on relog / respec / gear change get talent ranks. Inspect scans of groupmates get them too (uses `isInspect=1` in `GetTalentInfo` calls, same pattern as the existing `ReadSpecPoints`).
 
+### Talent metadata capture (new SavedVariable: `EpogTalentTreeDB`)
+
+The wire only carries ranks (small) — full metadata (talent name, icon, tier, column, maxRank per talent, ~30 talents × 3 tabs = 90 entries × ~200 bytes = ~18 KB) is way too big to ship per scan. Instead, each client builds up its own metadata DB by observing scans:
+
+- Self-scans always populate metadata for the player's own class
+- Inspect-scans populate metadata for the inspected player's class (using `GetTalentInfo` with `isInspect=1` — same as how Blizzard's inspect UI gets the data)
+
+`EpogTalentTreeDB[classFile] = { tabs = { [1] = { name, icon, talents = { [i] = {name, icon, tier, column, maxRank} } }, [2] = ..., [3] = ... }, lastUpdate = unixTs }`
+
+Account-wide SavedVariable. As the user scans varied classes over time, metadata accumulates automatically.
+
+### In-game talent tree renderer
+
+New "Talents" button on the inspect frame, below Back / Delete. Opens a 210×388 side-panel anchored to the right of the inspect frame.
+
+- 3 spec tabs across the top (named per the player's actual tree names — `Holy`, `Discipline`, `Shadow`, etc.)
+- 4-column × 7-tier talent grid (matches Blizzard's standard layout)
+- Each cell renders the talent's icon (full color when learned, desaturated when not), with rank overlay `N/maxRank` in the corner — green when maxed, yellow when partial, gray when 0
+- Hover for tooltip with talent name + rank
+- Defaults to the player's dominant tree on open
+- Subtitle shows `<TabName> N points`
+- Re-renders when the inspect frame switches to a different player or set
+- Hides automatically when Back returns to the browser
+
+If `EpogTalentTreeDB` lacks metadata for the displayed class+tab, the panel shows a clear "no metadata yet — scan a [Class] with the Reality Recalibrators aura to populate" message instead of an empty grid.
+
 ### What's left for the website
 
 - `epogarmory-web` reads `talentRanks` from uploaded SavedVariables
-- Renders an interactive talent tree using `epog-data`'s class talent definitions
+- Renders an interactive talent tree using `EpogTalentTreeDB` metadata (uploaded alongside the player DB) or `epog-data` class definitions
 - Hover for tooltip with description + rank progression
 - Per-set permalink
 
-That's a separate session's work on the `C:\Dev\epogarmory-web` codebase; this commit ships the addon side.
+Web side is a separate session's work on `C:\Dev\epogarmory-web`.
 
 ### No protocol changes for existing fields
 
