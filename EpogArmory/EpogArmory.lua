@@ -1152,19 +1152,31 @@ local function CaptureTalentMetadata(unit, classFile)
     cls.tabs = cls.tabs or {}
     local function cleanIcon(s) return (s or ""):gsub("[%^|]", "") end
     for tab = 1, 3 do
-        local tabName, tabIcon = GetTalentTabInfo(tab, isInspect)
+        local tabName, tabIcon, _, tabBackground = GetTalentTabInfo(tab, isInspect)
         local n = GetNumTalents(tab, isInspect) or 0
         local talents = {}
         for i = 1, n do
             local name, icon, tier, column, _, maxRank = GetTalentInfo(tab, i, isInspect)
             if name then
-                talents[i] = {
+                local talent = {
                     name    = name,
                     icon    = cleanIcon(icon),
                     tier    = tier or 0,
                     column  = column or 0,
                     maxRank = maxRank or 0,
                 }
+                -- v1.3+: capture prereqs so the renderer can draw arrows
+                -- between dependent talents like Blizzard's PlayerTalentFrame.
+                -- GetTalentPrereqs returns (tier, column, isLearnable, ...) —
+                -- repeated triples for multi-prereq talents (rare in WotLK).
+                if GetTalentPrereqs then
+                    local pTier, pCol = GetTalentPrereqs(tab, i, isInspect)
+                    if pTier and pCol then
+                        talent.prereqTier = pTier
+                        talent.prereqCol  = pCol
+                    end
+                end
+                talents[i] = talent
             end
         end
         -- Only update the tab record when we got a non-empty talent list —
@@ -1172,9 +1184,10 @@ local function CaptureTalentMetadata(unit, classFile)
         -- otherwise blow away good cached metadata.
         if next(talents) then
             cls.tabs[tab] = {
-                name    = tabName or "",
-                icon    = cleanIcon(tabIcon or ""),
-                talents = talents,
+                name       = tabName or "",
+                icon       = cleanIcon(tabIcon or ""),
+                background = cleanIcon(tabBackground or ""),
+                talents    = talents,
             }
         end
     end

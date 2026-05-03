@@ -585,22 +585,28 @@ end
 -- (populated locally as the user scans/inspects players of each class)
 -- and rank distribution from set.talentRanks (wire pos 41).
 --
--- 4 columns × 7 tiers grid per tab (matches Blizzard's standard talent
--- tree layout). Talents render with full color when learned, desaturated
--- when not. Rank overlay color: green at maxed, yellow when partial,
--- gray at 0.
+-- v1.3+: visual upgrade to look like Blizzard's PlayerTalentFrame:
+--   - class-themed background per spec (4-quadrant tiles loaded from
+--     Interface\TalentFrame\<background>-TopLeft.blp etc., where
+--     background comes from GetTalentTabInfo)
+--   - tier labels (1-7) on the left
+--   - prereq arrows drawn between dependent talents
+--   - Blizzard-style rank overlay (small diamond texture)
 local talentFrame
 local function BuildTalentFrame()
     local TIERS = 7
     local COLS  = 4
-    local CELL  = 36
-    local GAP   = 6
-    local GRID_LEFT = 16
+    local CELL  = 40    -- bumped from 36 — better visual presence
+    local GAP   = 8
+    local TIER_LABEL_W = 20  -- column on left for tier numbers
+    local GRID_LEFT = 14 + TIER_LABEL_W
     local GRID_TOP  = -86
 
+    local GRID_W = COLS * (CELL + GAP) - GAP
+    local GRID_H = TIERS * (CELL + GAP) - GAP
     local t = CreateFrame("Frame", "EpogArmoryTalentFrame", UIParent)
-    t:SetWidth(GRID_LEFT * 2 + COLS * (CELL + GAP) - GAP) -- ~210
-    t:SetHeight((-GRID_TOP) + TIERS * (CELL + GAP) - GAP + 18) -- ~388
+    t:SetWidth(GRID_LEFT + GRID_W + 14)             -- ~232
+    t:SetHeight((-GRID_TOP) + GRID_H + 18)           -- ~440
     t:SetFrameStrata("DIALOG")
     t:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -638,6 +644,59 @@ local function BuildTalentFrame()
         t.tabBtns[tabIdx] = tb
     end
 
+    -- v1.3+: class-themed background. Blizzard's PlayerTalentFrame uses
+    -- 4 quadrant tiles named "<base>-TopLeft", "-TopRight", "-BotLeft",
+    -- "-BotRight" under Interface\TalentFrame\, where <base> comes from
+    -- GetTalentTabInfo's background field. We mirror that. If the file
+    -- doesn't exist, the texture renders blank (no harm done).
+    local BG_INSET = 2 -- inset the background slightly inside the grid area
+    local function makeBgQuad(point, x, y)
+        local tex = t:CreateTexture(nil, "BACKGROUND")
+        tex:SetWidth(GRID_W / 2)
+        tex:SetHeight(GRID_H / 2)
+        tex:SetPoint(point, t, "TOPLEFT", GRID_LEFT + x, GRID_TOP - y)
+        tex:SetVertexColor(0.55, 0.55, 0.55, 0.85) -- dim a bit so icons pop
+        return tex
+    end
+    t.bgTL = makeBgQuad("TOPLEFT",  BG_INSET,                BG_INSET)
+    t.bgTR = makeBgQuad("TOPLEFT",  BG_INSET + GRID_W / 2,   BG_INSET)
+    t.bgBL = makeBgQuad("TOPLEFT",  BG_INSET,                BG_INSET + GRID_H / 2)
+    t.bgBR = makeBgQuad("TOPLEFT",  BG_INSET + GRID_W / 2,   BG_INSET + GRID_H / 2)
+
+    -- Tier labels down the left side. 7 rows of "1" through "7" so the
+    -- viewer immediately recognizes the talent-tree row structure.
+    t.tierLabels = {}
+    for tier = 1, TIERS do
+        local label = t:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        label:SetPoint("RIGHT", t, "TOPLEFT",
+            GRID_LEFT - 4,
+            GRID_TOP - (tier - 1) * (CELL + GAP) - CELL / 2)
+        label:SetText(tostring(tier))
+        label:SetTextColor(0.7, 0.7, 0.4)
+        label:SetShadowOffset(1, -1)
+        t.tierLabels[tier] = label
+    end
+
+    -- Prereq-arrow texture pool. Blizzard composes arrows from many small
+    -- branch textures; we approximate with simple straight-line segments
+    -- rendered as ARTWORK textures behind the talent buttons. Rendered
+    -- on demand in RenderTab and hidden when not in use.
+    t.arrowPool = {}
+    local function getArrow()
+        for _, a in ipairs(t.arrowPool) do
+            if not a:IsShown() then return a end
+        end
+        local a = t:CreateTexture(nil, "ARTWORK", nil, 1)
+        a:SetTexture("Interface\\Buttons\\WHITE8X8")
+        a:SetVertexColor(1, 0.85, 0.3, 0.9)
+        a:Hide()
+        t.arrowPool[#t.arrowPool + 1] = a
+        return a
+    end
+    local function hideAllArrows()
+        for _, a in ipairs(t.arrowPool) do a:Hide() end
+    end
+
     -- Pre-create 4×7 grid of talent buttons. Hidden by default; populated
     -- only when the active tab has a talent at that (tier, column).
     t.gridCells = {}
@@ -648,16 +707,35 @@ local function BuildTalentFrame()
             b:SetPoint("TOPLEFT", t, "TOPLEFT",
                 GRID_LEFT + (col - 1) * (CELL + GAP),
                 GRID_TOP - (tier - 1) * (CELL + GAP))
-            b.icon = b:CreateTexture(nil, "ARTWORK")
-            b.icon:SetAllPoints()
+
+            -- Inner icon (slightly inset for the border to show)
+            b.icon = b:CreateTexture(nil, "BORDER")
+            b.icon:SetPoint("TOPLEFT", 3, -3)
+            b.icon:SetPoint("BOTTOMRIGHT", -3, 3)
             b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            b.border = b:CreateTexture(nil, "BORDER")
-            b.border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
-            b.border:SetPoint("CENTER")
-            b.border:SetWidth(CELL * 1.6); b.border:SetHeight(CELL * 1.6)
-            b.rankText = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            b.rankText:SetPoint("BOTTOMRIGHT", -1, 1)
+
+            -- Square slot border that fits a Blizzard talent button look.
+            -- UI-EmptySlot-Disabled is a clean square with metallic edge —
+            -- a closer match to the native talent UI than UI-Quickslot2.
+            b.border = b:CreateTexture(nil, "OVERLAY")
+            b.border:SetTexture("Interface\\Buttons\\UI-EmptySlot-Disabled")
+            b.border:SetPoint("TOPLEFT", -2, 2)
+            b.border:SetPoint("BOTTOMRIGHT", 2, -2)
+
+            -- Rank background — small diamond at the bottom-right, mimicking
+            -- Blizzard's PlayerTalentFrame talent-rank badge. Texture is the
+            -- standard talent rank border; if missing on this client we just
+            -- show the text alone (rankBG renders blank, no harm).
+            b.rankBG = b:CreateTexture(nil, "OVERLAY", nil, 1)
+            b.rankBG:SetTexture("Interface\\TalentFrame\\TalentFrame-RankBorder")
+            b.rankBG:SetWidth(CELL * 0.55)
+            b.rankBG:SetHeight(CELL * 0.55)
+            b.rankBG:SetPoint("BOTTOMRIGHT", 4, -4)
+
+            b.rankText = b:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            b.rankText:SetPoint("CENTER", b.rankBG, "CENTER", -1, 1)
             b.rankText:SetShadowOffset(1, -1)
+
             b:SetScript("OnEnter", function(self)
                 if not self.talentName then return end
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -677,6 +755,14 @@ local function BuildTalentFrame()
         end
     end
 
+    -- Stash for use in RenderTab
+    t._CELL = CELL
+    t._GAP  = GAP
+    t._GRID_LEFT = GRID_LEFT
+    t._GRID_TOP  = GRID_TOP
+    t._getArrow = getArrow
+    t._hideAllArrows = hideAllArrows
+
     -- "No metadata yet" placeholder, shown when EpogTalentTreeDB doesn't
     -- have data for this class+tab combo.
     t.emptyText = t:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -688,6 +774,7 @@ local function BuildTalentFrame()
     function t.RenderTab(tabIdx)
         t.activeTab = tabIdx
         for _, c in pairs(t.gridCells) do c:Hide() end
+        t._hideAllArrows()
         t.emptyText:Hide()
 
         for i, btn in ipairs(t.tabBtns) do
@@ -699,6 +786,23 @@ local function BuildTalentFrame()
         local ranks = t.activeRanks and t.activeRanks[tabIdx] or {}
         local meta  = EpogTalentTreeDB and EpogTalentTreeDB[cls]
             and EpogTalentTreeDB[cls].tabs and EpogTalentTreeDB[cls].tabs[tabIdx]
+
+        -- v1.3+: load class-themed background. Blizzard texture path is
+        -- Interface\TalentFrame\<base>-TopLeft.blp etc., where <base>
+        -- comes from GetTalentTabInfo's `background` field. If the file
+        -- doesn't exist on this client (older Ascension build, etc.) the
+        -- texture renders transparent and only the dialog backdrop shows.
+        local bgBase = meta and meta.background
+        if bgBase and bgBase ~= "" then
+            local p = "Interface\\TalentFrame\\" .. bgBase
+            t.bgTL:SetTexture(p .. "-TopLeft")
+            t.bgTR:SetTexture(p .. "-TopRight")
+            t.bgBL:SetTexture(p .. "-BottomLeft")
+            t.bgBR:SetTexture(p .. "-BottomRight")
+        else
+            t.bgTL:SetTexture(nil); t.bgTR:SetTexture(nil)
+            t.bgBL:SetTexture(nil); t.bgBR:SetTexture(nil)
+        end
 
         -- Subtitle: spec name + points spent
         local pts = 0
@@ -716,6 +820,8 @@ local function BuildTalentFrame()
             return
         end
 
+        -- Render talents
+        local CELL, GAP, GL, GT = t._CELL, t._GAP, t._GRID_LEFT, t._GRID_TOP
         for i, talent in pairs(meta.talents) do
             if talent.tier and talent.tier > 0 and talent.column and talent.column > 0 then
                 local key = talent.tier .. "," .. talent.column
@@ -729,20 +835,112 @@ local function BuildTalentFrame()
                     if rank > 0 then
                         cell.icon:SetDesaturated(false)
                         if rank >= maxRank then
-                            cell.rankText:SetTextColor(0.4, 1, 0.4) -- green: maxed
+                            -- Maxed — bright green like Blizzard's UI
+                            cell.rankText:SetTextColor(0.2, 1, 0.2)
+                            cell.rankText:SetText(tostring(rank))
                         else
-                            cell.rankText:SetTextColor(1, 0.85, 0.4) -- yellow: partial
+                            -- Partial — bright yellow
+                            cell.rankText:SetTextColor(1, 0.95, 0.5)
+                            cell.rankText:SetText(tostring(rank))
                         end
-                        cell.rankText:SetText(string.format("%d/%d", rank, maxRank))
+                        cell.border:SetVertexColor(1, 1, 1, 1)
                     else
                         cell.icon:SetDesaturated(true)
-                        cell.rankText:SetTextColor(0.5, 0.5, 0.5)
-                        cell.rankText:SetText(string.format("0/%d", maxRank))
+                        cell.rankText:SetTextColor(0.55, 0.55, 0.55)
+                        cell.rankText:SetText("0")
+                        cell.border:SetVertexColor(0.5, 0.5, 0.5, 1)
                     end
                     cell.talentName    = talent.name
                     cell.talentRank    = rank
                     cell.talentMaxRank = maxRank
                     cell:Show()
+                end
+            end
+        end
+
+        -- Draw prereq arrows: a colored line from each dependent talent's
+        -- top edge to its prereq talent's bottom edge. Approximation of
+        -- Blizzard's full arrow-segment composition — good enough to show
+        -- the dependency structure. Color reflects whether the dependent
+        -- is learnable: green if prereq is maxed, faded otherwise.
+        for i, talent in pairs(meta.talents) do
+            if talent.prereqTier and talent.prereqCol then
+                -- Center coords of dependent and prereq cells
+                local function cellCenter(tier, col)
+                    return GL + (col - 1) * (CELL + GAP) + CELL / 2,
+                           GT - (tier - 1) * (CELL + GAP) - CELL / 2
+                end
+                local dx, dy = cellCenter(talent.tier, talent.column)
+                local px, py = cellCenter(talent.prereqTier, talent.prereqCol)
+
+                -- Determine if prereq is satisfied (learned to max) — colors
+                -- the arrow. Find the prereq talent's index by (tier, col).
+                local prereqLearned = false
+                for j, ot in pairs(meta.talents) do
+                    if ot.tier == talent.prereqTier and ot.column == talent.prereqCol then
+                        local r = ranks[j] or 0
+                        prereqLearned = r >= (ot.maxRank or 0) and r > 0
+                        break
+                    end
+                end
+
+                if px == dx then
+                    -- Vertical arrow (same column)
+                    local arrow = t._getArrow()
+                    arrow:ClearAllPoints()
+                    arrow:SetWidth(3)
+                    local top = math.max(py, dy) - CELL / 2
+                    local bot = math.min(py, dy) + CELL / 2
+                    arrow:SetHeight(top - bot)
+                    arrow:SetPoint("CENTER", t, "TOPLEFT", dx, (top + bot) / 2)
+                    if prereqLearned then
+                        arrow:SetVertexColor(0.3, 1, 0.3, 0.85)
+                    else
+                        arrow:SetVertexColor(0.6, 0.6, 0.6, 0.65)
+                    end
+                    arrow:Show()
+                elseif py == dy then
+                    -- Horizontal arrow (same tier, same row)
+                    local arrow = t._getArrow()
+                    arrow:ClearAllPoints()
+                    arrow:SetHeight(3)
+                    local left  = math.min(px, dx) + CELL / 2
+                    local right = math.max(px, dx) - CELL / 2
+                    arrow:SetWidth(right - left)
+                    arrow:SetPoint("CENTER", t, "TOPLEFT", (left + right) / 2, dy)
+                    if prereqLearned then
+                        arrow:SetVertexColor(0.3, 1, 0.3, 0.85)
+                    else
+                        arrow:SetVertexColor(0.6, 0.6, 0.6, 0.65)
+                    end
+                    arrow:Show()
+                else
+                    -- L-shaped arrow (different tier AND column). Draw two
+                    -- segments: vertical from prereq down, then horizontal
+                    -- across to the dependent. Matches Blizzard's pattern
+                    -- for offset prereqs.
+                    local color1, color2 = 0.6, 0.6
+                    local va = t._getArrow()
+                    va:ClearAllPoints()
+                    va:SetWidth(3)
+                    local top = math.max(py, dy) - CELL / 2
+                    local bot = math.min(py, dy) + CELL / 2
+                    va:SetHeight(top - bot)
+                    va:SetPoint("CENTER", t, "TOPLEFT", px, (top + bot) / 2)
+                    if prereqLearned then va:SetVertexColor(0.3, 1, 0.3, 0.85)
+                    else va:SetVertexColor(0.6, 0.6, 0.6, 0.65) end
+                    va:Show()
+
+                    local ha = t._getArrow()
+                    ha:ClearAllPoints()
+                    ha:SetHeight(3)
+                    local left  = math.min(px, dx) + CELL / 2
+                    local right = math.max(px, dx) - CELL / 2
+                    ha:SetWidth(right - left)
+                    ha:SetPoint("CENTER", t, "TOPLEFT", (left + right) / 2, dy)
+                    if prereqLearned then ha:SetVertexColor(0.3, 1, 0.3, 0.85)
+                    else ha:SetVertexColor(0.6, 0.6, 0.6, 0.65) end
+                    ha:Show()
                 end
             end
         end
