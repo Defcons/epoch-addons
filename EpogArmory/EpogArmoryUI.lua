@@ -644,17 +644,17 @@ local function BuildTalentFrame()
         t.tabBtns[tabIdx] = tb
     end
 
-    -- v1.3+: class-themed background. WotLK 3.3.5 stores per-spec art as
-    -- two horizontally-split textures: <base>-L.blp and <base>-R.blp under
-    -- Interface\TalentFrame\. Using ARTWORK layer (not BACKGROUND) so these
-    -- render above the frame's own SetBackdrop bgFile tile.
-    -- Claude: L/R split on ARTWORK layer — correct WotLK format, visible above backdrop
-    t.bgLeft = t:CreateTexture(nil, "ARTWORK", nil, -1)  -- subLevel -1, below arrows
+    -- v1.3+: class-themed background. Two halves cover the grid area.
+    -- OVERLAY layer: above the dialog backdrop tile (BACKGROUND/BORDER),
+    -- still below child frame buttons (child frames always win over parent).
+    -- No subLevel arg — not supported in 3.3.5, silently dropped.
+    -- Claude: OVERLAY, no subLevel — deterministic ordering in 3.3.5
+    t.bgLeft = t:CreateTexture(nil, "OVERLAY")
     t.bgLeft:SetWidth(GRID_W / 2)
     t.bgLeft:SetHeight(GRID_H)
     t.bgLeft:SetPoint("TOPLEFT", t, "TOPLEFT", GRID_LEFT, GRID_TOP)
 
-    t.bgRight = t:CreateTexture(nil, "ARTWORK", nil, -1)
+    t.bgRight = t:CreateTexture(nil, "OVERLAY")
     t.bgRight:SetWidth(GRID_W / 2)
     t.bgRight:SetHeight(GRID_H)
     t.bgRight:SetPoint("TOPLEFT", t, "TOPLEFT", GRID_LEFT + GRID_W / 2, GRID_TOP)
@@ -693,12 +693,15 @@ local function BuildTalentFrame()
         for _, a in ipairs(t.arrowPool) do a:Hide() end
     end
 
-    -- Pre-create 4×7 grid of talent buttons. Hidden by default; populated
-    -- only when the active tab has a talent at that (tier, column).
+    -- Pre-create 4×9 grid of talent cells. Frame (not Button) — we only
+    -- need hover/tooltip, not click. Frame + EnableMouse is the reliable
+    -- pattern; Button internal hit-testing can eat OnEnter in 3.3.5.
+    -- Claude: Frame not Button — avoids Button hit-test eating OnEnter
     t.gridCells = {}
     for tier = 1, TIERS do
         for col = 1, COLS do
-            local b = CreateFrame("Button", nil, t)
+            local b = CreateFrame("Frame", nil, t)
+            b:EnableMouse(true)
             b:SetWidth(CELL); b:SetHeight(CELL)
             b:SetPoint("TOPLEFT", t, "TOPLEFT",
                 GRID_LEFT + (col - 1) * (CELL + GAP),
@@ -725,7 +728,6 @@ local function BuildTalentFrame()
             b.rankText:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 2)
             b.rankText:SetShadowOffset(1, -1)
 
-            b:EnableMouse(true)  -- Claude: explicit — Button default but be safe
             b:SetScript("OnEnter", function(self)
                 if not self.talentName then return end
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -975,8 +977,10 @@ local function BuildTalentFrame()
 end
 
 -- Public opener — called from the inspect frame's "Talents" button.
+-- Claude: destroy+rebuild each open so code changes take effect without /reload
 function _G.EpogArmory_OpenTalentsFor(player, group)
-    if not talentFrame then talentFrame = BuildTalentFrame() end
+    if talentFrame then talentFrame:Hide(); talentFrame = nil end
+    talentFrame = BuildTalentFrame()
     talentFrame:ClearAllPoints()
     if inspectFrame and inspectFrame:IsShown() then
         talentFrame:SetPoint("LEFT", inspectFrame, "RIGHT", 4, 0)
