@@ -644,16 +644,20 @@ local function BuildTalentFrame()
         t.tabBtns[tabIdx] = tb
     end
 
-    -- v1.3+: class-themed background. WotLK 3.3.5 uses a single texture per
-    -- spec tree (no quadrant tiling). Path is Interface\TalentFrame\<base>
-    -- where <base> comes from GetTalentTabInfo's background field. If the
-    -- file doesn't exist the texture renders blank — no harm done.
-    -- Claude: single background texture replacing broken 4-quad approach
-    t.bgTexture = t:CreateTexture(nil, "BACKGROUND")
-    t.bgTexture:SetWidth(GRID_W)
-    t.bgTexture:SetHeight(GRID_H)
-    t.bgTexture:SetPoint("TOPLEFT", t, "TOPLEFT", GRID_LEFT, GRID_TOP)
-    t.bgTexture:SetVertexColor(0.6, 0.6, 0.6, 0.9) -- dim slightly so icons pop
+    -- v1.3+: class-themed background. WotLK 3.3.5 stores per-spec art as
+    -- two horizontally-split textures: <base>-L.blp and <base>-R.blp under
+    -- Interface\TalentFrame\. Using ARTWORK layer (not BACKGROUND) so these
+    -- render above the frame's own SetBackdrop bgFile tile.
+    -- Claude: L/R split on ARTWORK layer — correct WotLK format, visible above backdrop
+    t.bgLeft = t:CreateTexture(nil, "ARTWORK", nil, -1)  -- subLevel -1, below arrows
+    t.bgLeft:SetWidth(GRID_W / 2)
+    t.bgLeft:SetHeight(GRID_H)
+    t.bgLeft:SetPoint("TOPLEFT", t, "TOPLEFT", GRID_LEFT, GRID_TOP)
+
+    t.bgRight = t:CreateTexture(nil, "ARTWORK", nil, -1)
+    t.bgRight:SetWidth(GRID_W / 2)
+    t.bgRight:SetHeight(GRID_H)
+    t.bgRight:SetPoint("TOPLEFT", t, "TOPLEFT", GRID_LEFT + GRID_W / 2, GRID_TOP)
 
     -- Tier labels down the left side. 7 rows of "1" through "7" so the
     -- viewer immediately recognizes the talent-tree row structure.
@@ -700,22 +704,25 @@ local function BuildTalentFrame()
                 GRID_LEFT + (col - 1) * (CELL + GAP),
                 GRID_TOP - (tier - 1) * (CELL + GAP))
 
-            -- Inner icon on ARTWORK so it renders above BORDER but below
-            -- OVERLAY — the OVERLAY border frame will draw on top of it
-            -- while the transparent border center lets the icon show through.
-            -- Claude: BORDER → ARTWORK fixes icon hidden behind OVERLAY border
-            b.icon = b:CreateTexture(nil, "ARTWORK")
-            b.icon:SetPoint("TOPLEFT", 3, -3)
-            b.icon:SetPoint("BOTTOMRIGHT", -3, 3)
-            b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            -- SetBackdrop gives a solid dark background + colored 2px border.
+            -- This replaces the old UI-EmptySlot-Disabled texture which had
+            -- an opaque center that covered the icon. The border color is set
+            -- per-talent in RenderTab via SetBackdropBorderColor.
+            -- Claude: SetBackdrop border replaces opaque texture, icon always visible
+            b:SetBackdrop({
+                bgFile   = "Interface\\Buttons\\WHITE8X8",
+                edgeFile = "Interface\\Buttons\\WHITE8X8",
+                tile = false, tileSize = 8, edgeSize = 2,
+                insets = { left = 2, right = 2, top = 2, bottom = 2 },
+            })
+            b:SetBackdropColor(0, 0, 0, 0.85)
+            b:SetBackdropBorderColor(0.35, 0.35, 0.35, 1)
 
-            -- Square slot border that fits a Blizzard talent button look.
-            -- UI-EmptySlot-Disabled is a clean square with metallic edge —
-            -- a closer match to the native talent UI than UI-Quickslot2.
-            b.border = b:CreateTexture(nil, "OVERLAY")
-            b.border:SetTexture("Interface\\Buttons\\UI-EmptySlot-Disabled")
-            b.border:SetPoint("TOPLEFT", -2, 2)
-            b.border:SetPoint("BOTTOMRIGHT", 2, -2)
+            -- Icon fills the button interior (inside the 2px border)
+            b.icon = b:CreateTexture(nil, "ARTWORK")
+            b.icon:SetPoint("TOPLEFT", 2, -2)
+            b.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+            b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
             -- Rank text at bottom-right corner. No diamond texture — the
             -- TalentFrame-RankBorder asset causes sizing/placement issues.
@@ -776,12 +783,15 @@ local function BuildTalentFrame()
         local meta  = EpogTalentTreeDB and EpogTalentTreeDB[cls]
             and EpogTalentTreeDB[cls].tabs and EpogTalentTreeDB[cls].tabs[tabIdx]
 
-        -- Claude: single texture, no quadrant suffix — matches WotLK 3.3.5 asset layout
+        -- Claude: L/R halves with correct WotLK suffix; ARTWORK layer shows above backdrop
         local bgBase = meta and meta.background
         if bgBase and bgBase ~= "" then
-            t.bgTexture:SetTexture("Interface\\TalentFrame\\" .. bgBase)
+            local p = "Interface\\TalentFrame\\" .. bgBase
+            t.bgLeft:SetTexture(p .. "-L")
+            t.bgRight:SetTexture(p .. "-R")
         else
-            t.bgTexture:SetTexture(nil)
+            t.bgLeft:SetTexture(nil)
+            t.bgRight:SetTexture(nil)
         end
 
         -- Subtitle: spec name + points spent
@@ -815,20 +825,21 @@ local function BuildTalentFrame()
                     if rank > 0 then
                         cell.icon:SetDesaturated(false)
                         if rank >= maxRank then
-                            -- Maxed — bright green like Blizzard's UI
+                            -- Maxed — green border + green rank text
+                            cell:SetBackdropBorderColor(0.2, 0.9, 0.2, 1)
                             cell.rankText:SetTextColor(0.2, 1, 0.2)
                             cell.rankText:SetText(tostring(rank))
                         else
-                            -- Partial — bright yellow
+                            -- Partial — yellow border + yellow rank text
+                            cell:SetBackdropBorderColor(1, 0.82, 0.2, 1)
                             cell.rankText:SetTextColor(1, 0.95, 0.5)
                             cell.rankText:SetText(tostring(rank))
                         end
-                        cell.border:SetVertexColor(1, 1, 1, 1)
                     else
                         cell.icon:SetDesaturated(true)
+                        cell:SetBackdropBorderColor(0.35, 0.35, 0.35, 1)
                         cell.rankText:SetTextColor(0.55, 0.55, 0.55)
                         cell.rankText:SetText("0")
-                        cell.border:SetVertexColor(0.5, 0.5, 0.5, 1)
                     end
                     cell.talentName    = talent.name
                     cell.talentRank    = rank
