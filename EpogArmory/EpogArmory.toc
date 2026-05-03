@@ -3,7 +3,7 @@
 ## Notes: Made by Defcon. Mesh-based gear inspector. Every client scans groupmates in dungeons/raids, broadcasts gear via addon messages, and stores received broadcasts in EpogArmoryDB for manual upload to epoglogs.com.
 ## X-Credits: Made by Defcon
 ## Author: Defcon
-## Version: 1.2.0
+## Version: 1.3.0
 ## SavedVariables: EpogArmoryDB, EpogItemCacheDB
 
 EpogArmory.lua

@@ -1091,6 +1091,47 @@ local function ReadTabInfo(unit)
     return names, icons
 end
 
+-- v1.3: capture per-talent point distribution for the unit's 3 talent tabs.
+-- Encodes ranks in talent-index order (the same order GetTalentInfo returns
+-- them), one tab per ';'-delimited segment, ranks within a tab separated by
+-- ','. Receivers + the website map talent-index → name/tier/column via the
+-- class's talent tree definition (epog-data DBC extraction). Wire size is
+-- small (~200 bytes for 3 full tabs).
+--
+-- Format: "rank,rank,rank,...;rank,rank,...;rank,rank,..."
+-- Example for a 51-pointer in tab 1: "0,0,5,3,0,0,5,5,5,5,3,...;0,0,0;0,0,0"
+local function BuildTalentRanks(unit)
+    if not (GetNumTalents and GetTalentInfo) then return "" end
+    local isInspect
+    if not UnitIsUnit(unit, "player") then isInspect = 1 end
+    local pieces = {}
+    for tab = 1, 3 do
+        local n = GetNumTalents(tab, isInspect) or 0
+        local ranks = {}
+        for i = 1, n do
+            local _, _, _, _, spent = GetTalentInfo(tab, i, isInspect)
+            ranks[i] = tostring(spent or 0)
+        end
+        pieces[#pieces + 1] = table.concat(ranks, ",")
+    end
+    return table.concat(pieces, ";")
+end
+
+local function ParseTalentRanks(s)
+    if not s or s == "" then return nil end
+    local out = {}
+    local tabIdx = 0
+    for tabRanks in s:gmatch("([^;]+)") do
+        tabIdx = tabIdx + 1
+        local ranks = {}
+        for r in tabRanks:gmatch("([^,]+)") do
+            ranks[#ranks + 1] = tonumber(r) or 0
+        end
+        out[tabIdx] = ranks
+    end
+    return out
+end
+
 -- Scan the enchant description lines of an equipped item for blacklisted
 -- patterns (Mithril Spurs etc.). Returns the first matching pattern or nil.
 -- Only called on sender side (BuildPayload) so received broadcasts don't
@@ -1261,6 +1302,10 @@ local function BuildPayload(unit, guid)
     -- can't resolve via CMSG_ITEM_QUERY_SINGLE on Ascension. Old receivers
     -- ignore the unknown trailing field (additive wire-extension rule).
     parts[#parts + 1] = BuildItemInfoHints(unit)
+    -- v1.3: wire position 41 — per-talent rank distribution. Powers the
+    -- interactive talent tree on epoglogs.com. Format described at
+    -- BuildTalentRanks. Backward compatible — pre-v1.3 receivers ignore.
+    parts[#parts + 1] = BuildTalentRanks(unit)
     return table.concat(parts, "^"), equipped
 end
 
@@ -1466,6 +1511,13 @@ local function ParsePayload(payload)
     if t[40] and t[40] ~= "" then
         entry.itemHints = ParseItemInfoHints(t[40])
     end
+    -- v1.3: wire position 41 — per-talent rank distribution. Stored on
+    -- the set for the website's interactive talent tree renderer.
+    -- Absent on older payloads; receivers without talent metadata just
+    -- skip rendering the tree.
+    if t[41] and t[41] ~= "" then
+        entry.talentRanks = ParseTalentRanks(t[41])
+    end
     if entry.name == "" or entry.guid == "" then return nil end
     return entry
 end
@@ -1610,6 +1662,10 @@ local function Ingest(payload, sender)
         -- having to reconstruct the wire format from structured fields.
         -- Keeps the sync protocol drift-proof as BuildPayload evolves.
         rawPayload = payload,
+        -- v1.3: per-talent rank distribution (wire pos 41). Powers the
+        -- website's interactive talent tree. Receiver maps talent index →
+        -- name/tier/column via class talent tree metadata.
+        talentRanks = entry.talentRanks,
     }
 
     -- Mirror the most-recently-scanned set to top-level fields for

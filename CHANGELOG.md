@@ -81,6 +81,64 @@ Two changes in `tabs/search/results.lua` and `tabs/search/frame.lua`:
 
 ---
 
+## EpogArmory v1.3.0 — Per-talent rank capture (wire position 41) *(2026-05-03)*
+
+Capture full talent point distribution per scan, not just per-tab totals. Powers an interactive talent tree renderer on epoglogs.com (next session's work on the web side).
+
+### What we capture now
+
+Previously each scan stored only the per-tab totals (`spec = {19, 42, 0}` — 19 in tab 1, 42 in tab 2, 0 in tab 3). That's enough to compute the dominant tree but loses everything about *which* talents have ranks.
+
+Now `BuildTalentRanks` iterates `GetTalentInfo` for every talent in every tab, capturing the spent rank in talent-index order:
+
+```
+"0,0,5,3,0,0,5,5,5,5,3,0,0,5,5,3;0,0,0;0,0,0"
+   tab 1 ranks per talent     ; tab 2 ; tab 3
+```
+
+### Wire format
+
+Position 41 (additive after position 40 item-hints from v1.2). Backward compatible — pre-v1.3 receivers ignore the unknown trailing field. Mixed-version mesh works fine; full benefit when sender + receiver are both on v1.3+.
+
+Wire size: ~150-250 bytes per scan (3 tabs × ~30 talents × 1-2 chars per rank + delimiters). Tiny next to the v1.2 item-hints (~2KB).
+
+### Storage
+
+Each set on a stored player record gains a `talentRanks` field:
+
+```lua
+EpogArmoryDB.players[guid].sets[group] = {
+    spec        = { 19, 42, 0 },
+    talentRanks = {
+        [1] = { 0, 0, 5, 3, 0, 0, 5, 5, 5, 5, 3, 0, 0, 5, 5, 3 },
+        [2] = { 0, 0, 0 },
+        [3] = { 0, 0, 0 },
+    },
+    ...
+}
+```
+
+Indices are stable per class on a given Ascension build — the website maps talent index → name/tier/column via class talent tree metadata extracted from DBC by `epog-data`.
+
+### Self-scans + inspect-scans both capture
+
+`BuildTalentRanks(unit)` works for `"player"` and inspected units alike. Self-scans on relog / respec / gear change get talent ranks. Inspect scans of groupmates get them too (uses `isInspect=1` in `GetTalentInfo` calls, same pattern as the existing `ReadSpecPoints`).
+
+### What's left for the website
+
+- `epogarmory-web` reads `talentRanks` from uploaded SavedVariables
+- Renders an interactive talent tree using `epog-data`'s class talent definitions
+- Hover for tooltip with description + rank progression
+- Per-set permalink
+
+That's a separate session's work on the `C:\Dev\epogarmory-web` codebase; this commit ships the addon side.
+
+### No protocol changes for existing fields
+
+Wire positions 1–40 unchanged. Position 41 is purely additive.
+
+---
+
 ## EpogArmory v1.2.0 — Reality Recalibrators gating + scanner item hints *(2026-04-29)*
 
 Two big additions on top of v1.1, plus all the v1.1.x patch refinements rolled in.
