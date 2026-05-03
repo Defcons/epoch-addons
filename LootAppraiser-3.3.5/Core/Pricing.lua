@@ -379,63 +379,177 @@ function Pricing.WipeAHCache()
     deCache    = {}  -- DE values reference AH prices, so invalidate together
 end
 
--- ----- debug helper ------------------------------------------------------
--- Dumps the full pricing trace for a single link to chat. Used by the
--- /la price <link> slash command in LootAppraiser-3.3.5.lua to diagnose
--- unexpected category/source outcomes (e.g. items in a Value or Trash
--- category that aren't surfacing as expected).
-function Pricing.DebugTrace(link, opts)
+-- ----- debug dump --------------------------------------------------------
+-- Comprehensive single-item diagnostic. Output is grouped into sections so
+-- a paste from chat is easy to read:
+--   * Identity      — link, itemID, key, BoP, quality, GetItemInfo basics
+--   * ArkInventory  — cache key, explicit assignment, bag-scan slot.cat,
+--                     resolver result. Includes which bag/slot the item
+--                     was found in (if any) — useful for "the item should
+--                     be in DE rule, why is it priced as vendor".
+--   * Config        — the four pricing options as actually loaded from
+--                     LootAppraiserDB.profile (not LA_DEFAULTS).
+--   * Pricing       — raw AH/DE/vendor numbers + the final decision.
+--   * Session       — whether a session is running, matching rows already
+--                     ingested, and the bag-tracking ledger entries.
+--
+-- Helper formatting for copper amounts.
+local function FormatCopper(c)
+    if not c or c == 0 then return tostring(c or 0) .. "c (0)" end
+    local g = math.floor(c / 10000)
+    local s = math.floor((c - g * 10000) / 100)
+    local cc = c - g * 10000 - s * 100
+    if g > 0 then return string.format("%dc (%dg %ds %dc)", c, g, s, cc) end
+    if s > 0 then return string.format("%dc (%ds %dc)",     c, s, cc)   end
+    return c .. "c"
+end
+
+-- Find which bag/slot currently contains a given itemID. Returns
+-- (bagID, slotID, count) or nil. Skips bag -2 (keyring) and bag -1.
+local function FindItemInBags(itemID)
+    if not itemID then return nil end
+    for bag = 0, NUM_BAG_SLOTS do
+        local n = GetContainerNumSlots(bag) or 0
+        for slot = 1, n do
+            local link = GetContainerItemLink(bag, slot)
+            if link then
+                local id = tonumber(link:match("item:(%d+)"))
+                if id == itemID then
+                    local _, count = GetContainerItemInfo(bag, slot)
+                    return bag, slot, (count or 1)
+                end
+            end
+        end
+    end
+    return nil
+end
+
+function Pricing.DumpItem(link, opts)
     opts = opts or {}
-    local function out(s) DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA debug]|r " .. tostring(s)) end
+    local function out(s) DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA dump]|r " .. tostring(s)) end
     if not link then out("no link") return end
 
     local id    = ItemIDFromLink(link)
     local key   = ItemKeyFromLink(link)
     local isBoP = Pricing.IsBindOnPickup(link)
-    out("link     = " .. link)
-    out("itemID   = " .. tostring(id) .. "   itemKey = " .. tostring(key) .. "   isBoP = " .. tostring(isBoP))
 
-    -- ArkInventory cache key and raw stored value
-    local sb = isBoP and 1 or 0
-    local cacheKey = id and string.format("item:%d:%d", id, sb) or "(no id)"
-    out("ArkInv cacheKey = " .. cacheKey)
-    if ArkInventory and ArkInventory.db and ArkInventory.db.profile and ArkInventory.db.profile.option
-       and ArkInventory.db.profile.option.category then
-        local raw = ArkInventory.db.profile.option.category[cacheKey]
-        out("  raw catID     = " .. tostring(raw))
+    out("=== " .. (link:match("%[(.-)%]") or "?") .. " (id " .. tostring(id) .. ") ===")
+
+    -- ----- Identity ------------------------------------------------------
+    out(" identity:")
+    out("   link        = " .. tostring(link))
+    out("   itemKey     = " .. tostring(key) .. "   (itemID:suffixID)")
+    out("   isBoP       = " .. tostring(isBoP))
+    do
+        local name, _, quality, ilvl, _, class, sub, _, _, _, vendor =
+            GetItemInfo(link)
+        out("   GetItemInfo:")
+        out("     name        = " .. tostring(name))
+        out("     quality     = " .. tostring(quality)
+            .. (LA_CONST.QUALITY_COLOR[quality or -1]
+                and ("  " .. (LA_CONST.QUALITY_COLOR[quality] or "") .. "(swatch)|r")
+                or ""))
+        out("     itemLevel   = " .. tostring(ilvl))
+        out("     class/sub   = " .. tostring(class) .. " / " .. tostring(sub))
+        out("     vendorPrice = " .. FormatCopper(vendor))
+    end
+
+    -- ----- ArkInventory --------------------------------------------------
+    out(" ArkInventory:")
+    if not (ArkInventory and ArkInventory.db) then
+        out("   (not loaded)")
+    else
+        local sb = isBoP and 1 or 0
+        local cacheKey = id and string.format("item:%d:%d", id, sb) or "(no id)"
+        out("   cacheKey                       = " .. cacheKey)
+        local prof = ArkInventory.db.profile
+        local raw = prof and prof.option and prof.option.category
+                    and prof.option.category[cacheKey]
+        out("   profile.option.category[key]   = " .. tostring(raw))
         if raw then
             local t, c = tostring(raw):match("^(%d+)!(%d+)$")
             t, c = tonumber(t), tonumber(c)
-            out("  type/code     = " .. tostring(t) .. " / " .. tostring(c))
+            out("     decoded type/code            = " .. tostring(t) .. " / " .. tostring(c))
             if t and c and ArkInventory.db.global and ArkInventory.db.global.option
                and ArkInventory.db.global.option.category and ArkInventory.db.global.option.category[t]
                and ArkInventory.db.global.option.category[t].data then
                 local d = ArkInventory.db.global.option.category[t].data[c]
-                out("  global name   = " .. tostring(d and d.name))
+                out("     global cat[t][c].name       = " .. tostring(d and d.name))
             end
         end
-    else
-        out("  (ArkInventory db.profile.option.category not present)")
+
+        -- Bag scan: what does ArkInventory's slot.cat say (rule-classified
+        -- items live here, not in profile.option.category)?
+        local bagsName = id and GetArkInvCategoryNameFromBags(id) or nil
+        out("   bag-scan slot.cat resolves to  = " .. tostring(bagsName))
+        out("   resolver returns               = " .. tostring(GetArkInvCategoryName(id, isBoP)))
     end
 
-    -- What our resolver actually returns
-    local catName = id and GetArkInvCategoryName(id, isBoP)
-    out("resolver returns -> " .. tostring(catName))
+    -- ----- Config --------------------------------------------------------
+    out(" config (live profile):")
+    local db = LA.db and LA.db.profile or {}
+    out("   arkInvValueCategory   = '" .. tostring(db.arkInvValueCategory  or opts.valueCategory  or "") .. "'")
+    out("   arkInvDECategory      = '" .. tostring(db.arkInvDECategory     or opts.deCategory     or "") .. "'")
+    out("   arkInvVendorCategory  = '" .. tostring(db.arkInvVendorCategory or opts.vendorCategory or "") .. "'")
+    out("   useDisenchant         = " .. tostring(db.useDisenchant))
+    out("   skipZeroValueRows     = " .. tostring(db.skipZeroValueRows))
+    out("   minQuality            = " .. tostring(db.minQuality))
+    out("   minQualityForList     = " .. tostring(db.minQualityForList))
 
-    -- Show the active config strings
-    out("config valueCategory  = '" .. tostring(opts.valueCategory or "") .. "'")
-    out("config deCategory     = '" .. tostring(opts.deCategory or "") .. "'")
-    out("config vendorCategory = '" .. tostring(opts.vendorCategory or "") .. "'")
+    -- ----- Pricing -------------------------------------------------------
+    out(" pricing:")
+    do
+        local ah = key and GetAHPrice(key)
+        local de = Pricing.GetDisenchantValue(link)
+        local v  = Pricing.GetVendorPrice(link)
+        out("   AH (Aux merged + TSM)  = " .. FormatCopper(ah))
+        out("   DE expected            = " .. FormatCopper(de))
+        out("   Vendor sell            = " .. FormatCopper(v))
+        local copper, src, bop = Pricing.GetItemValue(link, opts)
+        out("   FINAL                  = " .. FormatCopper(copper)
+            .. "   source = " .. tostring(src) .. "   isBoP = " .. tostring(bop))
+    end
 
-    -- AH / DE / vendor source values
-    local ah = key and GetAHPrice(key) or nil
-    local de = Pricing.GetDisenchantValue(link)
-    local v  = Pricing.GetVendorPrice(link)
-    out("AH price  = " .. tostring(ah) .. "   DE value  = " .. tostring(de) .. "   Vendor = " .. tostring(v))
+    -- ----- Session -------------------------------------------------------
+    out(" session:")
+    if not (LA.Session and LA.Session.IsRunning and LA.Session.IsRunning()) then
+        out("   (not running)")
+    else
+        local snap = LA.Session.Snapshot()
+        out("   running     = true   zone = " .. tostring(snap.zone))
+        out("   total looted= " .. FormatCopper(snap.lootTotal))
+        out("   GPH         = " .. FormatCopper(snap.gph) .. "/h")
+        local rows = LA.Session.GetRows() or {}
+        local matched = 0
+        for i, row in ipairs(rows) do
+            local rid = tonumber((row.link or ""):match("item:(%d+)"))
+            if rid == id then
+                matched = matched + 1
+                if matched <= 5 then
+                    out(string.format("   row[%d]: count=%s unit=%s value=%s src=%s age=%.1fs",
+                        i, tostring(row.count), FormatCopper(row.unit),
+                        FormatCopper(row.value), tostring(row.src),
+                        GetTime() - (row.time or 0)))
+                end
+            end
+        end
+        out("   matching rows in session = " .. matched)
+        if LA.Session.GetBagLedger then
+            local base, own, cur = LA.Session.GetBagLedger(id)
+            out(string.format("   bag ledger: baseline=%s bagOwn=%s currentBags=%s",
+                tostring(base), tostring(own), tostring(cur)))
+        end
+    end
 
-    -- Final pricing decision
-    local copper, src, bop = Pricing.GetItemValue(link, opts)
-    out("FINAL    copper = " .. tostring(copper) .. "   source = " .. tostring(src) .. "   isBoP = " .. tostring(bop))
+    -- ----- Bag location --------------------------------------------------
+    local bag, slot, count = FindItemInBags(id)
+    if bag then
+        out(string.format(" current bag location: bag %d slot %d (count %d)", bag, slot, count))
+    else
+        out(" current bag location: not in bags")
+    end
+
+    out("=== end ===")
 end
 
 -- For the UI: short label for the source tag

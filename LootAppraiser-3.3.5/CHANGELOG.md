@@ -1,5 +1,59 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.11 — `/la dump` + stack-aware loot patterns *(2026-05-03)*
+
+### Stack support for Ascension wins
+The Ascension custom `"You won: …"` chat format wasn't capturing
+stack counts. Looting a stack of 5 Runecloth via group greed
+ingested as a single Runecloth. Added a stack-aware variant:
+
+```
+"^You won: (.+)x(%d+)$"   -- multi
+"^You won: (.+)$"         -- single
+```
+
+Pattern ordering matters — Lua's engine returns the first match,
+so multi must precede single or the count is lost. Same ordering
+fix applied to the Blizzard self-loot/self-create patterns
+(`LOOT_ITEM_SELF_MULTIPLE` before `LOOT_ITEM_SELF`,
+`LOOT_ITEM_CREATED_SELF_MULTIPLE` before its single sibling).
+
+### `/la dump <link>` comprehensive item diagnostic
+Replaces v1.8's `/la price` with a much fuller per-item dump grouped
+into five sections: Identity, ArkInventory, Config, Pricing, Session.
+`/la price` is kept as an alias.
+
+What you get from a single paste:
+
+- **Identity**: link, itemKey (id:suffixID), isBoP, GetItemInfo
+  basics (name, quality, ilvl, class/sub, vendor price)
+- **ArkInventory**: cache key, raw `<type>!<code>` from
+  `db.profile.option.category`, decoded type/code, the global
+  category's `.name`, the result of the bag-scan `slot.cat`
+  fallback (rule-classified items live there), and what
+  `GetArkInvCategoryName` finally returns
+- **Config**: the live profile values for `arkInvValueCategory` /
+  `arkInvDECategory` / `arkInvVendorCategory` / `useDisenchant` /
+  `skipZeroValueRows` / `minQuality*`
+- **Pricing**: AH (Aux merged + TSM), DE expected value, vendor
+  sell, and the final `(copper, source, isBoP)` decision
+- **Session**: zone, total, GPH; up to 5 matching `lootRows`
+  with `count`/`unit`/`value`/`src`/`age`; the bag-tracking
+  ledger (`baseline` / `bagOwn` / `currentBags`) for the item ID
+- **Current bag location**: which bag/slot the item is in right
+  now (or "not in bags")
+
+New `Session.GetBagLedger(itemID)` exposes the reconciliation
+ledger entries — useful for diagnosing "why didn't this item get
+debited when I destroyed it" / "why does it think I have N when
+I only have M".
+
+`FormatCopper` helper renders e.g. `61499c (6g 14s 99c)` instead
+of just the raw copper number, so values are readable at a
+glance.
+
+---
+
 ## v1.10 — Ascension custom loot patterns + rule-based categories *(2026-05-03)*
 
 ### Catch Need/Greed wins on Ascension's modified server

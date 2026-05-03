@@ -163,21 +163,20 @@ local function HandleSlash(input)
         end
         return
     end
-    if cmd == "price" then
-        -- Parse the first item link out of `rest` (input was lower-cased
-        -- earlier, but we need the *original* casing for the link to match
-        -- ArkInventory's stored key). Re-parse from the raw input.
-        local raw = input
-        -- input was lowered earlier with input:lower() — we need the original.
-        -- Re-pull from the slash dispatch via the global hack below.
-        if LA._lastSlashRaw then raw = LA._lastSlashRaw end
+    if cmd == "dump" or cmd == "price" then
+        -- Comprehensive single-item diagnostic. Requires the original
+        -- (case-preserving) input because `input` was lower-cased earlier
+        -- for cmd dispatch — that mangles the |cFFFFFFFF colour codes in
+        -- the pasted item link.
+        local raw = LA._lastSlashRaw or input
         local link = raw:match("(|c%x+|H[^|]+|h%[[^%]]+%]|h|r)")
         if not link then
-            Print("Usage: /la price <shift-click an item link here>")
+            Print("Usage: /la dump <shift-click an item link here>")
+            Print("       Dumps full pricing/category/session/bag info for that item.")
             return
         end
         local db = LA.db and LA.db.profile or LA_DEFAULTS
-        LA.Pricing.DebugTrace(link, {
+        LA.Pricing.DumpItem(link, {
             useDisenchant   = db.useDisenchant,
             valueCategory   = db.arkInvValueCategory,
             deCategory      = db.arkInvDECategory,
@@ -199,7 +198,8 @@ local function HandleSlash(input)
         Print("  /la vendorcat <list>— ArkInventory categories to force vendor sell (default: 'Junk,Trash')")
         Print("  /la skipzero       — toggle dropping 0-copper rows from the list")
         Print("  /la wipecache      — clear cached AH/DE prices")
-        Print("  /la price <link>   — debug: dump pricing trace for one item (shift-click link)")
+        Print("  /la dump <link>    — debug: full diagnostic dump for one item (shift-click link)")
+        Print("                          alias: /la price")
         Print("  /la verbose        — debug: log every CHAT_MSG_LOOT line + ingest decision")
         return
     end

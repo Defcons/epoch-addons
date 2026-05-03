@@ -283,6 +283,32 @@ end
 
 function Session.GetRows() return state.lootRows end
 
+-- Used by Pricing.DumpItem to surface the bag-loss reconciliation
+-- ledger entries for a single itemID (helps diagnose "why didn't this
+-- item get debited when I destroyed it" / "why does it think I have N
+-- in bags when I only have M").
+function Session.GetBagLedger(itemID)
+    if not itemID then return nil, nil, nil end
+    local base = state.bagBaseline and state.bagBaseline[itemID] or 0
+    local own  = state.bagOwn      and state.bagOwn[itemID]      or 0
+    -- Re-scan current bag count for this one ID (cheap; small-N).
+    local cur = 0
+    for bag = 0, NUM_BAG_SLOTS do
+        local n = GetContainerNumSlots(bag) or 0
+        for slot = 1, n do
+            local link = GetContainerItemLink(bag, slot)
+            if link then
+                local id = tonumber(link:match("item:(%d+)"))
+                if id == itemID then
+                    local _, count = GetContainerItemInfo(bag, slot)
+                    cur = cur + (count or 1)
+                end
+            end
+        end
+    end
+    return base, own, cur
+end
+
 -- For UI debug / external integrations
 function Session.Snapshot()
     return {

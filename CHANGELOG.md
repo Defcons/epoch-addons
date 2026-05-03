@@ -12,6 +12,12 @@ Three visual bugs fixed in the in-game talent tree panel (`BuildTalentFrame`):
 
 ---
 
+## LootAppraiser-3.3.5 v1.11 — `/la dump` + stack-aware loot patterns *(2026-05-03)*
+- **Stack support for Ascension wins.** The custom `"You won: …"` format wasn't capturing stack counts — looting 5 Runecloth via group greed ingested as a single. Added a stack-aware variant `"^You won: (.+)x(%d+)$"` placed *before* the single-item `"^You won: (.+)$"` so Lua's first-match semantics catches the count. Same ordering fix applied to the Blizzard `_MULTIPLE` patterns (now precede their single counterparts).
+- **`/la dump <link>`** comprehensive single-item diagnostic. Replaces v1.8's `/la price` (kept as alias). Five sections: Identity (link, itemKey, isBoP, GetItemInfo basics), ArkInventory (cache key, raw catID, decoded type/code, global name, bag-scan slot.cat fallback, resolver result), Config (live profile values for all four pricing options + quality floors), Pricing (AH, DE, vendor + final decision), Session (zone, total, GPH, matching rows with count/unit/value/src/age, bag-tracking ledger via new `Session.GetBagLedger`), plus current bag location.
+
+---
+
 ## LootAppraiser-3.3.5 v1.10 — Ascension custom loot patterns + rule-based categories *(2026-05-03)*
 - **Catch Need/Greed wins on Ascension.** Verbose trace exposed Ascension's modified server emitting `"You won: [Item]"` on `CHAT_MSG_LOOT` instead of retail's `"You receive loot: [Item]."`. Added a literal Lua pattern `^You won: (.+)$` to `LOOT_PATTERNS`.
 - **Rule-classified ArkInventory categories.** Old lookup only checked `db.profile.option.category[key]` (manual drag-and-drop). Added `GetArkInvCategoryNameFromBags(itemID)` that walks `ArkInventory.db.realm.player.data[me].location[Bag].bag[*].slot[*]` and resolves `slot.cat` to a name — that's where ArkInventory's rule engine stamps category IDs during its bag scan. Full lookup chain now: explicit assignment → bag-scan fallback → "default".

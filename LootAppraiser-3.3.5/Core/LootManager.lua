@@ -144,16 +144,26 @@ local function BuildPatterns()
     -- 3.3.5 normally fires LOOT_ITEM_SELF for those wins, but Ascension's
     -- modified server replaces it with the custom string. We add a
     -- literal Lua pattern (not a Blizzard global) to catch it.
+    -- Pattern ordering matters: stack-aware (multi) variants must come
+    -- BEFORE their single-item counterparts. Lua's regex engine returns
+    -- the FIRST matching pattern, so a single "You won: (.+)$" placed
+    -- first would gobble "[Item]x5" as the link and lose the count.
     LOOT_PATTERNS = {
-        -- "You receive loot: [item]." (LOOT_ITEM_SELF)
-        { p = toLua(LOOT_ITEM_SELF),                  multi = false },
-        -- "You receive loot: [item]xN." (LOOT_ITEM_SELF_MULTIPLE)
+        -- "You receive loot: [item]xN." (LOOT_ITEM_SELF_MULTIPLE) — stacks
         { p = toLua(LOOT_ITEM_SELF_MULTIPLE),         multi = true },
-        -- "You create: [item]." (LOOT_ITEM_CREATED_SELF)
-        { p = toLua(LOOT_ITEM_CREATED_SELF),          multi = false },
+        -- "You receive loot: [item]." (LOOT_ITEM_SELF) — single
+        { p = toLua(LOOT_ITEM_SELF),                  multi = false },
         -- "You create: [item]xN." (LOOT_ITEM_CREATED_SELF_MULTIPLE)
         { p = toLua(LOOT_ITEM_CREATED_SELF_MULTIPLE), multi = true },
-        -- Ascension custom: "You won: [Item]" for Need/Greed roll wins.
+        -- "You create: [item]." (LOOT_ITEM_CREATED_SELF)
+        { p = toLua(LOOT_ITEM_CREATED_SELF),          multi = false },
+        -- Ascension custom: "You won: [Item]xN" for stack wins (e.g.
+        -- a stack of Runecloth via Greed). The greedy `.+` backtracks
+        -- until `x(%d+)$` matches at the end, so the link itself can
+        -- contain the letter 'x' inside its name without confusion —
+        -- only a trailing "xN<eol>" is consumed as the count.
+        { p = "^You won: (.+)x(%d+)$",                multi = true },
+        -- Ascension custom: "You won: [Item]" for single-item wins
         { p = "^You won: (.+)$",                      multi = false },
     }
 end
