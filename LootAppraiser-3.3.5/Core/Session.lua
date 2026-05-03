@@ -192,6 +192,53 @@ end
 -- stacks.
 --
 -- Returns true iff lootTotal/itemCount actually changed (UI refresh needed).
+-- ----- repricing pass ----------------------------------------------------
+-- Re-evaluate recently-ingested rows that landed at the vendor floor.
+-- The fresh-loot timing race is real: CHAT_MSG_LOOT fires before
+-- ArkInventory has scanned the bag for the new item, so a rule-classified
+-- item (e.g. "DE rule" assigned via an ArkInventory rule rather than a
+-- manual Custom-category drop) tends to resolve as "default" on the
+-- first lookup and gets priced as vendor.
+--
+-- A few hundred ms later, ArkInventory finishes its scan and slot.cat is
+-- populated. By that point our BAG_UPDATE → reconcile tick fires; this
+-- function piggybacks on that tick and re-prices any recent vendor row.
+-- Once a row's source flips off vendor it won't be re-priced again on
+-- subsequent ticks (the `if row.src == VENDOR` guard self-stabilises).
+--
+-- Returns true iff lootTotal changed (UI refresh hint).
+function Session.RepriceRecentVendor()
+    if not state.isRunning then return false end
+    local now = GetTime()
+    local db  = LA.db and LA.db.profile or LA_DEFAULTS
+    local opts = {
+        useDisenchant   = db.useDisenchant,
+        valueCategory   = db.arkInvValueCategory,
+        deCategory      = db.arkInvDECategory,
+        vendorCategory  = db.arkInvVendorCategory,
+    }
+    local changed = false
+    for _, row in ipairs(state.lootRows) do
+        local age = now - (row.time or 0)
+        if age > 5 then break end -- rows are stored newest-first, so older = stop
+        if row.src == LA_CONST.PRICE_VENDOR and row.link then
+            local newCopper, newSrc = LA.Pricing.GetItemValue(row.link, opts)
+            if newSrc and newSrc ~= LA_CONST.PRICE_VENDOR
+                and newCopper and newCopper > 0 then
+                local oldValue = row.value or 0
+                local newValue = newCopper * (row.count or 1)
+                row.unit  = newCopper
+                row.src   = newSrc
+                row.value = newValue
+                state.lootTotal = state.lootTotal - oldValue + newValue
+                if state.lootTotal < 0 then state.lootTotal = 0 end
+                changed = true
+            end
+        end
+    end
+    return changed
+end
+
 function Session.ReconcileBags()
     if not state.isRunning then return false end
 

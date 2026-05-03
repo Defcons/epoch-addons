@@ -1,5 +1,65 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.10 — Ascension custom loot patterns + rule-based categories *(2026-05-03)*
+
+### Catch Need/Greed wins on Ascension's modified server
+The verbose trace from `/la verbose` (added in v1.9) caught Ascension
+emitting `"You won: [Item]"` on `CHAT_MSG_LOOT` when the player wins
+a Need or Greed roll — *not* retail's `LOOT_ITEM_SELF`
+("You receive loot: [Item]."). Added a literal Lua pattern to match
+the Ascension format. Items received via group rolls now appear in
+the session log.
+
+### Rule-classified ArkInventory categories
+`GetArkInvCategoryName` previously only consulted
+`db.profile.option.category[<key>]` — the explicit-assignment table
+ArkInventory writes when the user manually drags an item into a
+Custom category. Items classified by an ArkInventory **Rule** (e.g.
+"all greens that disenchant" → `DE`) don't write there; the rule
+engine instead stamps the resolved category id onto the in-bag
+`slot.cat` field during its bag scan.
+
+Added a fallback `GetArkInvCategoryNameFromBags(itemID)` that walks
+`ArkInventory.db.realm.player.data[me].location[Bag].bag[*].slot[*]`,
+finds the matching slot, and resolves `slot.cat` to a name. The full
+lookup chain is now:
+
+1. Explicit assignment (`db.profile.option.category[key]`)
+2. **Bag-scan fallback** (`slot.cat` from rules)
+3. Last resort: `"default"`
+
+### Re-pricing pass on BAG_UPDATE
+Fresh greed-wins have a timing race: `CHAT_MSG_LOOT` fires *before*
+ArkInventory has run its bag scan, so on the very first lookup
+`slot.cat` is still nil and a rule-classified item resolves as
+`default` → vendor. ~300ms later the bag scan completes.
+
+Added `Session.RepriceRecentVendor()` which is called from the same
+debounced reconcile tick that handles bag-loss reconciliation. It
+walks `lootRows` (newest-first) for at most 5 seconds back, re-
+evaluates each row whose source is `VENDOR`, and updates the row
+in-place if the new pricing now resolves to AH / DE. Once a row is
+promoted off vendor it won't be re-priced again on subsequent ticks
+(the `if row.src == VENDOR` guard self-stabilises).
+
+---
+
+## v1.9 — `/la verbose` for loot-pipeline diagnostics *(2026-05-02)*
+
+Added `/la verbose` toggle that prints, for every CHAT_MSG_LOOT:
+* the raw message text
+* whether `ParseChatLoot` matched (link/count or nil)
+* the `IngestLoot` decision tree (quality, ShouldRecord keep flag,
+  entry.unit / entry.src, drop reason if dropped, or "ADDED to
+  session" on success)
+
+Used to diagnose user-reported "items in Value/Trash custom
+categories aren't showing in LA". The trace exposed Ascension's
+custom `"You won:"` chat-loot format used for Need/Greed wins,
+which v1.10 then catches.
+
+---
+
 ## v1.8 — `/la price` debug trace *(2026-05-02)*
 
 Added `/la price <link>` which dumps the full pricing trace for a

@@ -12,6 +12,18 @@ Three visual bugs fixed in the in-game talent tree panel (`BuildTalentFrame`):
 
 ---
 
+## LootAppraiser-3.3.5 v1.10 — Ascension custom loot patterns + rule-based categories *(2026-05-03)*
+- **Catch Need/Greed wins on Ascension.** Verbose trace exposed Ascension's modified server emitting `"You won: [Item]"` on `CHAT_MSG_LOOT` instead of retail's `"You receive loot: [Item]."`. Added a literal Lua pattern `^You won: (.+)$` to `LOOT_PATTERNS`.
+- **Rule-classified ArkInventory categories.** Old lookup only checked `db.profile.option.category[key]` (manual drag-and-drop). Added `GetArkInvCategoryNameFromBags(itemID)` that walks `ArkInventory.db.realm.player.data[me].location[Bag].bag[*].slot[*]` and resolves `slot.cat` to a name — that's where ArkInventory's rule engine stamps category IDs during its bag scan. Full lookup chain now: explicit assignment → bag-scan fallback → "default".
+- **Re-price recent vendor rows on `BAG_UPDATE`.** Fresh greed-wins have a timing race — `CHAT_MSG_LOOT` fires before ArkInventory's bag scan runs, so a rule-classified item resolves as `default` → vendor on first ingest. New `Session.RepriceRecentVendor()` runs on the same debounced reconcile tick (300ms after `BAG_UPDATE`), walks rows newest-first up to 5 seconds back, and promotes any vendor row to AH/DE if the new pricing resolves there. Self-stabilising via the `if row.src == VENDOR` guard.
+
+---
+
+## LootAppraiser-3.3.5 v1.9 — `/la verbose` for loot-pipeline diagnostics *(2026-05-02)*
+Added `/la verbose` toggle that prints every `CHAT_MSG_LOOT` raw line, whether `ParseChatLoot` matched, and the full `IngestLoot` decision tree (quality, keep flag, unit/src, drop reasons or success). Used to diagnose category-routing issues — exposed Ascension's custom `"You won:"` chat-loot format that v1.10 then catches.
+
+---
+
 ## LootAppraiser-3.3.5 v1.8 — `/la price` debug trace *(2026-05-02)*
 Added `/la price <link>` to dump the full pricing trace for a single item: itemID/itemKey/isBoP, ArkInventory cache key, raw `type!code` stored value, resolved name, active config strings, AH/DE/vendor source values, and the final `(copper, source, isBoP)` decision. Usage: type `/la price ` then shift-click an item from bag. Used for diagnosing items in Value/Trash categories that aren't surfacing as expected.
 

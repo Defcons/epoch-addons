@@ -208,27 +208,76 @@ function Pricing.GetDisenchantValue(link)
 end
 
 -- ----- ArkInventory category lookup --------------------------------------
+-- Resolves a category id "type!code" to its (lower-cased) display name.
+local function ResolveCatID(catID)
+    local catType, catCode = tostring(catID):match("^(%d+)!(%d+)$")
+    catType, catCode = tonumber(catType), tonumber(catCode)
+    if not catType or not catCode then return nil end
+    local glob = ArkInventory.db and ArkInventory.db.global
+    local data = glob and glob.option and glob.option.category
+                 and glob.option.category[catType]
+                 and glob.option.category[catType].data
+                 and glob.option.category[catType].data[catCode]
+    local name = data and data.name
+    if type(name) == "string" and name ~= "" then return name:lower() end
+    return nil
+end
+
+-- Walk ArkInventory's per-character bag storage looking for a slot whose
+-- itemID matches. Returns the lower-cased category name from the slot's
+-- cached classification, or nil. This is the path that finds rule-based
+-- classifications: ArkInventory writes the rule's resolved category id to
+-- `slot.cat` during its bag scan, but never persists that to
+-- `db.profile.option.category` — so the explicit-assignment lookup misses
+-- rule-classified items entirely.
+--
+-- Caveat: there's a timing race for fresh loot. CHAT_MSG_LOOT fires before
+-- ArkInventory has run its bag scan for the new item, so on the very
+-- first lookup we'll usually miss. The next BAG_UPDATE → reconcile tick
+-- (~0.3s later) doesn't currently re-price existing rows, so a
+-- rule-classified item that arrives via group loot may price as "default"
+-- (vendor) on its first row. Re-pricing on reconcile is on the v1.11+
+-- backlog.
+local function GetArkInvCategoryNameFromBags(itemID)
+    if not itemID then return nil end
+    if not (ArkInventory and ArkInventory.db and ArkInventory.db.realm
+            and ArkInventory.Global and ArkInventory.Global.Me
+            and ArkInventory.Global.Me.info
+            and ArkInventory.Const and ArkInventory.Const.Location) then
+        return nil
+    end
+    local pid = ArkInventory.Global.Me.info.player_id
+    local pdata = pid and ArkInventory.db.realm.player and ArkInventory.db.realm.player.data
+                       and ArkInventory.db.realm.player.data[pid]
+    local bagLoc = pdata and pdata.location and pdata.location[ArkInventory.Const.Location.Bag]
+    if not bagLoc or not bagLoc.bag then return nil end
+    for _, bag in pairs(bagLoc.bag) do
+        if bag.slot then
+            for _, slot in pairs(bag.slot) do
+                if slot.h and slot.cat then
+                    local sid = tonumber(slot.h:match("|Hitem:(%d+)") or slot.h:match("item:(%d+)"))
+                    if sid == itemID then
+                        return ResolveCatID(slot.cat)
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
 -- Returns the (lower-cased) category name for a looted item, or nil if
 -- ArkInventory isn't loaded.
 --
--- ArkInventory's classification is layered:
---   1. Explicit manual assignment, stored in
---      `db.profile.option.category["item:<id>:<sb>"]`. This is what we get
---      when the user drags an item into a Custom category in the bag UI.
---      The value is a "<type>!<code>" string we resolve to a name through
---      `db.global.option.category[type].data[code]`.
---   2. If unset, ArkInventory's `ItemCategoryGetPrimary` falls back to
---      `ItemCategoryGetDefault`, which classifies dynamically — most items
---      land in the System category SYSTEM_DEFAULT (localised "Default").
---      We don't run that engine here; instead we conservatively return the
---      string "default" so callers can list "Default" in their vendor
---      override to catch ALL uncategorised items.
---
--- Returning "default" for unassigned items lets the user run the workflow:
---   * Tag profitable items into a "Value" custom category → AH pricing
---   * Tag DE-able items into a "DE" custom category → disenchant pricing
---   * Leave junk uncategorised → vendor pricing (when "Default" is in
---     arkInvVendorCategory)
+-- Lookup chain:
+--   1. Explicit manual assignment in `db.profile.option.category[key]`.
+--      This catches items dragged into Custom categories in the bag UI.
+--   2. Bag-scan fallback (`GetArkInvCategoryNameFromBags`). This catches
+--      items whose category was assigned dynamically by an ArkInventory
+--      Rule — those resolutions live on `slot.cat` after a bag scan,
+--      not in the persistent profile.option.category.
+--   3. If neither hits, return "default" so the vendor-override list can
+--      opt to absorb all uncategorised items.
 local function GetArkInvCategoryName(itemID, isBoP)
     if not itemID then return nil end
     if not (ArkInventory and ArkInventory.db) then return nil end
@@ -237,23 +286,17 @@ local function GetArkInvCategoryName(itemID, isBoP)
     local prof = ArkInventory.db.profile
     local catID = prof and prof.option and prof.option.category
                   and prof.option.category[cacheKey]
-    if not catID then
-        -- No explicit assignment. ArkInventory itself would resolve this
-        -- through ItemCategoryGetDefault — which for the vast majority of
-        -- items returns SYSTEM_DEFAULT. Surface that as "default" so the
-        -- vendor-override list can opt to absorb uncategorised items.
-        return "default"
+    if catID then
+        local name = ResolveCatID(catID)
+        if name then return name end
     end
-    local catType, catCode = catID:match("^(%d+)!(%d+)$")
-    catType, catCode = tonumber(catType), tonumber(catCode)
-    if not catType or not catCode then return nil end
-    local glob = ArkInventory.db.global
-    local data = glob and glob.option and glob.option.category
-                 and glob.option.category[catType]
-                 and glob.option.category[catType].data
-                 and glob.option.category[catType].data[catCode]
-    local name = data and data.name
-    return (type(name) == "string" and name ~= "") and name:lower() or nil
+
+    -- Fallback to ArkInventory's bag scan for rule-classified items.
+    local bagsName = GetArkInvCategoryNameFromBags(itemID)
+    if bagsName then return bagsName end
+
+    -- Last resort: surface "default" so the vendor list can catch it.
+    return "default"
 end
 
 -- ----- top-level: GetItemValue -------------------------------------------

@@ -138,6 +138,12 @@ local function BuildPatterns()
     -- All "you receive" / "you create" self patterns are trusted equally.
     -- LOOT_ITEM (other-player) patterns are intentionally absent — those
     -- never represent the local player's loot.
+    --
+    -- Ascension addendum: the server emits a custom CHAT_MSG_LOOT line
+    -- "You won: [Item]" when the player wins a Need/Greed roll. Retail
+    -- 3.3.5 normally fires LOOT_ITEM_SELF for those wins, but Ascension's
+    -- modified server replaces it with the custom string. We add a
+    -- literal Lua pattern (not a Blizzard global) to catch it.
     LOOT_PATTERNS = {
         -- "You receive loot: [item]." (LOOT_ITEM_SELF)
         { p = toLua(LOOT_ITEM_SELF),                  multi = false },
@@ -147,6 +153,8 @@ local function BuildPatterns()
         { p = toLua(LOOT_ITEM_CREATED_SELF),          multi = false },
         -- "You create: [item]xN." (LOOT_ITEM_CREATED_SELF_MULTIPLE)
         { p = toLua(LOOT_ITEM_CREATED_SELF_MULTIPLE), multi = true },
+        -- Ascension custom: "You won: [Item]" for Need/Greed roll wins.
+        { p = "^You won: (.+)$",                      multi = false },
     }
 end
 
@@ -226,8 +234,14 @@ frame:SetScript("OnUpdate", function(self, elapsed)
     pendingReconcile = false
     reconcileAccum   = 0
     if LA.Session and LA.Session.IsRunning() then
-        local changed = LA.Session.ReconcileBags()
-        if changed and LA.UI and LA.UI.RefreshUIs then
+        local lossChanged    = LA.Session.ReconcileBags()
+        -- Re-price recently-ingested vendor rows. ArkInventory has
+        -- (probably) finished its bag scan by now and rule-classified
+        -- categories are visible — so a row that priced as "default"
+        -- → vendor on first ingest can be promoted to its proper
+        -- AH / DE / vendor source here.
+        local repriced = LA.Session.RepriceRecentVendor and LA.Session.RepriceRecentVendor()
+        if (lossChanged or repriced) and LA.UI and LA.UI.RefreshUIs then
             LA.UI.RefreshUIs()
         end
     end
