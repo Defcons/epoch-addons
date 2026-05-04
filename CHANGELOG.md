@@ -4,6 +4,17 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.3.3 — Full-set gear gate *(2026-05-04)*
+Reject incomplete loadouts caused by mid-equipment-swap inspects, where the player has briefly unequipped a weapon (or other slot) and the inspect happens during the gap.
+
+- **New `CheckFullSet(gearLookup)` helper** alongside `ItemStringFromLink`. Verifies every "useful" slot is filled. Required slots: head, neck, shoulder, chest, waist, legs, feet, wrist, hands, both rings, both trinkets, back, mainhand, ranged/relic. Slot 17 (offhand) is **conditionally** required — only when slot 16 isn't an `INVTYPE_2HWEAPON`. Slot 4 (shirt) and slot 19 (tabard) are intentionally disregarded.
+- **Sender side (`BuildPayload`)**: replaces the old `equipped < 10` numeric floor. If any required slot is empty, returns `nil, "missing <slotname> (slot N) (likely mid-swap, retry)"` — short-retry path picks the player up again with their full kit equipped.
+- **Receiver side (`ShouldStore`)**: same gate, mirrored — refuses to persist any incoming broadcast that fails the full-set check, even from older addon versions or buggy peers.
+- **`IsTwoHandRef` helper** tolerates both link form (sender side) and item-string form (receiver side from `entry.gear[slot]`). Conservative on unknown items: treats unresolved `GetItemInfo` as "not 2H" so unverifiable mainhands force the offhand requirement.
+- Removed orphaned `MIN_STORE_EQUIPPED` constant (replaced by the per-slot gate).
+
+---
+
 ## EpogArmory v1.3.2 — Inspect reliability improvements *(2026-05-04)*
 Inspect-quality improvements targeting Ascension's transmog/vanity layer and stale-cache problems:
 

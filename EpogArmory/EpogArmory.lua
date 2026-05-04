@@ -77,7 +77,9 @@ local MAX_CHUNK_BODY        = 200
 local ROSTER_TICK           = 10
 local MIN_INSPECT_LEVEL     = 60
 local MIN_STORE_LEVEL       = 60
-local MIN_STORE_EQUIPPED    = 10
+-- Claude: MIN_STORE_EQUIPPED removed in v1.3.3 — replaced by the per-slot
+-- CheckFullSet gate (defined near ItemStringFromLink), which requires every
+-- "useful" slot rather than a numeric threshold.
 local ASSEMBLY_TIMEOUT      = 60
 -- v0.34: reduced from 24h to 4h. AddUnit only ever fires for groupmates
 -- (called from ScanRoster's party/raid iteration), so this window controls
@@ -676,6 +678,59 @@ local function ItemStringFromLink(link)
     if not link then return "" end
     local s = link:match("|Hitem:([%-%d:]+)|h")
     return s or ""
+end
+
+-- Claude: full-set gate. Refuse to broadcast or store inspects that are
+-- missing any "useful" slot — catches mid-equipment-swap moments where
+-- the player has briefly unequipped a weapon (or other gear) and the
+-- inspect happened during the gap. Slot 4 (shirt) and 19 (tabard) are
+-- disregarded as cosmetic. Slot 17 (offhand) is conditionally required:
+-- only when slot 16 doesn't hold a 2-hand weapon.
+local REQUIRED_GEAR_SLOTS = { 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18 }
+local GEAR_SLOT_NAMES = {
+    [1] = "head",     [2] = "neck",     [3] = "shoulder",
+    [5] = "chest",    [6] = "waist",    [7] = "legs",     [8] = "feet",
+    [9] = "wrist",    [10] = "hands",
+    [11] = "finger1", [12] = "finger2",
+    [13] = "trinket1",[14] = "trinket2",
+    [15] = "back",    [16] = "mainhand",[17] = "offhand", [18] = "ranged",
+}
+
+-- Claude: itemRef may be a link, an item-string ("12345:0:0:..."), or nil.
+-- Returns true if the item's equipLoc is INVTYPE_2HWEAPON. Returns false
+-- when nil, empty, or GetItemInfo can't resolve the item — that's the
+-- conservative answer (treats unknown as "not 2H", which forces the
+-- offhand requirement and rejects ambiguous payloads for retry).
+local function IsTwoHandRef(itemRef)
+    if not itemRef or itemRef == "" then return false end
+    local equipLoc
+    if type(itemRef) == "string" and itemRef:find("|H") then
+        equipLoc = select(9, GetItemInfo(itemRef))
+    else
+        local id = tonumber(tostring(itemRef):match("^(%d+)"))
+        if id then equipLoc = select(9, GetItemInfo(id)) end
+    end
+    return equipLoc == "INVTYPE_2HWEAPON"
+end
+
+-- Claude: gearLookup(slot) returns a link, item-string, or nil/"".
+-- Returns true if every required slot is filled (with the conditional
+-- offhand rule applied), false + reason otherwise.
+local function CheckFullSet(gearLookup)
+    for _, slot in ipairs(REQUIRED_GEAR_SLOTS) do
+        local v = gearLookup(slot)
+        if not v or v == "" then
+            return false, string.format("missing %s (slot %d)",
+                GEAR_SLOT_NAMES[slot] or "?", slot)
+        end
+    end
+    if not IsTwoHandRef(gearLookup(16)) then
+        local off = gearLookup(17)
+        if not off or off == "" then
+            return false, "missing offhand (slot 17, mainhand isn't 2H)"
+        end
+    end
+    return true
 end
 
 -- v1.2: scanner-side item-info hint encoding. Receivers on Ascension can't
@@ -1333,8 +1388,13 @@ local function BuildPayload(unit, guid)
             return nil, string.format("mount enchant '%s' on slot %d", bad, mountSlot)
         end
     end
-    if equipped < 10 then
-        return nil, string.format("only %d slots equipped (inspect data incomplete?)", equipped)
+    -- Claude: full-set gate. Mid-equipment-swap inspects often have a
+    -- weapon slot briefly empty — saving that snapshot would record an
+    -- incomplete loadout. Reject anything missing a required slot so the
+    -- short-retry path picks them up again with their full kit equipped.
+    local fullOk, fullReason = CheckFullSet(function(slot) return GetInventoryItemLink(unit, slot) end)
+    if not fullOk then
+        return nil, fullReason .. " (likely mid-swap, retry)"
     end
     -- Append dominant-tree index at position 31 (per v0.7 append-only rule).
     -- v0.14+ receivers actually compute this locally from entry.spec, so the
@@ -1481,12 +1541,13 @@ local function ShouldStore(entry)
     -- use spec distribution as a "committed player" gate here. The server-side
     -- validator in warcraftlogs-epog still has the final say on what gets
     -- published — we just collect everything gated by level + gear-equipped.
-    local equipped = 0
-    for i = 1, 19 do
-        if entry.gear[i] and entry.gear[i] ~= "" then equipped = equipped + 1 end
-    end
-    if equipped < MIN_STORE_EQUIPPED then
-        return false, string.format("only %d slots equipped", equipped)
+    -- Claude: full-set gate, mirrored from sender side. A peer running an
+    -- older addon (or a future bug) might broadcast an incomplete payload;
+    -- we refuse to persist anything that's missing a required slot so the
+    -- DB never contains half-swapped loadouts.
+    local fullOk, fullReason = CheckFullSet(function(slot) return entry.gear[slot] end)
+    if not fullOk then
+        return false, fullReason
     end
     for slot = 1, 19 do
         local s = entry.gear[slot]
