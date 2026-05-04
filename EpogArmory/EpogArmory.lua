@@ -2268,6 +2268,12 @@ local function CheckTimeout()
     end
 end
 
+-- Claude: gear-read settle window — Ascension's transmog layer can return
+-- the cosmetic appearance item ID for ~290ms after INSPECT_TALENT_READY
+-- instead of the real equipped item. We defer BuildPayload by 400ms so
+-- the server has time to resolve the real item before we read the slots.
+local INSPECT_SETTLE_DELAY = 0.4 -- Claude: seconds to wait after INSPECT_TALENT_READY before reading gear
+
 local function OnInspectReady()
     if not current then return end
     -- v1.1: If the user opened the Blizzard inspect frame between our
@@ -2288,28 +2294,60 @@ local function OnInspectReady()
         ClearCurrent()
         return
     end
-    local tname = UnitName(c.unit) or "?"
-    local tlvl = UnitLevel(c.unit) or 0
-    local payload, info = BuildPayload(c.unit, c.guid)
-    if payload then
-        seen[c.guid] = now()
-        MarkInspected(c.guid, floor(time()))
-        dprint(string.format("[inspect] OK: %s L%d — %d slots equipped, payload %d bytes",
-            tname, tlvl, info, #payload))
-        EnqueueBroadcast(payload, tname)
-        -- direct-ingest our own scan so we save data even when no one
-        -- else is in our broadcast channels.
-        Ingest(payload, UnitName("player"))
-    else
-        -- incomplete inspect data (0-9 slots) is usually transient —
-        -- target moved out mid-response or server was slow. Short retry, not
-        -- the 15-min full cooldown which is reserved for successful scans.
-        markRetryIn(c.guid, OUT_OF_RANGE_COOLDOWN)
-        dprint(string.format("[inspect] DROP: %s L%d — %s (retry in %ds)",
-            tname, tlvl, info or "unknown", OUT_OF_RANGE_COOLDOWN))
-    end
-    if ClearInspectPlayer then ClearInspectPlayer() end
-    ClearCurrent()
+
+    -- Claude: snapshot the target identity before deferring, so we can
+    -- re-validate after the settle window even if 'current' changed
+    local snapUnit = c.unit
+    local snapGuid = c.guid
+
+    -- Claude: one-shot OnUpdate timer — fires after INSPECT_SETTLE_DELAY seconds,
+    -- then reads gear. 'current' stays set during the wait, which naturally
+    -- blocks TryInspect from starting a new inspect (it guards on 'if current then return end').
+    -- If CheckTimeout fires first (4s wall), it will ClearCurrent and our
+    -- re-validation below will safely discard the stale result.
+    local settleElapsed = 0
+    local settleFrame = CreateFrame("Frame") -- Claude: settle delay frame
+    settleFrame:SetScript("OnUpdate", function(self, elapsed)
+        settleElapsed = settleElapsed + elapsed
+        if settleElapsed < INSPECT_SETTLE_DELAY then return end
+        self:SetScript("OnUpdate", nil) -- Claude: cancel timer
+
+        -- Claude: re-validate — current may have been cleared by CheckTimeout
+        -- or replaced by a new inspect during the settle window
+        if not current or current.guid ~= snapGuid then
+            dprint(string.format("[inspect] settle: %s no longer current — dropping", snapGuid))
+            return
+        end
+        -- Claude: also guard unit-GUID match again after the settle window
+        if UnitGUID(snapUnit) ~= snapGuid then
+            dprint("[inspect] settle: GUID mismatch after settle — dropping")
+            ClearCurrent()
+            return
+        end
+
+        local tname = UnitName(snapUnit) or "?"
+        local tlvl = UnitLevel(snapUnit) or 0
+        local payload, info = BuildPayload(snapUnit, snapGuid) -- Claude: gear read after settle
+        if payload then
+            seen[snapGuid] = now()
+            MarkInspected(snapGuid, floor(time()))
+            dprint(string.format("[inspect] OK: %s L%d — %d slots equipped, payload %d bytes",
+                tname, tlvl, info, #payload))
+            EnqueueBroadcast(payload, tname)
+            -- direct-ingest our own scan so we save data even when no one
+            -- else is in our broadcast channels.
+            Ingest(payload, UnitName("player"))
+        else
+            -- incomplete inspect data (0-9 slots) is usually transient —
+            -- target moved out mid-response or server was slow. Short retry, not
+            -- the 15-min full cooldown which is reserved for successful scans.
+            markRetryIn(snapGuid, OUT_OF_RANGE_COOLDOWN)
+            dprint(string.format("[inspect] DROP: %s L%d — %s (retry in %ds)",
+                tname, tlvl, info or "unknown", OUT_OF_RANGE_COOLDOWN))
+        end
+        if ClearInspectPlayer then ClearInspectPlayer() end
+        ClearCurrent()
+    end)
 end
 
 -- ---------------- Self-scan ----------------
@@ -2572,6 +2610,29 @@ f:SetScript("OnEvent", function(self, event, ...)
         -- false-positive hints, no queue drain — until auras restore.
         auraSettleUntil = now() + AURA_SETTLE_WINDOW
         ScanRoster()
+        -- Claude: on instance entry, clear the 15-min in-memory cooldown for
+        -- all current group members so they get fresh inspects this run.
+        -- The 24-hour DB gate (EpogArmoryDB.lastScanned) is preserved so
+        -- mesh-wide dedup still works — this only refreshes our own client.
+        local inInst = IsInInstance()
+        if inInst then
+            local numRaid = GetNumRaidMembers()
+            local numParty = GetNumPartyMembers()
+            if numRaid > 0 then
+                for i = 1, numRaid do -- Claude: clear seen[] for each raid member
+                    local rUnit = "raid" .. i
+                    local rGuid = UnitGUID(rUnit)
+                    if rGuid then seen[rGuid] = nil end
+                end
+            elseif numParty > 0 then
+                for i = 1, numParty do -- Claude: clear seen[] for each party member
+                    local pUnit = "party" .. i
+                    local pGuid = UnitGUID(pUnit)
+                    if pGuid then seen[pGuid] = nil end
+                end
+            end
+            dprint("[world] instance entry — cleared seen[] for group, fresh inspects queued")
+        end
     else
         ScanRoster()
     end

@@ -4,6 +4,15 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.3.2 — Inspect reliability improvements *(2026-05-03)*
+Two inspect-quality improvements inspired by analysis of the inspect-timing problem on Ascension:
+
+- **400ms gear-read settle window**: `OnInspectReady` now defers `BuildPayload` by 400ms after `INSPECT_TALENT_READY` via a one-shot `OnUpdate` frame timer. Ascension's transmog layer can return cosmetic appearance item IDs for ~290ms after the event fires; the settle window lets the server resolve real equipped items before we read the slots. `current` stays set during the wait (naturally blocking new inspects), and the callback re-validates both `current.guid` and `UnitGUID(unit)` before reading, so a `CheckTimeout` clearing the slot mid-settle discards the result safely.
+
+- **Instance-entry re-inspect**: `PLAYER_ENTERING_WORLD` now clears `seen[guid]` for all current raid/party members when `IsInInstance()` is true. This bypasses the 15-minute in-memory cooldown so every group member is re-queued for a fresh scan at the start of each instance. The 24-hour `EpogArmoryDB.lastScanned` gate is intentionally preserved so mesh-wide dedup still works across all clients.
+
+---
+
 ## EpogArmory v1.3.1 — Talent tree visual fixes *(2026-04-30)*
 Three visual bugs fixed in the in-game talent tree panel (`BuildTalentFrame`):
 - **Icon behind border**: icon texture layer changed from `BORDER` → `ARTWORK`. Draw order is BORDER → ARTWORK → OVERLAY, so the icon now renders above any per-button background but the OVERLAY slot border still frames it correctly.
