@@ -9,8 +9,7 @@ local post_tab = require 'aux.tabs.post'
 local selected_aux_top_tab = 'Search'
 
 local function bagshui_loaded()
-	return IsAddOnLoaded('Bagshui')
-		and _G.Bagshui
+	return _G.Bagshui
 		and _G.Bagshui.prototypes
 		and _G.Bagshui.prototypes.Inventory
 end
@@ -185,7 +184,7 @@ do
 			selected_aux_top_tab = 'Search'
 			install_aux_tab_tracking()
 			install_bagshui_click_hook()
-		elseif event == 'PLAYER_LOGIN' or (event == 'ADDON_LOADED' and arg1 == 'Bagshui') then
+		elseif event == 'PLAYER_LOGIN' or event == 'ADDON_LOADED' then
 			install_aux_tab_tracking()
 			install_bagshui_click_hook()
 		end
