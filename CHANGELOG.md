@@ -4,12 +4,20 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
-## EpogArmory v1.3.2 — Inspect reliability improvements *(2026-05-03)*
-Two inspect-quality improvements inspired by analysis of the inspect-timing problem on Ascension:
+## EpogArmory v1.3.2 — Inspect reliability improvements *(2026-05-04)*
+Inspect-quality improvements targeting Ascension's transmog/vanity layer and stale-cache problems:
 
 - **400ms gear-read settle window**: `OnInspectReady` now defers `BuildPayload` by 400ms after `INSPECT_TALENT_READY` via a one-shot `OnUpdate` frame timer. Ascension's transmog layer can return cosmetic appearance item IDs for ~290ms after the event fires; the settle window lets the server resolve real equipped items before we read the slots. `current` stays set during the wait (naturally blocking new inspects), and the callback re-validates both `current.guid` and `UnitGUID(unit)` before reading, so a `CheckTimeout` clearing the slot mid-settle discards the result safely.
 
+- **Vanity-flip verify pass**: after the initial broadcast, `OnInspectReady` snapshots the slot fingerprint and re-reads the unit at +1.5s. If any slot's item link changed (transmog flipped non-deterministically post-settle), it rebuilds the payload and broadcasts the corrected version. New helper `InspectSlotFingerprint(unit)` concatenates 19 slot item-strings; receivers' existing dedup absorbs no-op cases. Re-broadcast only fires when fingerprints actually diverge.
+
 - **Instance-entry re-inspect**: `PLAYER_ENTERING_WORLD` now clears `seen[guid]` for all current raid/party members when `IsInInstance()` is true. This bypasses the 15-minute in-memory cooldown so every group member is re-queued for a fresh scan at the start of each instance. The 24-hour `EpogArmoryDB.lastScanned` gate is intentionally preserved so mesh-wide dedup still works across all clients.
+
+- **Schema-version cache wipe**: new `DB_SCHEMA_VERSION = 1` constant (paralleling `CACHE_SCHEMA` for `EpogItemCacheDB`). On `PLAYER_LOGIN`, if `EpogArmoryDB.meta.schemaVersion` is missing or lower than the constant, `players[]` and `lastScanned[]` are wiped — `config`, `peerInfo`, `knownChars` are preserved. Bumping this constant in future wire-format-breaking changes will auto-clean stale entries that would otherwise corrupt new renders. Today's wipe is silent (no prior schemaVersion stored = first-run baseline); a real bump prints a yellow chat notice with the wipe count.
+
+**Not implemented (with rationale):**
+- *FNV-1a content-hash dedup* — already covered by `SelfFingerprint` (concatenated item-strings + level + spec), which is functionally equivalent. A 32-bit hash would save a few hundred bytes of memory but no observable wall-clock difference; not worth the regression risk.
+- *Boss-transition re-inspect* — needs raid-context hooks (encounter start/end detection) that aren't present yet on the client. Will revisit when raid-aware features land.
 
 ---
 

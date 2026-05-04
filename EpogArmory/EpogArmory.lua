@@ -371,6 +371,15 @@ local CACHE_GIVE_UP        = 60
 --      Existing v10 entries get re-validated on next observation.
 local CACHE_SCHEMA = 11
 
+-- Claude: schema version for EpogArmoryDB.players entries (the inspect cache).
+-- Stored at EpogArmoryDB.meta.schemaVersion. On addon load, if the stored
+-- version is missing or lower than this constant, players[] and lastScanned[]
+-- are wiped so stale entries from an older wire format can't corrupt new
+-- renders. config, knownChars, peerInfo are preserved (user-facing prefs).
+-- Bump this constant when the on-disk shape of a players[] entry changes
+-- incompatibly (new required field, removed field still being read, etc).
+local DB_SCHEMA_VERSION = 1
+
 -- Tooltip-text patterns for percent-based stats that predate the rating
 -- system and aren't in GetItemStats' enum. Keys are plain uppercase tokens
 -- (deliberately NOT ITEM_MOD_* prefixed — the site's ingest maps these in
@@ -2274,6 +2283,24 @@ end
 -- the server has time to resolve the real item before we read the slots.
 local INSPECT_SETTLE_DELAY = 0.4 -- Claude: seconds to wait after INSPECT_TALENT_READY before reading gear
 
+-- Claude: vanity-flip verify pass. Even after the 400ms settle, the transmog
+-- layer can flip individual slot links non-deterministically for another
+-- second or two. We re-read the inspected unit's slots at +1.5s post-settle
+-- and, if the gear fingerprint changed, broadcast the corrected payload.
+-- Receivers' SelfFingerprint dedup means duplicate broadcasts are cheap;
+-- a real flip just replaces the cached entry with the corrected one.
+local INSPECT_VERIFY_DELAY = 1.5 -- Claude: seconds after settle to re-read and verify slot links
+
+-- Claude: build a slot fingerprint from a unit's GetInventoryItemLink reads.
+-- Shared between initial-read capture and verify-pass comparison.
+local function InspectSlotFingerprint(unit)
+    local parts = {}
+    for slot = 1, 19 do
+        parts[slot] = ItemStringFromLink(GetInventoryItemLink(unit, slot))
+    end
+    return table.concat(parts, "|")
+end
+
 local function OnInspectReady()
     if not current then return end
     -- v1.1: If the user opened the Blizzard inspect frame between our
@@ -2337,6 +2364,33 @@ local function OnInspectReady()
             -- direct-ingest our own scan so we save data even when no one
             -- else is in our broadcast channels.
             Ingest(payload, UnitName("player"))
+
+            -- Claude: vanity-flip verify pass. Snapshot the slot fingerprint we
+            -- just broadcast, then re-read at +1.5s. If transmog flipped any
+            -- slot in the meantime, broadcast the corrected payload.
+            local initialFP = InspectSlotFingerprint(snapUnit)
+            local verifyElapsed = 0
+            local verifyFrame = CreateFrame("Frame") -- Claude: verify pass frame
+            verifyFrame:SetScript("OnUpdate", function(self2, elapsed2)
+                verifyElapsed = verifyElapsed + elapsed2
+                if verifyElapsed < INSPECT_VERIFY_DELAY then return end
+                self2:SetScript("OnUpdate", nil)
+                -- Claude: target may have changed groups, gone out of range,
+                -- or been unspawned by now. UnitGUID guards all of that.
+                if UnitGUID(snapUnit) ~= snapGuid then return end
+                local verifyFP = InspectSlotFingerprint(snapUnit)
+                if verifyFP == initialFP then return end -- Claude: no flip detected
+                local payload2, info2 = BuildPayload(snapUnit, snapGuid)
+                if not payload2 then
+                    dprint(string.format("[inspect] verify: %s gear changed mid-pass but rebuild failed (%s) — keeping initial",
+                        tname, info2 or "unknown"))
+                    return
+                end
+                dprint(string.format("[inspect] verify: %s slot fingerprint changed — broadcasting corrected payload (%d slots, %d bytes)",
+                    tname, info2, #payload2))
+                EnqueueBroadcast(payload2, tname)
+                Ingest(payload2, UnitName("player"))
+            end)
         else
             -- incomplete inspect data (0-9 slots) is usually transient —
             -- target moved out mid-response or server was slow. Short retry, not
@@ -2533,10 +2587,30 @@ f:RegisterEvent("PLAYER_TALENT_UPDATE")   -- respec / dual-spec switch triggers 
 f:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
         EpogArmoryDB = EpogArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
+        EpogArmoryDB.meta        = EpogArmoryDB.meta        or { version = 1, created = time() }
         EpogArmoryDB.players     = EpogArmoryDB.players     or {}
         EpogArmoryDB.lastScanned = EpogArmoryDB.lastScanned or {}
         EpogArmoryDB.config      = EpogArmoryDB.config      or {}
         EpogArmoryDB.peerInfo    = EpogArmoryDB.peerInfo    or {}
+
+        -- Claude: schema-version cache wipe. If the stored players[] shape
+        -- is older than the current addon's expectation, drop the inspect
+        -- cache (players + lastScanned) so old wire-format leftovers can't
+        -- corrupt new renders. config / peerInfo / knownChars survive.
+        local storedSchema = tonumber(EpogArmoryDB.meta.schemaVersion) or 0
+        if storedSchema < DB_SCHEMA_VERSION then
+            if storedSchema > 0 then -- only print when actually wiping a populated cache
+                local nWiped = 0
+                for _ in pairs(EpogArmoryDB.players) do nWiped = nWiped + 1 end
+                print(string.format("|cffffaa44EpogArmory|r: schema v%d → v%d — wiped %d cached inspects (config preserved).",
+                    storedSchema, DB_SCHEMA_VERSION, nWiped))
+                dprint(string.format("[migrate] schema bump %d→%d, wiped %d players entries",
+                    storedSchema, DB_SCHEMA_VERSION, nWiped))
+            end
+            EpogArmoryDB.players = {}
+            EpogArmoryDB.lastScanned = {}
+            EpogArmoryDB.meta.schemaVersion = DB_SCHEMA_VERSION
+        end
         -- v0.43: track every character that's logged into this account so
         -- /epogarmory main can validate against the list. SavedVariables is
         -- account-scoped, so this set accumulates across alts naturally.
