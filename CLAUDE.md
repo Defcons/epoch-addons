@@ -368,4 +368,6 @@ Four targeted client bug patches:
 
 ## Other Projects
 
-- **warcraftlogs-epoch:** `C:\Dev\warcraftlogs-epoch` — use this path for all file edits and git operations for that project
+- **warcraftlogs-epog:** `C:\Dev\warcraftlogs-epog` — combat log viewer for epoglogs.com. Use this path for all file edits and git operations for that project.
+- **epog-data:** `C:\Dev\epog-data` — shared DBC extraction toolkit. Consumed by armory + logs via `npm run publish`.
+- **epogarmory-web:** `C:\Dev\epogarmory-web` — static armory viewer. Consumes EpogArmory addon SavedVariables uploads.
