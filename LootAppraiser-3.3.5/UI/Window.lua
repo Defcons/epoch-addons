@@ -8,13 +8,19 @@ LA.UI = LA.UI or {}
 local UI = LA.UI
 
 -- Compact single-line header. Frame width sized to fit exactly 4 footer
--- buttons (56px each + 4px gaps + 6px outer margin = 248). Visible rows
--- limited to 8; the FauxScrollFrame handles overflow up to MAX_LOOT_ROWS.
---   width  = 6 + 56*4 + 4*3 + 6 = 248
---   height = 18 (single header line) + 8*12 (rows) + 22 (footer) = 136
+-- buttons (56px each + 4px gaps + 6px outer margin = 248). The frame is
+-- resizable via a bottom-right corner grip — drag it to grow the row
+-- count, NOT to scale things bigger. Each additional ROW_H pixels of
+-- height adds one more visible row.
+--   width   = 6 + 56*4 + 4*3 + 6 = 248
+--   default = 18 (single header line) + 8*12 (rows) + 22 (footer) = 136
+--   minimum = 18 + 3*12 + 22 = 76 (3 rows)
 local WINDOW_W, HEADER_H, FOOTER_H = 248, 18, 22
 local ROW_H, MAX_ROWS = 12, 8
-local WINDOW_H = HEADER_H + ROW_H * MAX_ROWS + FOOTER_H
+local DEFAULT_WINDOW_H = HEADER_H + ROW_H * MAX_ROWS + FOOTER_H
+local MIN_VISIBLE_ROWS = 3
+local MIN_WINDOW_H     = HEADER_H + ROW_H * MIN_VISIBLE_ROWS + FOOTER_H
+local content                       -- content frame (parent of all row widgets)
 
 local frame
 local headerText
@@ -125,24 +131,34 @@ local function RefreshHeader()
 end
 
 -- ----- body refresh ------------------------------------------------------
+-- Iterates every physical row widget (including ones beyond the current
+-- MAX_ROWS — those exist when the user has shrunk the frame after
+-- previously resizing it larger; we hide them here). FauxScrollFrame's
+-- numToDisplay parameter still uses MAX_ROWS so the scrollbar tracks
+-- correctly against the live visible-rows count.
 local function RefreshList()
+    if not scrollFrame then return end
     local data = LA.Session.GetRows() or {}
     local offset = FauxScrollFrame_GetOffset(scrollFrame) or 0
     FauxScrollFrame_Update(scrollFrame, #data, MAX_ROWS, ROW_H)
 
-    for i = 1, MAX_ROWS do
-        local idx = i + offset
-        local entry = data[idx]
+    for i = 1, #rows do
         local row = rows[i]
-        if entry then
-            local color = LA_CONST.QUALITY_COLOR[entry.quality] or "|cffffffff"
-            local nameTxt = entry.link:match("%[(.-)%]") or "?"
-            local countSuffix = (entry.count and entry.count > 1) and ("x" .. entry.count) or ""
-            local srcSuffix = "  |cff666666[" .. (LA_CONST.PRICE_LABEL[entry.src] or "?") .. "]|r"
-            row.name:SetText(color .. nameTxt .. countSuffix .. "|r" .. srcSuffix)
-            row.value:SetText(color .. FormatMoney(entry.value) .. "|r")
-            row.link = entry.link
-            row:Show()
+        if not row then break end
+        if i <= MAX_ROWS then
+            local entry = data[i + offset]
+            if entry then
+                local color = LA_CONST.QUALITY_COLOR[entry.quality] or "|cffffffff"
+                local nameTxt = entry.link:match("%[(.-)%]") or "?"
+                local countSuffix = (entry.count and entry.count > 1) and ("x" .. entry.count) or ""
+                local srcSuffix = "  |cff666666[" .. (LA_CONST.PRICE_LABEL[entry.src] or "?") .. "]|r"
+                row.name:SetText(color .. nameTxt .. countSuffix .. "|r" .. srcSuffix)
+                row.value:SetText(color .. FormatMoney(entry.value) .. "|r")
+                row.link = entry.link
+                row:Show()
+            else
+                row:Hide()
+            end
         else
             row:Hide()
         end
@@ -195,8 +211,14 @@ function UI.Build()
 
     frame = CreateFrame("Frame", "LootAppraiserFrame", UIParent)
     frame:SetWidth(WINDOW_W)
-    frame:SetHeight(WINDOW_H)
+    frame:SetHeight(DEFAULT_WINDOW_H)
     frame:SetMovable(true)
+    frame:SetResizable(true)
+    -- Width is fixed at WINDOW_W (sized to the four footer buttons); only
+    -- height is user-controlled. Setting min and max width to the same
+    -- value enforces this.
+    frame:SetMinResize(WINDOW_W, MIN_WINDOW_H)
+    frame:SetMaxResize(WINDOW_W, math.huge)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
@@ -206,19 +228,25 @@ function UI.Build()
         -- /reload (or fresh login) opens at the same spot.
         if LA.db and LA.db.profile then
             local point, _, _, x, y = self:GetPoint()
-            LA.db.profile.windowPos = { point = point, x = x, y = y }
+            local saved = LA.db.profile.windowPos or {}
+            saved.point, saved.x, saved.y = point, x, y
+            LA.db.profile.windowPos = saved
         end
     end)
     frame:SetClampedToScreen(true)
 
-    -- Restore the saved position if we have one; otherwise centre the
-    -- window. SetClampedToScreen() above keeps it visible even if the
-    -- saved coordinates are now offscreen (e.g. after a resolution change).
+    -- Restore the saved position + size if we have one; otherwise centre
+    -- the window at the default size. SetClampedToScreen() above keeps it
+    -- visible even if the saved coordinates are now offscreen (e.g. after
+    -- a resolution change).
     local pos = LA.db and LA.db.profile and LA.db.profile.windowPos
     if pos and pos.point then
         frame:SetPoint(pos.point, UIParent, pos.point, pos.x or 0, pos.y or 0)
     else
         frame:SetPoint("CENTER", 0, 0)
+    end
+    if pos and pos.h and pos.h >= MIN_WINDOW_H then
+        frame:SetHeight(pos.h)
     end
 
     frame:SetBackdrop({
@@ -256,7 +284,7 @@ function UI.Build()
         FauxScrollFrame_OnVerticalScroll(self, offset, ROW_H, RefreshList)
     end)
 
-    local content = CreateFrame("Frame", nil, frame)
+    content = CreateFrame("Frame", nil, frame)
     content:SetPoint("TOPLEFT", scrollFrame)
     content:SetPoint("BOTTOMRIGHT", scrollFrame)
     for i = 1, MAX_ROWS do
@@ -302,6 +330,47 @@ function UI.Build()
 
     UI._buttons = { start = btnStart, pause = btnPause, reset = btnReset, hide = btnHide }
 
+    -- ----- resize grip ---------------------------------------------------
+    -- Sits inside the bottom-right corner. Drag to grow the row count,
+    -- not to scale; on release we snap the height to a clean multiple
+    -- of ROW_H so no row is half-clipped, and persist the new size.
+    local grip = CreateFrame("Button", nil, frame)
+    grip:SetSize(14, 14)
+    grip:SetPoint("BOTTOMRIGHT", -1, 1)
+    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    grip:SetFrameLevel(frame:GetFrameLevel() + 5) -- sit above the bottom button
+    grip:SetScript("OnMouseDown", function() frame:StartSizing("BOTTOMRIGHT") end)
+    grip:SetScript("OnMouseUp",   function()
+        frame:StopMovingOrSizing()
+        -- Snap height to an integer row count.
+        local fit = math.max(MIN_VISIBLE_ROWS,
+                             math.floor((frame:GetHeight() - HEADER_H - FOOTER_H) / ROW_H))
+        frame:SetHeight(HEADER_H + fit * ROW_H + FOOTER_H)
+        -- Persist size alongside position.
+        if LA.db and LA.db.profile then
+            local saved = LA.db.profile.windowPos or {}
+            local point, _, _, x, y = frame:GetPoint()
+            saved.point, saved.x, saved.y = point, x, y
+            saved.h = frame:GetHeight()
+            LA.db.profile.windowPos = saved
+        end
+    end)
+
+    -- Resizing causes OnSizeChanged to fire repeatedly during the drag.
+    -- Recompute MAX_ROWS, lazily build any new row widgets we need, and
+    -- repaint. Cheap: BuildRow allocates one font string per call.
+    frame:SetScript("OnSizeChanged", function(self, _, h)
+        if not (content and scrollFrame) then return end -- not built yet
+        local newMax = math.max(1, math.floor((h - HEADER_H - FOOTER_H) / ROW_H))
+        while #rows < newMax do
+            rows[#rows + 1] = BuildRow(content, #rows + 1)
+        end
+        MAX_ROWS = newMax
+        RefreshList()
+    end)
+
     -- Live header ticker. Cheap (text-only) so we run it every 0.25s.
     frame:SetScript("OnUpdate", function(self, elapsed)
         self._tickAcc = (self._tickAcc or 0) + elapsed
@@ -322,6 +391,13 @@ function UI.Build()
             end
         end
     end)
+
+    -- If we restored a saved height larger than DEFAULT, the OnSizeChanged
+    -- script wasn't yet wired when the height was applied — invoke it once
+    -- now so MAX_ROWS and any extra row widgets catch up before the first
+    -- FullRefresh.
+    local sz = frame:GetScript("OnSizeChanged")
+    if sz then sz(frame, frame:GetWidth(), frame:GetHeight()) end
 
     FullRefresh()
     return frame

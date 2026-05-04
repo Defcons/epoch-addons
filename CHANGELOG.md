@@ -12,6 +12,14 @@ Three visual bugs fixed in the in-game talent tree panel (`BuildTalentFrame`):
 
 ---
 
+## LootAppraiser-3.3.5 v1.14 — Vertical resize via bottom-right grip *(2026-05-04)*
+- **Drag the bottom-right corner to grow the row count** (not scale). `frame:SetResizable(true)` + `SetMinResize/SetMaxResize` with width pinned to `WINDOW_W` so only height moves. Blizzard chat-style size grabber (`Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-*`) at the corner; `StartSizing("BOTTOMRIGHT")` on mousedown, `StopMovingOrSizing` on mouseup.
+- **`OnSizeChanged` recomputes `MAX_ROWS`** every drag tick and lazily builds new row widgets via `BuildRow(content, idx)` (cheap: one font string per row, only when needed). Mouseup snaps height to an exact multiple of `ROW_H` so rows never half-clip, and persists `windowPos.h` alongside the existing point/x/y.
+- **Shrink also works:** `RefreshList` now iterates the full `#rows` (not `MAX_ROWS`) and hides any rows beyond the current `MAX_ROWS`.
+- **Saved-size restore:** `Build()` invokes `OnSizeChanged` once manually at the end so a saved height > default populates the extra row widgets cleanly before the first `FullRefresh`.
+
+---
+
 ## LootAppraiser-3.3.5 v1.13 — Single-line header + button-fit width + 8-row scroll *(2026-05-03)*
 - **Single-line header**: `Zone · M:SS · TotalValue · GPH/h · Nx`. Total field now displays `lootTotal + goldDelta`, so coin drops and vendor sales are reflected in the session total alongside item-loot value (no double-count — `lootTotal` and `goldDelta` are independent streams).
 - **Width fits exactly 4 buttons**: WINDOW_W 290→248 (`6 + 56*4 + 4*3 + 6`). No more dead space.

@@ -1,5 +1,40 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.14 — Vertical resize via bottom-right grip *(2026-05-04)*
+
+The frame can now be resized to show more (or fewer) rows. Drag the
+small grip in the bottom-right corner — height grows, width stays
+fixed at the button-fit value. This adds rows, doesn't scale.
+
+### Mechanics
+- `frame:SetResizable(true)`,
+  `SetMinResize(WINDOW_W, MIN_WINDOW_H)` (3 rows),
+  `SetMaxResize(WINDOW_W, math.huge)`. Min and max width pinned to
+  `WINDOW_W` so width can't drift.
+- A standard Blizzard chat-style size grabber (16×16 button textured
+  with `Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-*`) lives in the
+  bottom-right corner. `OnMouseDown` calls `frame:StartSizing("BOTTOMRIGHT")`,
+  `OnMouseUp` calls `StopMovingOrSizing()`.
+- `OnSizeChanged` recomputes `MAX_ROWS = floor((h - HEADER - FOOTER) / ROW_H)`
+  on every drag tick, lazily builds any new row widgets needed, and
+  re-paints. Cheap — `BuildRow` allocates one font string per call
+  and is only called for rows that don't already exist.
+- On `OnMouseUp` the height is snapped to a clean multiple of
+  `ROW_H` so no row is half-clipped, and `windowPos.h` is persisted
+  alongside the existing `point/x/y`.
+- `RefreshList` now iterates the full `#rows` (not `MAX_ROWS`) and
+  hides any row beyond `MAX_ROWS`, so shrinking the frame correctly
+  hides the now-out-of-band widgets.
+
+### Restoring a saved larger size
+If `windowPos.h` > `DEFAULT_WINDOW_H`, `Build()` applies the saved
+height before `OnSizeChanged` is wired up, so the row widgets
+wouldn't get created. Worked around by invoking `OnSizeChanged`
+once manually at the end of `Build()` — the script's idempotent
+"build any rows we don't have yet" logic catches up cleanly.
+
+---
+
 ## v1.13 — Single-line header, button-fit width, 8-row scroll *(2026-05-03)*
 
 ### Single-line summary header
