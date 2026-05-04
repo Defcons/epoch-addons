@@ -682,7 +682,7 @@ local function BuildTalentFrame()
         for _, a in ipairs(t.arrowPool) do
             if not a:IsShown() then return a end
         end
-        local a = t:CreateTexture(nil, "ARTWORK", nil, 1)
+        local a = t:CreateTexture(nil, "ARTWORK") -- Claude: subLevel arg silently dropped on 3.3.5 — removed (audit v1.3.4)
         a:SetTexture("Interface\\Buttons\\WHITE8X8")
         a:SetVertexColor(1, 0.85, 0.3, 0.9)
         a:Hide()
@@ -977,10 +977,13 @@ local function BuildTalentFrame()
 end
 
 -- Public opener — called from the inspect frame's "Talents" button.
--- Claude: destroy+rebuild each open so code changes take effect without /reload
+-- Claude (audit fix v1.3.4): build once, reuse on subsequent opens.
+-- The previous destroy+rebuild pattern leaked a frame per open (WoW frames
+-- can never be GC'd) and grew UISpecialFrames unbounded (tinsert ran
+-- inside BuildTalentFrame). SetPlayer → RenderTab already clears prior
+-- spec state cleanly, so rebuilding the frame structure was unnecessary.
 function _G.EpogArmory_OpenTalentsFor(player, group)
-    if talentFrame then talentFrame:Hide(); talentFrame = nil end
-    talentFrame = BuildTalentFrame()
+    if not talentFrame then talentFrame = BuildTalentFrame() end
     talentFrame:ClearAllPoints()
     if inspectFrame and inspectFrame:IsShown() then
         talentFrame:SetPoint("LEFT", inspectFrame, "RIGHT", 4, 0)

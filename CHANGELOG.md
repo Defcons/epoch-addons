@@ -4,6 +4,17 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.3.4 — Audit fixes: frame-leak elimination *(2026-05-04)*
+Codebase audit findings, three real bugs fixed:
+
+- **Per-inspect frame leaks (`OnInspectReady`)**: each inspect was calling `CreateFrame("Frame")` for both the settle timer and the verify timer. WoW frames are never garbage-collected — they live forever in the C-side frame registry. In a 25-man raid scanned every 4 hours, that was ~150 leaked frames/day per client. Hoisted to two module-level recyclable frames (`INSPECT_SETTLE_FRAME`, `INSPECT_VERIFY_FRAME`); each new inspect just re-assigns `OnUpdate` instead of allocating. Per-call closures still capture their own `snapUnit/snapGuid/elapsed` locals, so reuse is safe. Settle is naturally serialized via `current`; verify can be clobbered by a back-to-back inspect within 1.5s, which silently skips the older verify (acceptable — initial broadcast already went out).
+- **Talent frame destroy+rebuild leak**: `EpogArmory_OpenTalentsFor` was destroying and rebuilding the talent frame on every open, leaking ~180 child objects per click and growing `UISpecialFrames` unbounded. Switched to build-once-cache: `BuildTalentFrame` runs only on first open, subsequent opens just call `SetPlayer` (which already clears prior spec state via `RenderTab`). One-time `tinsert(UISpecialFrames, "EpogArmoryTalentFrame")` now only fires once.
+- **`subLevel` arg on `CreateTexture` (UI:685)**: arrow pool used `t:CreateTexture(nil, "ARTWORK", nil, 1)` — the 4th `subLevel` argument is silently dropped on WoW 3.3.5, leaving arrows on the default ARTWORK sublevel where they could render behind icon cells. Removed the unsupported args.
+
+**Audited and confirmed clean** (selected): no `xpcall` extra-arg misuse; no `C_Timer`, `bit32`, `goto`, `\z`, or `//`; no modern `C_AddOns`/`Settings.*`/`MenuUtil`/`CreateFromMixins` usage anywhere; forward-compat wire format with `t[N] or default` everywhere; schema-version wipe correctly preserves `config`/`peerInfo`/`knownChars`; instance-entry `seen[]` reset preserves `lastScanned[]` for mesh dedup; `CheckFullSet`/`IsTwoHandRef` slot numbering matches WoW INVSLOT; closures in `OnInspectReady` capture snapshot vars correctly and re-validate after both delays; `outQueue`/`inQueue`/`seen`/`assembly` all bounded by their respective TTL/cleanup paths.
+
+---
+
 ## EpogArmory v1.3.3 — Full-set gear gate *(2026-05-04)*
 Reject incomplete loadouts caused by mid-equipment-swap inspects, where the player has briefly unequipped a weapon (or other slot) and the inspect happens during the gap.
 

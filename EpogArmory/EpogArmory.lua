@@ -2362,6 +2362,20 @@ local function InspectSlotFingerprint(unit)
     return table.concat(parts, "|")
 end
 
+-- Claude (audit fix v1.3.4): WoW frames are never GC'd — they live forever
+-- in the C-side frame registry. Allocating a fresh CreateFrame inside
+-- OnInspectReady leaked one frame per inspect (and one per verify pass).
+-- These two module-level frames are recycled across all inspects: when a
+-- timer fires it sets OnUpdate=nil, when a new inspect needs the timer it
+-- assigns a fresh closure to OnUpdate. Per-inspect closures still capture
+-- their own snapUnit/snapGuid/elapsed locals, so reuse is safe. The
+-- settleFrame is naturally serialized (current stays set during 0.4s, so
+-- no second inspect can start). The verifyFrame can be clobbered if a
+-- new verify starts within 1.5s of an old one — that just silently skips
+-- the old verify, which is acceptable (initial broadcast already went out).
+local INSPECT_SETTLE_FRAME = CreateFrame("Frame")
+local INSPECT_VERIFY_FRAME = CreateFrame("Frame")
+
 local function OnInspectReady()
     if not current then return end
     -- v1.1: If the user opened the Blizzard inspect frame between our
@@ -2394,8 +2408,7 @@ local function OnInspectReady()
     -- If CheckTimeout fires first (4s wall), it will ClearCurrent and our
     -- re-validation below will safely discard the stale result.
     local settleElapsed = 0
-    local settleFrame = CreateFrame("Frame") -- Claude: settle delay frame
-    settleFrame:SetScript("OnUpdate", function(self, elapsed)
+    INSPECT_SETTLE_FRAME:SetScript("OnUpdate", function(self, elapsed) -- Claude: recycled module-level frame (no per-inspect leak)
         settleElapsed = settleElapsed + elapsed
         if settleElapsed < INSPECT_SETTLE_DELAY then return end
         self:SetScript("OnUpdate", nil) -- Claude: cancel timer
@@ -2431,8 +2444,7 @@ local function OnInspectReady()
             -- slot in the meantime, broadcast the corrected payload.
             local initialFP = InspectSlotFingerprint(snapUnit)
             local verifyElapsed = 0
-            local verifyFrame = CreateFrame("Frame") -- Claude: verify pass frame
-            verifyFrame:SetScript("OnUpdate", function(self2, elapsed2)
+            INSPECT_VERIFY_FRAME:SetScript("OnUpdate", function(self2, elapsed2) -- Claude: recycled module-level frame
                 verifyElapsed = verifyElapsed + elapsed2
                 if verifyElapsed < INSPECT_VERIFY_DELAY then return end
                 self2:SetScript("OnUpdate", nil)
