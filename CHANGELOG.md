@@ -4,6 +4,34 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.4.0 — Inspect reliability + quality gate *(2026-05-05)*
+
+Consolidated release covering the v1.3.1–v1.3.5 iteration cycle. Headline improvements: inspects produce more accurate gear data, partial loadouts no longer pollute the mesh, and the addon no longer leaks frames over a long session.
+
+**Inspect reliability**
+- **400ms gear-read settle window** after `INSPECT_TALENT_READY`. Ascension's transmog layer can return cosmetic appearance item IDs for ~290ms after the event fires; the settle delay lets the server resolve real equipped items before we read the slots.
+- **+1.5s vanity-flip verify pass** re-reads the inspected unit's slots after the initial broadcast. If transmog flipped any slot non-deterministically post-settle, a corrected payload is broadcast; otherwise no-op.
+- **Instance-entry re-inspect**: clears the 15-min in-memory cooldown for all current group members on `PLAYER_ENTERING_WORLD` when in an instance, so every run starts with fresh inspects. The 24h mesh-wide DB gate is preserved for cross-client dedup.
+
+**Data quality**
+- **Full-set gear gate** (sender + receiver). New `CheckFullSet` helper rejects any payload missing a "useful" slot — head, neck, shoulder, chest, waist, legs, feet, wrist, hands, both rings, both trinkets, back, mainhand, ranged/relic. Slot 17 (offhand) is conditionally required only when slot 16 isn't a 2H weapon. Slot 4 (shirt) and 19 (tabard) are disregarded as cosmetic. Catches mid-equipment-swap inspects that previously polluted the DB with weapon-less loadouts.
+
+**Stability**
+- **Frame leak elimination**: `OnInspectReady` was allocating a fresh `CreateFrame("Frame")` per settle and per verify pass; WoW frames are never garbage-collected, so a 25-man raid scanned every 4h was leaking ~150 frames/day per client. Hoisted to two module-level recyclable frames.
+- **Talent panel build-once-cache**: `EpogArmory_OpenTalentsFor` previously destroyed and rebuilt the talent frame on every open, leaking ~180 child objects per click and growing `UISpecialFrames` unbounded. Switched to single-cached frame with `SetPlayer`/`RenderTab` clearing prior state.
+- **Talent grid visual fixes**: 9-tier rows (was capped at 7, missing TBC content), `CreateFrame("Frame")` cells with explicit `EnableMouse(true)` (Button hit-testing was eating OnEnter on 3.3.5), `CreateTexture`-based per-cell backgrounds (replaced `SetBackdrop` which silently aborted the render loop), corrected slot draw-layer ordering.
+
+**Codebase audit**
+- Two parallel agents reviewed all 5,660 lines (`EpogArmory.lua` + `EpogArmoryUI.lua`) for Lua 5.1 / WoW 3.3.5 incompatibilities, memory leaks, hot-path perf issues, and SavedVariables corruption risks. Confirmed clean: no `xpcall` extra-arg misuse, no `C_Timer`, no `bit32`, no `goto`, no `\z`, no modern `C_AddOns`/`Settings.*`/`MenuUtil`/`CreateFromMixins` anywhere; forward-compat wire format with `t[N] or default` everywhere; tooltip ownership properly defended against pfQuest/Leatrix theft.
+
+**Backward compatibility**
+- Wire format unchanged since v1.3.0 (talent ranks at position 41). All earlier versions parse cleanly.
+- `MigratePlayers` continues to handle pre-v0.13 flat entries and v0.13+ unkeyed sets.
+- `ShouldStore` quality gate runs only on incoming broadcasts — pre-existing DB entries (including any legacy partial loadouts) survive intact.
+- No cache-wipe on update. Accumulated mesh data is preserved across all future addon upgrades; the experimental `DB_SCHEMA_VERSION` wipe added mid-cycle was reverted.
+
+---
+
 ## EpogArmory v1.3.5 — Remove schema-version cache wipe *(2026-05-05)*
 Reverts the `DB_SCHEMA_VERSION` wipe logic that was added in v1.3.2. The original idea was to drop stale cache entries on shape-breaking addon updates, but the tradeoff was wrong: throwing away the user's accumulated mesh data on every bump is a significantly worse outcome than the hypothetical "stale shape might mis-render" scenario. The wire format is already forward-compat (every receiver does `t[N] or default` for trailing fields), and any genuine on-disk shape change should be handled with a per-field migration in the read path — not a full wipe.
 
