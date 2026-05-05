@@ -4,6 +4,18 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.4.3 — Stats panel fixes *(2026-05-05)*
+
+Three issues from v1.4.2 reported in testing:
+
+- **Stats button hidden behind spec-tab buttons.** The new Stats button stacked vertically below Talents at y=-87, but the spec-tree tab row sits at y=-82 — 1px overlap. Now grouped horizontally next to Talents (`Talents | Stats` on row 3), and the spec tab row dropped from y=-82 to y=-92 for clearance against the Talents/Stats button row.
+- **Stats panel content overflowed the frame bottom.** ~35 rows × 16px line height plus 4 section gaps and 5 header expansions came out to ~594px, but the frame was only 540 tall. Frame bumped to 640. Line height reduced 16→14 so the content sits comfortably inside even with the Defense section fully populated for tank loadouts.
+- **All Hit/Crit/Haste/Expertise rows showed 0%.** L60 Vanilla-era gear stores percentage stats as tooltip text (`+1% crit`) rather than rating values — the rating system was introduced in TBC. EpogArmory parses these into `entry.tooltipStats` (keyed `CRIT_PCT`, `HIT_PCT`, etc.) but the Stats panel was only reading `entry.stats` (the GetItemStats output). New `CombinePct` helper merges both: ratings divided by the L80 conversion + tooltip pcts added directly. Vanilla, TBC, and WotLK gear all sum correctly into one displayed %.
+
+Removed orphaned `FmtPct` helper (replaced by `CombinePct`). Patch-level bump again — mesh auto-update notification stays silent.
+
+---
+
 ## EpogArmory v1.4.2 — UI: Guild column, frame sizing, Stats panel *(2026-05-05)*
 
 Internal patch build (test track continues — aura interlock from v1.4.1 still disabled). Patch-level bump means no auto-update notification on the mesh.

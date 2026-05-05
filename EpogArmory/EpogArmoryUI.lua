@@ -353,9 +353,12 @@ local function BuildInspectFrame()
     -- item stats (base stats + Melee/Ranged/Spell/Defense ratings) for the
     -- inspected player. Anchors to the LEFT edge of the inspect frame so
     -- a fully-open layout reads: Stats | Inspect | Talents.
+    -- Claude (v1.4.3): grouped horizontally next to Talents (LEFT-of-Talents
+    -- RIGHT) instead of stacking below — stacking put it underneath the
+    -- spec-tree tab buttons at y=-82.
     local stats = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     stats:SetWidth(52); stats:SetHeight(20)
-    stats:SetPoint("TOPLEFT", talents, "BOTTOMLEFT", 0, -4)
+    stats:SetPoint("LEFT", talents, "RIGHT", 4, 0)
     stats:SetText("Stats")
     stats:SetScript("OnClick", function()
         if not f.activePlayer then return end
@@ -389,7 +392,10 @@ local function BuildInspectFrame()
         b:SetWidth(72)
         b:SetHeight(20)
         -- Offsets from TOP center: -114, -38, +38, +114 (center-to-center 76)
-        b:SetPoint("TOP", f, "TOP", (i - 2.5) * 76, -82)
+        -- Claude (v1.4.3): y -82 → -92 to clear the Talents/Stats button
+        -- row (which sits on the y=-63 to -83 band). 1px overlap before
+        -- caused the Stats button to render behind the leftmost spec tab.
+        b:SetPoint("TOP", f, "TOP", (i - 2.5) * 76, -92)
         b:SetText(key == "pvp" and "PvP" or ("Tree " .. i))
         b:SetScript("OnClick", function()
             if f.activePlayer and RenderActiveSet then
@@ -1031,10 +1037,19 @@ end
 -- three-panel view: Stats | Inspect | Talents.
 local statsFrame
 
--- Sum stats across all 19 slots' items via EpogItemCacheDB[id].stats.
--- Returns { stats = { [ITEM_MOD_KEY] = sum }, weapon = { min, max, speed } }.
+-- Sum stats across all 19 slots' items. Pulls from BOTH:
+--   entry.stats         — GetItemStats output (TBC+ rating system, keyed by
+--                         ITEM_MOD_*_SHORT)
+--   entry.tooltipStats  — pre-rating Vanilla "+1% crit" / "+5 mp5" stats
+--                         parsed from tooltip text, keyed per
+--                         TOOLTIP_STAT_PATTERNS (CRIT_PCT, MP5, etc.)
+-- Both must be summed because a Vanilla-era L60 character has gear that
+-- only populates the tooltip side, while a TBC+ character has gear that
+-- populates the rating side. A mixed loadout uses both.
+-- Claude (v1.4.3): tooltipStats was missing in v1.4.2 — a L60 hunter
+-- showed all 0% because Vanilla items don't carry rating stats.
 local function AggregateItemStats(gear)
-    local out = { stats = {}, weapon = nil }
+    local out = { stats = {}, tooltip = {}, weapon = nil }
     if not gear then return out end
     local cache = EpogItemCacheDB or {}
     for slot = 1, 19 do
@@ -1050,6 +1065,13 @@ local function AggregateItemStats(gear)
                         end
                     end
                 end
+                if entry.tooltipStats then
+                    for k, v in pairs(entry.tooltipStats) do
+                        if type(v) == "number" then
+                            out.tooltip[k] = (out.tooltip[k] or 0) + v
+                        end
+                    end
+                end
                 -- Capture mainhand weapon damage/speed for the Melee section
                 if slot == 16 and entry.damage and entry.speed then
                     out.weapon = {
@@ -1062,6 +1084,25 @@ local function AggregateItemStats(gear)
         end
     end
     return out
+end
+
+-- Claude (v1.4.3): combine rating-based and tooltip-based pcts into one
+-- displayed percentage. Ratings get divided by the L80 conversion;
+-- tooltip pcts are already in percentage units and add directly.
+-- s = ratings table, t = tooltip table.
+local function CombinePct(s, t, ratingKeys, tooltipKeys, perPct)
+    local pct = 0
+    if ratingKeys then
+        for _, k in ipairs(ratingKeys) do
+            pct = pct + (s[k] or 0) / perPct
+        end
+    end
+    if tooltipKeys then
+        for _, k in ipairs(tooltipKeys) do
+            pct = pct + (t[k] or 0)
+        end
+    end
+    return string.format("%.2f%%", pct)
 end
 
 -- WotLK rating-to-% conversion at L80. Used for displaying combat ratings
@@ -1088,11 +1129,6 @@ local RATING_PER_PERCENT_L80 = {
     armor_pen       = 13.99,
 }
 
-local function FmtPct(rating, perPct)
-    if not rating or rating == 0 then return "0.00%" end
-    return string.format("%.2f%%", rating / perPct)
-end
-
 local function FmtNum(n)
     if not n or n == 0 then return "0" end
     return tostring(n)
@@ -1100,7 +1136,11 @@ end
 
 local function BuildStatsFrame()
     local f = CreateFrame("Frame", "EpogArmoryStatsFrame", UIParent)
-    f:SetWidth(360); f:SetHeight(540)
+    -- Claude (v1.4.3): height 540 → 640 so all sections fit. The earlier
+    -- 540 matched the inspect frame but the stat content (~35 rows + 5
+    -- section headers) overflowed the bottom. Frame is now slightly taller
+    -- than inspect; that's fine since they don't share a backdrop.
+    f:SetWidth(360); f:SetHeight(640)
     f:SetFrameStrata("DIALOG")
     f:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -1122,8 +1162,11 @@ local function BuildStatsFrame()
     -- Two-column body: label on left, value right-aligned. Pre-allocate a
     -- pool of fontstring pairs and stack them vertically. Section headers
     -- are full-width single fontstrings.
-    local LINE_H = 16
-    local SECTION_GAP = 6
+    -- Claude (v1.4.3): line height reduced 16→14 so all sections fit
+    -- comfortably within the 640-tall frame even on classes with full
+    -- Defense/Spell stat representation.
+    local LINE_H = 14
+    local SECTION_GAP = 5
     local TOP = -54
     local LABEL_X = 22
     local VALUE_RIGHT = -22
@@ -1180,7 +1223,8 @@ local function BuildStatsFrame()
         end
         local set = player.sets[group]
         local agg = AggregateItemStats(set.gear)
-        local s = agg.stats
+        local s = agg.stats   -- ratings (TBC+)
+        local t = agg.tooltip -- pcts (Vanilla "+1% crit" etc.)
 
         local i = 0
         local y = TOP
@@ -1217,61 +1261,86 @@ local function BuildStatsFrame()
             row("Speed",  "—")
         end
         local meleeAP = (s["ITEM_MOD_ATTACK_POWER_SHORT"] or 0)
-        local hitR    = (s["ITEM_MOD_HIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_HIT_MELEE_RATING_SHORT"] or 0)
-        local critR   = (s["ITEM_MOD_CRIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_CRIT_MELEE_RATING_SHORT"] or 0)
-        local hasteR  = (s["ITEM_MOD_HASTE_RATING_SHORT"] or 0) + (s["ITEM_MOD_HASTE_MELEE_RATING_SHORT"] or 0)
-        local expR    = (s["ITEM_MOD_EXPERTISE_RATING_SHORT"] or 0)
-        row("Power",       FmtNum(meleeAP))
-        row("Hit Chance",  FmtPct(hitR, RATING_PER_PERCENT_L80.melee_hit))
-        row("Crit Chance", FmtPct(critR, RATING_PER_PERCENT_L80.melee_crit))
-        row("Haste",       FmtPct(hasteR, RATING_PER_PERCENT_L80.melee_haste))
-        row("Expertise",   FmtPct(expR, RATING_PER_PERCENT_L80.expertise))
+        local mp5_tt  = (t["MP5"] or 0) -- used in Spell section's Mana/5s row
+        row("Power", FmtNum(meleeAP))
+        -- Hit/Crit/Haste/Exp combine ratings (TBC+) AND tooltip pcts (Vanilla)
+        row("Hit Chance",  CombinePct(s, t,
+            { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_MELEE_RATING_SHORT" },
+            { "HIT_PCT", "HIT_MELEE_RANGED_PCT" },
+            RATING_PER_PERCENT_L80.melee_hit))
+        row("Crit Chance", CombinePct(s, t,
+            { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_MELEE_RATING_SHORT" },
+            { "CRIT_PCT", "CRIT_MELEE_RANGED_PCT" },
+            RATING_PER_PERCENT_L80.melee_crit))
+        row("Haste",       CombinePct(s, t,
+            { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_MELEE_RATING_SHORT" }, nil,
+            RATING_PER_PERCENT_L80.melee_haste))
+        row("Expertise",   CombinePct(s, t,
+            { "ITEM_MOD_EXPERTISE_RATING_SHORT" }, { "EXPERTISE_PCT" },
+            RATING_PER_PERCENT_L80.expertise))
         gap()
 
         -- Ranged
         row("Ranged", nil, true)
         local rangedAP = (s["ITEM_MOD_RANGED_ATTACK_POWER_SHORT"] or 0)
-        local rHitR   = (s["ITEM_MOD_HIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_HIT_RANGED_RATING_SHORT"] or 0)
-        local rCritR  = (s["ITEM_MOD_CRIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_CRIT_RANGED_RATING_SHORT"] or 0)
-        local rHasteR = (s["ITEM_MOD_HASTE_RATING_SHORT"] or 0) + (s["ITEM_MOD_HASTE_RANGED_RATING_SHORT"] or 0)
         row("Power",       FmtNum(rangedAP > 0 and rangedAP or meleeAP))
-        row("Hit Chance",  FmtPct(rHitR, RATING_PER_PERCENT_L80.ranged_hit))
-        row("Crit Chance", FmtPct(rCritR, RATING_PER_PERCENT_L80.ranged_crit))
-        row("Haste",       FmtPct(rHasteR, RATING_PER_PERCENT_L80.ranged_haste))
+        row("Hit Chance",  CombinePct(s, t,
+            { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_RANGED_RATING_SHORT" },
+            { "HIT_PCT", "HIT_MELEE_RANGED_PCT" },
+            RATING_PER_PERCENT_L80.ranged_hit))
+        row("Crit Chance", CombinePct(s, t,
+            { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_RANGED_RATING_SHORT" },
+            { "CRIT_PCT", "CRIT_MELEE_RANGED_PCT" },
+            RATING_PER_PERCENT_L80.ranged_crit))
+        row("Haste",       CombinePct(s, t,
+            { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_RANGED_RATING_SHORT" }, nil,
+            RATING_PER_PERCENT_L80.ranged_haste))
         gap()
 
         -- Spell
         row("Spell", nil, true)
-        local spellPow = (s["ITEM_MOD_SPELL_POWER_SHORT"] or 0)
-        local sHitR   = (s["ITEM_MOD_HIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_HIT_SPELL_RATING_SHORT"] or 0)
-        local sCritR  = (s["ITEM_MOD_CRIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_CRIT_SPELL_RATING_SHORT"] or 0)
-        local sHasteR = (s["ITEM_MOD_HASTE_RATING_SHORT"] or 0) + (s["ITEM_MOD_HASTE_SPELL_RATING_SHORT"] or 0)
-        local mp5     = (s["ITEM_MOD_POWER_REGEN0_SHORT"] or 0)
-        local pen     = (s["ITEM_MOD_SPELL_PENETRATION_SHORT"] or 0)
+        -- Spell Power: ITEM_MOD_SPELL_POWER_SHORT (TBC+) + SPELL_POWER_FLAT
+        -- (Vanilla "+N to spell damage and healing"). Healing-only flat
+        -- isn't counted toward Spell Power as displayed.
+        local spellPow = (s["ITEM_MOD_SPELL_POWER_SHORT"] or 0) + (t["SPELL_POWER_FLAT"] or 0) + (t["SPELL_DAMAGE_FLAT"] or 0)
         row("Spell Power", FmtNum(spellPow))
-        row("Hit Chance",  FmtPct(sHitR, RATING_PER_PERCENT_L80.spell_hit))
-        row("Crit Chance", FmtPct(sCritR, RATING_PER_PERCENT_L80.spell_crit))
-        row("Haste",       FmtPct(sHasteR, RATING_PER_PERCENT_L80.spell_haste))
-        row("Mana / 5s",   FmtNum(mp5))
-        row("Penetration", FmtNum(pen))
+        row("Hit Chance",  CombinePct(s, t,
+            { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_SPELL_RATING_SHORT" },
+            { "HIT_SPELL_PCT" },
+            RATING_PER_PERCENT_L80.spell_hit))
+        row("Crit Chance", CombinePct(s, t,
+            { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_SPELL_RATING_SHORT" },
+            { "CRIT_SPELL_PCT" },
+            RATING_PER_PERCENT_L80.spell_crit))
+        row("Haste",       CombinePct(s, t,
+            { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_SPELL_RATING_SHORT" }, nil,
+            RATING_PER_PERCENT_L80.spell_haste))
+        row("Mana / 5s",   FmtNum((s["ITEM_MOD_POWER_REGEN0_SHORT"] or 0) + mp5_tt))
+        row("Penetration", FmtNum((s["ITEM_MOD_SPELL_PENETRATION_SHORT"] or 0) + (t["SPELL_PENETRATION_FLAT"] or 0)))
         gap()
 
         -- Defense
         row("Defense", nil, true)
         local defR     = (s["ITEM_MOD_DEFENSE_SKILL_RATING_SHORT"] or 0)
-        local dodgeR   = (s["ITEM_MOD_DODGE_RATING_SHORT"] or 0)
-        local parryR   = (s["ITEM_MOD_PARRY_RATING_SHORT"] or 0)
-        local blockR   = (s["ITEM_MOD_BLOCK_RATING_SHORT"] or 0)
-        local blockV   = (s["ITEM_MOD_BLOCK_VALUE_SHORT"] or 0)
-        local resilR   = (s["ITEM_MOD_RESILIENCE_RATING_SHORT"] or 0)
-        local arpR     = (s["ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT"] or 0)
-        row("Defense Rating", string.format("%d (+%.0f skill)", defR, defR / RATING_PER_PERCENT_L80.defense))
-        row("Dodge",         FmtPct(dodgeR, RATING_PER_PERCENT_L80.dodge))
-        row("Parry",         FmtPct(parryR, RATING_PER_PERCENT_L80.parry))
-        row("Block",         FmtPct(blockR, RATING_PER_PERCENT_L80.block))
+        local defFlat  = (t["DEFENSE_FLAT"] or 0)
+        local blockV   = (s["ITEM_MOD_BLOCK_VALUE_SHORT"] or 0) + (t["BLOCK_VALUE_FLAT"] or 0)
+        row("Defense Rating", string.format("%d (+%.0f skill)", defR, defR / RATING_PER_PERCENT_L80.defense + defFlat))
+        row("Dodge",         CombinePct(s, t,
+            { "ITEM_MOD_DODGE_RATING_SHORT" }, { "DODGE_PCT" },
+            RATING_PER_PERCENT_L80.dodge))
+        row("Parry",         CombinePct(s, t,
+            { "ITEM_MOD_PARRY_RATING_SHORT" }, { "PARRY_PCT" },
+            RATING_PER_PERCENT_L80.parry))
+        row("Block",         CombinePct(s, t,
+            { "ITEM_MOD_BLOCK_RATING_SHORT" }, { "BLOCK_PCT" },
+            RATING_PER_PERCENT_L80.block))
         row("Block Value",   FmtNum(blockV))
-        row("Resilience",    FmtPct(resilR, RATING_PER_PERCENT_L80.resilience))
-        row("Armor Pen",     FmtPct(arpR, RATING_PER_PERCENT_L80.armor_pen))
+        row("Resilience",    CombinePct(s, t,
+            { "ITEM_MOD_RESILIENCE_RATING_SHORT" }, nil,
+            RATING_PER_PERCENT_L80.resilience))
+        row("Armor Pen",     CombinePct(s, t,
+            { "ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT" }, nil,
+            RATING_PER_PERCENT_L80.armor_pen))
 
         hideLinesFrom(i + 1)
     end
