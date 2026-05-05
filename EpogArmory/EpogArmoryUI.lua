@@ -1215,7 +1215,9 @@ local function BuildStatsFrame()
     end
 
     function f.SetPlayer(player, group)
-        f.title:SetText(string.format("Stats — %s", (player and player.name) or "?"))
+        local hasSnapshot = player and player.sets and player.sets[group] and player.sets[group].charStats
+        local titleSuffix = hasSnapshot and "" or "  |cff888888(item-only)|r"
+        f.title:SetText(string.format("Stats — %s%s", (player and player.name) or "?", titleSuffix))
         if not player or not player.sets or not player.sets[group] then
             placeLine(1, TOP, "(no set data)", "", true)
             hideLinesFrom(2)
@@ -1225,6 +1227,30 @@ local function BuildStatsFrame()
         local agg = AggregateItemStats(set.gear)
         local s = agg.stats   -- ratings (TBC+)
         local t = agg.tooltip -- pcts (Vanilla "+1% crit" etc.)
+        -- Claude (v1.4.4): prefer the snapshot of live character stats
+        -- captured at scan time. Fields populated here override the
+        -- item-derived fallbacks below. cs may be nil for pre-v1.4.4
+        -- entries — UI silently falls back.
+        local cs = set.charStats
+
+        -- Helper: prefer live snapshot value if present, else fall back to
+        -- the item-derived computation. csKey is the charStats field name.
+        local function csOr(csKey, fallback)
+            if cs and cs[csKey] then return cs[csKey] end
+            return fallback
+        end
+        -- For pct-typed fields, format the live snapshot value or the
+        -- already-formatted fallback string.
+        local function csPct(csKey, fallback)
+            if cs and cs[csKey] then return string.format("%.2f%%", cs[csKey]) end
+            return fallback
+        end
+        -- For numeric stat values: show the live snapshot if present
+        -- (rounded to integer for display), else format the item-sum.
+        local function csNum(csKey, fallback)
+            if cs and cs[csKey] then return string.format("%d", cs[csKey]) end
+            return fallback
+        end
 
         local i = 0
         local y = TOP
@@ -1237,85 +1263,99 @@ local function BuildStatsFrame()
             y = y - SECTION_GAP
         end
 
-        -- Base Stats
+        -- Base Stats — prefer live snapshot (matches in-game character pane).
         row("Base Stats", nil, true)
-        row("Strength",  FmtNum(s["ITEM_MOD_STRENGTH_SHORT"]))
-        row("Agility",   FmtNum(s["ITEM_MOD_AGILITY_SHORT"]))
-        row("Stamina",   FmtNum(s["ITEM_MOD_STAMINA_SHORT"]))
-        row("Intellect", FmtNum(s["ITEM_MOD_INTELLECT_SHORT"]))
-        row("Spirit",    FmtNum(s["ITEM_MOD_SPIRIT_SHORT"]))
-        -- Item armor isn't always exposed via GetItemStats — try a few likely
-        -- keys. Falls back to 0 silently if our cache doesn't carry it.
-        local armor = (s["RESISTANCE0_NAME"] or s["ITEM_MOD_ARMOR"]
-            or s["ITEM_MOD_RESISTANCE_BASE_SHORT"] or 0)
-        row("Armor (bonus)", FmtNum(armor))
+        row("Strength",  csNum("str", FmtNum(s["ITEM_MOD_STRENGTH_SHORT"])))
+        row("Agility",   csNum("agi", FmtNum(s["ITEM_MOD_AGILITY_SHORT"])))
+        row("Stamina",   csNum("sta", FmtNum(s["ITEM_MOD_STAMINA_SHORT"])))
+        row("Intellect", csNum("int", FmtNum(s["ITEM_MOD_INTELLECT_SHORT"])))
+        row("Spirit",    csNum("spi", FmtNum(s["ITEM_MOD_SPIRIT_SHORT"])))
+        -- Armor: live snapshot is the effective armor (UnitArmor's index 2),
+        -- which includes base + items + buffs. Fallback is item-only sum.
+        if cs and cs.armor then
+            row("Armor", csNum("armor", "0"))
+        else
+            local armorFallback = (s["RESISTANCE0_NAME"] or s["ITEM_MOD_ARMOR"]
+                or s["ITEM_MOD_RESISTANCE_BASE_SHORT"] or 0)
+            row("Armor (bonus)", FmtNum(armorFallback))
+        end
         gap()
 
-        -- Melee
+        -- Melee — prefer live snapshot for Power/Hit/Crit/Haste/Expertise.
         row("Melee", nil, true)
-        if agg.weapon then
+        -- Weapon damage: live UnitDamage snapshot (includes AP scaling)
+        -- preferred over the per-item min/max which is just weapon's
+        -- intrinsic damage and ignores AP contribution.
+        if cs and cs.wMin and cs.wMax then
+            row("Damage", string.format("%d-%d", cs.wMin, cs.wMax))
+        elseif agg.weapon then
             row("Damage", string.format("%.0f-%.0f", agg.weapon.min or 0, agg.weapon.max or 0))
-            row("Speed",  string.format("%.2f", agg.weapon.speed or 0))
         else
             row("Damage", "—")
-            row("Speed",  "—")
         end
+        row("Speed", agg.weapon and string.format("%.2f", agg.weapon.speed or 0) or "—")
         local meleeAP = (s["ITEM_MOD_ATTACK_POWER_SHORT"] or 0)
         local mp5_tt  = (t["MP5"] or 0) -- used in Spell section's Mana/5s row
-        row("Power", FmtNum(meleeAP))
-        -- Hit/Crit/Haste/Exp combine ratings (TBC+) AND tooltip pcts (Vanilla)
-        row("Hit Chance",  CombinePct(s, t,
-            { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_MELEE_RATING_SHORT" },
-            { "HIT_PCT", "HIT_MELEE_RANGED_PCT" },
-            RATING_PER_PERCENT_L80.melee_hit))
-        row("Crit Chance", CombinePct(s, t,
-            { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_MELEE_RATING_SHORT" },
-            { "CRIT_PCT", "CRIT_MELEE_RANGED_PCT" },
-            RATING_PER_PERCENT_L80.melee_crit))
-        row("Haste",       CombinePct(s, t,
-            { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_MELEE_RATING_SHORT" }, nil,
-            RATING_PER_PERCENT_L80.melee_haste))
-        row("Expertise",   CombinePct(s, t,
-            { "ITEM_MOD_EXPERTISE_RATING_SHORT" }, { "EXPERTISE_PCT" },
-            RATING_PER_PERCENT_L80.expertise))
+        row("Power",       csNum("mAP", FmtNum(meleeAP)))
+        row("Hit Chance",  csPct("mHit",
+            CombinePct(s, t,
+                { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_MELEE_RATING_SHORT" },
+                { "HIT_PCT", "HIT_MELEE_RANGED_PCT" },
+                RATING_PER_PERCENT_L80.melee_hit)))
+        row("Crit Chance", csPct("mCrit",
+            CombinePct(s, t,
+                { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_MELEE_RATING_SHORT" },
+                { "CRIT_PCT", "CRIT_MELEE_RANGED_PCT" },
+                RATING_PER_PERCENT_L80.melee_crit)))
+        row("Haste",       csPct("mHa",
+            CombinePct(s, t,
+                { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_MELEE_RATING_SHORT" }, nil,
+                RATING_PER_PERCENT_L80.melee_haste)))
+        row("Expertise",   csPct("exp",
+            CombinePct(s, t,
+                { "ITEM_MOD_EXPERTISE_RATING_SHORT" }, { "EXPERTISE_PCT" },
+                RATING_PER_PERCENT_L80.expertise)))
         gap()
 
         -- Ranged
         row("Ranged", nil, true)
         local rangedAP = (s["ITEM_MOD_RANGED_ATTACK_POWER_SHORT"] or 0)
-        row("Power",       FmtNum(rangedAP > 0 and rangedAP or meleeAP))
-        row("Hit Chance",  CombinePct(s, t,
-            { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_RANGED_RATING_SHORT" },
-            { "HIT_PCT", "HIT_MELEE_RANGED_PCT" },
-            RATING_PER_PERCENT_L80.ranged_hit))
-        row("Crit Chance", CombinePct(s, t,
-            { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_RANGED_RATING_SHORT" },
-            { "CRIT_PCT", "CRIT_MELEE_RANGED_PCT" },
-            RATING_PER_PERCENT_L80.ranged_crit))
-        row("Haste",       CombinePct(s, t,
-            { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_RANGED_RATING_SHORT" }, nil,
-            RATING_PER_PERCENT_L80.ranged_haste))
+        row("Power",       csNum("rAP", FmtNum(rangedAP > 0 and rangedAP or meleeAP)))
+        row("Hit Chance",  csPct("rHit",
+            CombinePct(s, t,
+                { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_RANGED_RATING_SHORT" },
+                { "HIT_PCT", "HIT_MELEE_RANGED_PCT" },
+                RATING_PER_PERCENT_L80.ranged_hit)))
+        row("Crit Chance", csPct("rCrit",
+            CombinePct(s, t,
+                { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_RANGED_RATING_SHORT" },
+                { "CRIT_PCT", "CRIT_MELEE_RANGED_PCT" },
+                RATING_PER_PERCENT_L80.ranged_crit)))
+        row("Haste",       csPct("rHa",
+            CombinePct(s, t,
+                { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_RANGED_RATING_SHORT" }, nil,
+                RATING_PER_PERCENT_L80.ranged_haste)))
         gap()
 
         -- Spell
         row("Spell", nil, true)
-        -- Spell Power: ITEM_MOD_SPELL_POWER_SHORT (TBC+) + SPELL_POWER_FLAT
-        -- (Vanilla "+N to spell damage and healing"). Healing-only flat
-        -- isn't counted toward Spell Power as displayed.
         local spellPow = (s["ITEM_MOD_SPELL_POWER_SHORT"] or 0) + (t["SPELL_POWER_FLAT"] or 0) + (t["SPELL_DAMAGE_FLAT"] or 0)
-        row("Spell Power", FmtNum(spellPow))
-        row("Hit Chance",  CombinePct(s, t,
-            { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_SPELL_RATING_SHORT" },
-            { "HIT_SPELL_PCT" },
-            RATING_PER_PERCENT_L80.spell_hit))
-        row("Crit Chance", CombinePct(s, t,
-            { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_SPELL_RATING_SHORT" },
-            { "CRIT_SPELL_PCT" },
-            RATING_PER_PERCENT_L80.spell_crit))
-        row("Haste",       CombinePct(s, t,
-            { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_SPELL_RATING_SHORT" }, nil,
-            RATING_PER_PERCENT_L80.spell_haste))
-        row("Mana / 5s",   FmtNum((s["ITEM_MOD_POWER_REGEN0_SHORT"] or 0) + mp5_tt))
+        row("Spell Power", csNum("sp", FmtNum(spellPow)))
+        row("Hit Chance",  csPct("sHit",
+            CombinePct(s, t,
+                { "ITEM_MOD_HIT_RATING_SHORT", "ITEM_MOD_HIT_SPELL_RATING_SHORT" },
+                { "HIT_SPELL_PCT" },
+                RATING_PER_PERCENT_L80.spell_hit)))
+        row("Crit Chance", csPct("sCrit",
+            CombinePct(s, t,
+                { "ITEM_MOD_CRIT_RATING_SHORT", "ITEM_MOD_CRIT_SPELL_RATING_SHORT" },
+                { "CRIT_SPELL_PCT" },
+                RATING_PER_PERCENT_L80.spell_crit)))
+        row("Haste",       csPct("sHa",
+            CombinePct(s, t,
+                { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_SPELL_RATING_SHORT" }, nil,
+                RATING_PER_PERCENT_L80.spell_haste)))
+        row("Mana / 5s",   csNum("mp5", FmtNum((s["ITEM_MOD_POWER_REGEN0_SHORT"] or 0) + mp5_tt)))
         row("Penetration", FmtNum((s["ITEM_MOD_SPELL_PENETRATION_SHORT"] or 0) + (t["SPELL_PENETRATION_FLAT"] or 0)))
         gap()
 
@@ -1324,23 +1364,27 @@ local function BuildStatsFrame()
         local defR     = (s["ITEM_MOD_DEFENSE_SKILL_RATING_SHORT"] or 0)
         local defFlat  = (t["DEFENSE_FLAT"] or 0)
         local blockV   = (s["ITEM_MOD_BLOCK_VALUE_SHORT"] or 0) + (t["BLOCK_VALUE_FLAT"] or 0)
-        row("Defense Rating", string.format("%d (+%.0f skill)", defR, defR / RATING_PER_PERCENT_L80.defense + defFlat))
-        row("Dodge",         CombinePct(s, t,
-            { "ITEM_MOD_DODGE_RATING_SHORT" }, { "DODGE_PCT" },
-            RATING_PER_PERCENT_L80.dodge))
-        row("Parry",         CombinePct(s, t,
-            { "ITEM_MOD_PARRY_RATING_SHORT" }, { "PARRY_PCT" },
-            RATING_PER_PERCENT_L80.parry))
-        row("Block",         CombinePct(s, t,
-            { "ITEM_MOD_BLOCK_RATING_SHORT" }, { "BLOCK_PCT" },
-            RATING_PER_PERCENT_L80.block))
-        row("Block Value",   FmtNum(blockV))
-        row("Resilience",    CombinePct(s, t,
-            { "ITEM_MOD_RESILIENCE_RATING_SHORT" }, nil,
-            RATING_PER_PERCENT_L80.resilience))
-        row("Armor Pen",     CombinePct(s, t,
-            { "ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT" }, nil,
-            RATING_PER_PERCENT_L80.armor_pen))
+        if cs and cs.def then
+            row("Defense Rating", string.format("%.2f%% (live)", cs.def))
+        else
+            row("Defense Rating", string.format("%d (+%.0f skill)", defR, defR / RATING_PER_PERCENT_L80.defense + defFlat))
+        end
+        row("Dodge",       csPct("dod",
+            CombinePct(s, t, { "ITEM_MOD_DODGE_RATING_SHORT" }, { "DODGE_PCT" },
+                RATING_PER_PERCENT_L80.dodge)))
+        row("Parry",       csPct("par",
+            CombinePct(s, t, { "ITEM_MOD_PARRY_RATING_SHORT" }, { "PARRY_PCT" },
+                RATING_PER_PERCENT_L80.parry)))
+        row("Block",       csPct("blk",
+            CombinePct(s, t, { "ITEM_MOD_BLOCK_RATING_SHORT" }, { "BLOCK_PCT" },
+                RATING_PER_PERCENT_L80.block)))
+        row("Block Value", FmtNum(blockV))
+        row("Resilience",  csPct("res",
+            CombinePct(s, t, { "ITEM_MOD_RESILIENCE_RATING_SHORT" }, nil,
+                RATING_PER_PERCENT_L80.resilience)))
+        row("Armor Pen",   csPct("arp",
+            CombinePct(s, t, { "ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT" }, nil,
+                RATING_PER_PERCENT_L80.armor_pen)))
 
         hideLinesFrom(i + 1)
     end

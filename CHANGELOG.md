@@ -4,6 +4,33 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.4.4 — Stats panel: live character snapshot *(2026-05-05)*
+
+The v1.4.3 panel summed only what was literally on items, missing everything the in-game character pane shows: race+level base attributes, class AP formulas (warrior STR×2, hunter AGI×2), weapon damage with AP scaling, talent multipliers (Toughness +Stamina, Durability, etc.), and active buff effects. So a L60 Hunter with 339 Agility on the character pane showed only 180 in EpogArmory (item-only sum).
+
+**New: live character-stat snapshot at scan time**
+
+- New `CapturePlayerStats(unit)` reads from `UnitStat / UnitArmor / UnitAttackPower / UnitRangedAttackPower / UnitDamage` — these all work on inspected unit tokens (`party1`, `raid5`, etc.), so the snapshot fires for both self-scans and inspect-scans of others.
+- Player-only APIs (`GetCritChance`, `GetCombatRatingBonus`, `GetSpellBonusDamage`, `GetManaRegen`) only fire when scanning self. For inspect-scans of others those fields stay unset; the UI falls back to derived-from-rating sums for those rows.
+- New wire field at position 43 carries the encoded stats blob (`str=74,agi=339,sta=220,...`). `EncodeCharStats` / `ParseCharStats` handle the round-trip; values stored as `set.charStats` per spec, mirroring the `talentRanks` shape.
+
+**Stats panel display**
+
+- Each row now prefers `set.charStats[csKey]` over the item-derived fallback. New helpers `csNum(csKey, fallback)` and `csPct(csKey, fallback)` swap in the live value when present.
+- Title shows `(item-only)` in grey when looking at a pre-v1.4.4 cached entry that has no snapshot. Fresh scans omit the suffix — implies the live snapshot is being used.
+- Weapon damage row uses `cs.wMin/cs.wMax` (UnitDamage output, includes AP scaling) when available, falls back to weapon item's intrinsic damage range otherwise.
+- Armor row label changes from "Armor (bonus)" to "Armor" when the live snapshot is used (it's the effective armor including base+items+buffs, not the GetItemStats bonus alone).
+
+**Backward compatibility**
+
+- Wire format additive — pre-v1.4.4 receivers ignore field 43 silently.
+- Pre-v1.4.4 cached entries (no `charStats`) render with the item-only fallback values from v1.4.3 — no breakage. Re-scan to upgrade.
+- Mixed-version mesh: v1.4.4 senders carry the snapshot; v1.4.3- senders don't. Receivers handle both.
+
+Patch-level bump (1.4.3 → 1.4.4) — mesh auto-update notification stays silent.
+
+---
+
 ## EpogArmory v1.4.3 — Stats panel fixes *(2026-05-05)*
 
 Three issues from v1.4.2 reported in testing:

@@ -1292,6 +1292,131 @@ end
 -- every itemID where the inspector's local GetItemInfo has data. Right
 -- after a successful inspect, the SMSG_INSPECT_RESULTS response has
 -- populated the dynamic cache for those items, so GetItemInfo + GetItemStats
+-- Claude (v1.4.4): capture live character stats at scan time. Item-only
+-- aggregation misses everything that isn't a flat slot stat:
+--   - race+level base attribute values
+--   - class AP formulas (warrior STR×2, hunter AGI×2, etc.)
+--   - weapon damage with AP scaling
+--   - buff/debuff effects active during the scan
+--   - talent multipliers (e.g., Toughness +Stamina)
+-- UnitStat / UnitArmor / UnitAttackPower / UnitDamage all work on
+-- inspected unit tokens (party/raid). The player-only APIs (GetCritChance,
+-- GetCombatRatingBonus, GetSpellBonusDamage) only fire when scanning self.
+-- For inspect-scans the panel falls back to derived-from-item-ratings for
+-- those fields.
+local function CapturePlayerStats(unit)
+    local out = {}
+    -- Effective stat (index 2 of UnitStat) matches what the Character pane
+    -- shows in the white "Strength: 74" line — base + items + buffs + talents.
+    local _, str = UnitStat(unit, 1)
+    local _, agi = UnitStat(unit, 2)
+    local _, sta = UnitStat(unit, 3)
+    local _, intel = UnitStat(unit, 4)
+    local _, spi = UnitStat(unit, 5)
+    out.str = str or 0
+    out.agi = agi or 0
+    out.sta = sta or 0
+    out.int = intel or 0
+    out.spi = spi or 0
+    -- Effective armor (index 2) includes base+items+buffs (e.g., Inner Fire).
+    local _, effArmor = UnitArmor(unit)
+    out.armor = effArmor or 0
+    -- AP: sum the three returns. UnitAttackPower returns base, posBuff, negBuff.
+    local apB, apP, apN = UnitAttackPower(unit)
+    out.mAP = (apB or 0) + (apP or 0) + (apN or 0)
+    local rapB, rapP, rapN = UnitRangedAttackPower(unit)
+    out.rAP = (rapB or 0) + (rapP or 0) + (rapN or 0)
+    -- Weapon damage range (UnitDamage returns minDmg, maxDmg as floats).
+    if UnitDamage then
+        local minD, maxD = UnitDamage(unit)
+        if minD and maxD and minD > 0 then
+            out.wMin = math.floor(minD + 0.5)
+            out.wMax = math.floor(maxD + 0.5)
+        end
+    end
+    -- Player-only stats: combat ratings and crit chances only respond to
+    -- the implicit "player" unit. Skip for inspect-scans of others; the
+    -- UI falls back to item-rating sums on the receive side.
+    if UnitIsUnit(unit, "player") then
+        if GetCritChance        then out.mCrit = GetCritChance() end
+        if GetRangedCritChance  then out.rCrit = GetRangedCritChance() end
+        if GetSpellCritChance   then out.sCrit = GetSpellCritChance(2) end -- fire school = typical caster value
+        if GetCombatRatingBonus then
+            out.mHit  = GetCombatRatingBonus(6)  -- CR_HIT_MELEE
+            out.rHit  = GetCombatRatingBonus(7)  -- CR_HIT_RANGED
+            out.sHit  = GetCombatRatingBonus(8)  -- CR_HIT_SPELL
+            out.mHa   = GetCombatRatingBonus(18) -- CR_HASTE_MELEE
+            out.rHa   = GetCombatRatingBonus(19) -- CR_HASTE_RANGED
+            out.sHa   = GetCombatRatingBonus(20) -- CR_HASTE_SPELL
+            out.exp   = GetCombatRatingBonus(24) -- CR_EXPERTISE (% reduced by)
+            out.dod   = GetCombatRatingBonus(3)  -- CR_DODGE
+            out.par   = GetCombatRatingBonus(4)  -- CR_PARRY
+            out.blk   = GetCombatRatingBonus(5)  -- CR_BLOCK
+            out.res   = GetCombatRatingBonus(15) -- CR_CRIT_TAKEN_RANGED ≈ resilience
+            out.arp   = GetCombatRatingBonus(25) -- CR_ARMOR_PENETRATION
+            out.def   = GetCombatRatingBonus(2)  -- CR_DEFENSE_SKILL
+        end
+        if GetSpellBonusDamage then
+            local maxSP = 0
+            for school = 1, 7 do
+                local sp = GetSpellBonusDamage(school) or 0
+                if sp > maxSP then maxSP = sp end
+            end
+            out.sp = maxSP
+        end
+        if GetSpellBonusHealing then out.hp = GetSpellBonusHealing() or 0 end
+        if GetManaRegen then
+            local _, casting = GetManaRegen()
+            out.mp5 = math.floor(((casting or 0) * 5) + 0.5)
+        end
+    end
+    return out
+end
+
+-- Claude (v1.4.4): wire encoding for the stats blob. Compact key=value list
+-- separated by commas. Numeric values truncated to 2 decimals to keep
+-- the payload short. Wire-control chars (^|=,) are not legal in keys
+-- or values by construction (we only emit short ASCII keys + numeric
+-- values), so no escaping needed.
+local STATS_KEY_ORDER = {
+    "str","agi","sta","int","spi","armor",
+    "mAP","rAP","wMin","wMax",
+    "mCrit","rCrit","sCrit",
+    "mHit","rHit","sHit",
+    "mHa","rHa","sHa",
+    "exp","dod","par","blk","res","arp","def",
+    "sp","hp","mp5",
+}
+local function EncodeCharStats(stats)
+    if not stats then return "" end
+    local parts = {}
+    for _, k in ipairs(STATS_KEY_ORDER) do
+        local v = stats[k]
+        if v and v ~= 0 then
+            -- 2-decimal precision is plenty for stats: 6.00% / 13.67% / 368.5
+            parts[#parts + 1] = string.format("%s=%.2f", k, v)
+        end
+    end
+    return table.concat(parts, ",")
+end
+
+-- Claude (v1.4.4): inverse of EncodeCharStats. Returns a stats table or
+-- nil if blob is empty/malformed (defensive — older payloads have no
+-- field 43, and we don't want a malformed blob to error the whole parse).
+local function ParseCharStats(blob)
+    if not blob or blob == "" then return nil end
+    local out = {}
+    for pair in blob:gmatch("([^,]+)") do
+        local k, v = pair:match("^([%w_]+)=([%-%d%.]+)$")
+        if k and v then
+            local n = tonumber(v)
+            if n then out[k] = n end
+        end
+    end
+    if not next(out) then return nil end
+    return out
+end
+
 -- return Ascension's server-correct values. Receivers seed their cache
 -- from these hints and bypass the broken server-query path entirely.
 local function BuildItemInfoHints(unit)
@@ -1455,6 +1580,15 @@ local function BuildPayload(unit, guid)
     if type(myGuild) ~= "string" then myGuild = "" end
     myGuild = myGuild:gsub("[%^|]", "")
     parts[#parts + 1] = myGuild
+    -- Claude (v1.4.4): wire position 43 — live character stats from
+    -- UnitStat / UnitArmor / UnitAttackPower / UnitDamage. Lets the
+    -- receiver render real-character-pane numbers (base + items + buffs
+    -- + talents) in the Stats panel instead of pure-from-items sums.
+    -- For inspect-scans of others, only the unit-token-compatible stats
+    -- are present; player-only fields (crit/hit/haste/expertise %, spell
+    -- power, mp5) are skipped server-side and the UI falls back to
+    -- derived-from-rating sums on the receive side.
+    parts[#parts + 1] = EncodeCharStats(CapturePlayerStats(unit))
     -- v1.3: capture talent metadata locally for this class (name, icon,
     -- tier, column, maxRank per talent). Stored in EpogTalentTreeDB.
     -- Doesn't go on the wire — it's bulky and stable per-class. Each
@@ -1679,6 +1813,14 @@ local function ParsePayload(payload)
     if t[42] and t[42] ~= "" then
         entry.senderGuild = t[42]
     end
+    -- Claude (v1.4.4): wire position 43 — live character stats blob
+    -- (UnitStat-derived). Stored on the set so the Stats panel can show
+    -- real character-pane values instead of pure-from-items sums.
+    -- Absent on pre-v1.4.4 payloads; UI falls back to item-sum aggregation
+    -- when entry.charStats is nil.
+    if t[43] and t[43] ~= "" then
+        entry.charStats = ParseCharStats(t[43])
+    end
     if entry.name == "" or entry.guid == "" then return nil end
     return entry
 end
@@ -1833,6 +1975,11 @@ local function Ingest(payload, sender)
         -- website's interactive talent tree. Receiver maps talent index →
         -- name/tier/column via class talent tree metadata.
         talentRanks = entry.talentRanks,
+        -- Claude (v1.4.4): live character stats from UnitStat-derived
+        -- snapshot at scan time (wire pos 43). Lets the Stats panel show
+        -- real character-pane values (base + items + buffs + talents)
+        -- instead of pure-from-items sums.
+        charStats = entry.charStats,
     }
 
     -- Mirror the most-recently-scanned set to top-level fields for
