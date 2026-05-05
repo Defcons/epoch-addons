@@ -4,6 +4,33 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.4.2 — UI: Guild column, frame sizing, Stats panel *(2026-05-05)*
+
+Internal patch build (test track continues — aura interlock from v1.4.1 still disabled). Patch-level bump means no auto-update notification on the mesh.
+
+**Frame sizing**
+- **Inspect frame**: 320 → 360 wide. Slot icon offsets pushed inward (15→35 left/right, 55→75 for bottom-row weapons) so items have more breathing room around the edges. Icon spacing in the middle (between left/right columns) is unchanged — only the outer padding grew.
+- **Browser frame**: 320 → 380 wide to fit the new Guild column without squeezing other Scanners-view columns.
+- **Talents frame**: now matches the inspect frame's dimensions (360×540). Grid centered horizontally inside the wider frame. Drag disabled — talents always docks to the inspect frame's right edge via a relative anchor (`TOPLEFT → TOPRIGHT`), so dragging the inspect frame carries talents along automatically. Previously letting talents drag independently broke the "stick" relationship.
+
+**Scanners view: Guild column**
+- New wire field at position 42 carries the scanner's guild name (`GetGuildInfo("player")` at scan time). Wire-control chars (`^`, `|`) stripped defensively.
+- `ParsePayload` reads `entry.senderGuild`; `Ingest` persists it to `peerInfo[name].guild`. Existing peerInfo guild values are preserved when an older client (no field 42) broadcasts — only overwritten when the new payload actually carries a value.
+- Browser Scanners view: new "Guild" header + per-row column inserted between Name and Contrib. Self-row guild populated live from the API since `peerInfo` never tracks self.
+
+**Stats overview panel**
+- New `Stats` button on the inspect frame (below Talents). Opens a side-panel docked to the LEFT of the inspect frame, so a fully-open layout reads: Stats | Inspect | Talents.
+- Aggregates `EpogItemCacheDB[id].stats` across the active set's 19 slots. Displays:
+  - **Base Stats**: Strength / Agility / Stamina / Intellect / Spirit / Armor (bonus)
+  - **Melee**: Damage range (mainhand) / Speed / Power / Hit % / Crit % / Haste % / Expertise %
+  - **Ranged**: Power / Hit % / Crit % / Haste %
+  - **Spell**: Spell Power / Hit % / Crit % / Haste % / Mana per 5s / Penetration
+  - **Defense**: Defense Rating / Dodge % / Parry % / Block % / Block Value / Resilience % / Armor Pen %
+- Rating-to-percent conversion uses WotLK level-80 constants (`RATING_PER_PERCENT_L80`). Sub-80 inspects show slightly inflated %s but the relative ordering is correct.
+- Stats panel auto-refreshes when switching players (`ShowInspect` calls `SetPlayer` if the panel is open).
+
+---
+
 ## EpogArmory v1.4.1 — Test build: aura interlock disabled *(2026-05-05)*
 
 **Internal test version. Patch-level bump means the auto-update notification on the mesh stays silent (`CompareMajorMinor` returns 0 for 1.4.0 → 1.4.1).** No GitHub Release post for this version.

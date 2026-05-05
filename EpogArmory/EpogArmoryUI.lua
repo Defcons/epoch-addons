@@ -31,26 +31,29 @@ local SLOT_BG_MAP = {
 -- All TOP-anchored rows shifted by -30 vs original to make room for the
 -- spec-switcher button row at y=-82 (added in v0.13). Bottom weapons are
 -- unchanged (anchored to frame bottom).
+-- Claude (v1.4.2): inspect frame widened 320→360, slot offsets pushed
+-- inward 15→35 / -15→-35 so items have more breathing room outside.
+-- Bottom row weapon slots also pushed inward 55→75 / -55→-75 to match.
 local SLOT_POS = {
-    [1]  = { "TOPLEFT",   15, -120 }, -- Head
-    [2]  = { "TOPLEFT",   15, -164 }, -- Neck
-    [3]  = { "TOPLEFT",   15, -208 }, -- Shoulder
-    [15] = { "TOPLEFT",   15, -252 }, -- Back
-    [5]  = { "TOPLEFT",   15, -296 }, -- Chest
-    [4]  = { "TOPLEFT",   15, -340 }, -- Shirt
-    [19] = { "TOPLEFT",   15, -384 }, -- Tabard
-    [9]  = { "TOPLEFT",   15, -428 }, -- Wrist
-    [10] = { "TOPRIGHT", -15, -120 }, -- Hands
-    [6]  = { "TOPRIGHT", -15, -164 }, -- Waist
-    [7]  = { "TOPRIGHT", -15, -208 }, -- Legs
-    [8]  = { "TOPRIGHT", -15, -252 }, -- Feet
-    [11] = { "TOPRIGHT", -15, -296 }, -- Finger 1
-    [12] = { "TOPRIGHT", -15, -340 }, -- Finger 2
-    [13] = { "TOPRIGHT", -15, -384 }, -- Trinket 1
-    [14] = { "TOPRIGHT", -15, -428 }, -- Trinket 2
-    [16] = { "BOTTOMLEFT",  55, 20 }, -- Main Hand
+    [1]  = { "TOPLEFT",   35, -120 }, -- Head
+    [2]  = { "TOPLEFT",   35, -164 }, -- Neck
+    [3]  = { "TOPLEFT",   35, -208 }, -- Shoulder
+    [15] = { "TOPLEFT",   35, -252 }, -- Back
+    [5]  = { "TOPLEFT",   35, -296 }, -- Chest
+    [4]  = { "TOPLEFT",   35, -340 }, -- Shirt
+    [19] = { "TOPLEFT",   35, -384 }, -- Tabard
+    [9]  = { "TOPLEFT",   35, -428 }, -- Wrist
+    [10] = { "TOPRIGHT", -35, -120 }, -- Hands
+    [6]  = { "TOPRIGHT", -35, -164 }, -- Waist
+    [7]  = { "TOPRIGHT", -35, -208 }, -- Legs
+    [8]  = { "TOPRIGHT", -35, -252 }, -- Feet
+    [11] = { "TOPRIGHT", -35, -296 }, -- Finger 1
+    [12] = { "TOPRIGHT", -35, -340 }, -- Finger 2
+    [13] = { "TOPRIGHT", -35, -384 }, -- Trinket 1
+    [14] = { "TOPRIGHT", -35, -428 }, -- Trinket 2
+    [16] = { "BOTTOMLEFT",  75, 20 }, -- Main Hand
     [17] = { "BOTTOM",       0, 20 }, -- Off Hand
-    [18] = { "BOTTOMRIGHT", -55, 20 }, -- Ranged
+    [18] = { "BOTTOMRIGHT", -75, 20 }, -- Ranged
 }
 
 -- Fallback tree names, used only when a stored player record has no
@@ -278,9 +281,10 @@ StaticPopupDialogs["EPOGARMORY_CONFIRM_SYNC"] = {
 
 local function BuildInspectFrame()
     local f = CreateFrame("Frame", "EpogArmoryInspectFrame", UIParent)
-    -- Width 320 matches the browser frame so swapping between them feels
-    -- like one unified window. Height 540 is unchanged from v0.13.
-    f:SetWidth(320); f:SetHeight(540)
+    -- Claude (v1.4.2): widened 320→360 for more breathing room around the
+    -- slot icons (slot offsets pushed inward in SLOT_POS). Browser bumped
+    -- 320→380 in parallel for the new Guild column. Height 540 unchanged.
+    f:SetWidth(360); f:SetHeight(540)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetBackdrop({
@@ -344,6 +348,22 @@ local function BuildInspectFrame()
         end
     end)
     f.talentsBtn = talents
+
+    -- Claude (v1.4.2): Stats button. Opens a side-panel showing aggregated
+    -- item stats (base stats + Melee/Ranged/Spell/Defense ratings) for the
+    -- inspected player. Anchors to the LEFT edge of the inspect frame so
+    -- a fully-open layout reads: Stats | Inspect | Talents.
+    local stats = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    stats:SetWidth(52); stats:SetHeight(20)
+    stats:SetPoint("TOPLEFT", talents, "BOTTOMLEFT", 0, -4)
+    stats:SetText("Stats")
+    stats:SetScript("OnClick", function()
+        if not f.activePlayer then return end
+        if _G.EpogArmory_OpenStatsFor then
+            _G.EpogArmory_OpenStatsFor(f.activePlayer, f.activeGroup)
+        end
+    end)
+    f.statsBtn = stats
 
     f.nameText = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.nameText:SetPoint("TOP", 0, -42)
@@ -605,8 +625,14 @@ local function BuildTalentFrame()
     local GRID_W = COLS * (CELL + GAP) - GAP
     local GRID_H = TIERS * (CELL + GAP) - GAP
     local t = CreateFrame("Frame", "EpogArmoryTalentFrame", UIParent)
-    t:SetWidth(GRID_LEFT + GRID_W + 14)             -- ~232
-    t:SetHeight((-GRID_TOP) + GRID_H + 18)           -- ~440
+    -- Claude (v1.4.2): match the inspect frame size (360x540) so the two
+    -- frames look balanced when docked side-by-side. Grid stays its
+    -- natural size, just centered horizontally inside the wider frame.
+    t:SetWidth(360); t:SetHeight(540)
+    -- Claude (v1.4.2): re-center (tier labels + grid) horizontally inside
+    -- the wider frame. Tier labels sit just left of the grid (offset of -4
+    -- per the GRID_LEFT-4 anchor at line 678).
+    GRID_LEFT = math.floor((360 - TIER_LABEL_W - GRID_W) / 2) + TIER_LABEL_W
     t:SetFrameStrata("DIALOG")
     t:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -614,10 +640,12 @@ local function BuildTalentFrame()
         tile = true, tileSize = 32, edgeSize = 32,
         insets = { left = 11, right = 12, top = 12, bottom = 11 },
     })
-    t:SetMovable(true); t:EnableMouse(true)
-    t:RegisterForDrag("LeftButton")
-    t:SetScript("OnDragStart", t.StartMoving)
-    t:SetScript("OnDragStop", t.StopMovingOrSizing)
+    -- Claude (v1.4.2): drag disabled — the talents frame is always anchored
+    -- to the inspect frame's RIGHT edge in EpogArmory_OpenTalentsFor, so
+    -- letting it move independently broke the "stick" relationship the
+    -- user expects. Inspect frame is the only draggable surface; talents
+    -- follows automatically.
+    t:EnableMouse(true)
     t:Hide()
 
     t.title = t:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -978,20 +1006,291 @@ end
 
 -- Public opener — called from the inspect frame's "Talents" button.
 -- Claude (audit fix v1.3.4): build once, reuse on subsequent opens.
--- The previous destroy+rebuild pattern leaked a frame per open (WoW frames
--- can never be GC'd) and grew UISpecialFrames unbounded (tinsert ran
--- inside BuildTalentFrame). SetPlayer → RenderTab already clears prior
--- spec state cleanly, so rebuilding the frame structure was unnecessary.
+-- Claude (v1.4.2): clear anchor and re-anchor every open. Combined with
+-- drag being disabled on the talents frame itself (see BuildTalentFrame),
+-- this keeps the talents frame "stuck" to the right edge of the inspect
+-- frame across moves — dragging the inspect frame carries talents along
+-- because of the relative anchor.
 function _G.EpogArmory_OpenTalentsFor(player, group)
     if not talentFrame then talentFrame = BuildTalentFrame() end
     talentFrame:ClearAllPoints()
     if inspectFrame and inspectFrame:IsShown() then
-        talentFrame:SetPoint("LEFT", inspectFrame, "RIGHT", 4, 0)
+        talentFrame:SetPoint("TOPLEFT", inspectFrame, "TOPRIGHT", 4, 0)
     else
         talentFrame:SetPoint("CENTER")
     end
     talentFrame:Show()
     talentFrame.SetPlayer(player, group)
+end
+
+-- Claude (v1.4.2): Stats overview frame.
+-- Aggregates item stats from EpogItemCacheDB across the active set's gear,
+-- displays them grouped (Base / Melee / Ranged / Spell / Defense) with
+-- rating→% conversion at L80 (WotLK constants). Anchors to the LEFT of
+-- the inspect frame so when both Stats and Talents are open you get a
+-- three-panel view: Stats | Inspect | Talents.
+local statsFrame
+
+-- Sum stats across all 19 slots' items via EpogItemCacheDB[id].stats.
+-- Returns { stats = { [ITEM_MOD_KEY] = sum }, weapon = { min, max, speed } }.
+local function AggregateItemStats(gear)
+    local out = { stats = {}, weapon = nil }
+    if not gear then return out end
+    local cache = EpogItemCacheDB or {}
+    for slot = 1, 19 do
+        local itemstr = gear[slot]
+        if itemstr and itemstr ~= "" then
+            local itemID = tonumber(itemstr:match("^(%d+)"))
+            if itemID and cache[itemID] then
+                local entry = cache[itemID]
+                if entry.stats then
+                    for k, v in pairs(entry.stats) do
+                        if type(v) == "number" then
+                            out.stats[k] = (out.stats[k] or 0) + v
+                        end
+                    end
+                end
+                -- Capture mainhand weapon damage/speed for the Melee section
+                if slot == 16 and entry.damage and entry.speed then
+                    out.weapon = {
+                        min   = entry.damage.min,
+                        max   = entry.damage.max,
+                        speed = entry.speed,
+                    }
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- WotLK rating-to-% conversion at L80. Used for displaying combat ratings
+-- in their "% chance" form. Players below L80 see slightly inflated %s
+-- (the constants are smaller at lower levels, but we can't reliably
+-- compute them without a class-aware curve, and L80 is the common case
+-- for raid-relevant scans).
+local RATING_PER_PERCENT_L80 = {
+    melee_hit       = 32.78,
+    ranged_hit      = 32.78,
+    spell_hit       = 26.23,
+    melee_crit      = 45.91,
+    ranged_crit     = 45.91,
+    spell_crit      = 45.91,
+    melee_haste     = 25.21,
+    ranged_haste    = 25.21,
+    spell_haste     = 32.79,
+    expertise       = 8.197,   -- 1 expertise = 0.25% reduction; rating/8.197 = expertise points
+    defense         = 4.92,    -- 1 defense skill = 0.04% misc; rating/4.92 = defense skill
+    dodge           = 39.35,
+    parry           = 49.18,
+    block           = 16.39,
+    resilience      = 94.28,
+    armor_pen       = 13.99,
+}
+
+local function FmtPct(rating, perPct)
+    if not rating or rating == 0 then return "0.00%" end
+    return string.format("%.2f%%", rating / perPct)
+end
+
+local function FmtNum(n)
+    if not n or n == 0 then return "0" end
+    return tostring(n)
+end
+
+local function BuildStatsFrame()
+    local f = CreateFrame("Frame", "EpogArmoryStatsFrame", UIParent)
+    f:SetWidth(360); f:SetHeight(540)
+    f:SetFrameStrata("DIALOG")
+    f:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    })
+    -- Drag disabled so it stays anchored to the inspect frame's LEFT edge.
+    f:EnableMouse(true)
+    f:Hide()
+
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    f.title:SetPoint("TOP", 0, -16)
+    f.title:SetText("Stats")
+
+    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -4, -4)
+
+    -- Two-column body: label on left, value right-aligned. Pre-allocate a
+    -- pool of fontstring pairs and stack them vertically. Section headers
+    -- are full-width single fontstrings.
+    local LINE_H = 16
+    local SECTION_GAP = 6
+    local TOP = -54
+    local LABEL_X = 22
+    local VALUE_RIGHT = -22
+
+    f.lines = {}
+    -- factory: ensure pool[i] exists, return its line table
+    local function ensureLine(i)
+        local L = f.lines[i]
+        if L then return L end
+        L = {}
+        L.label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        L.label:SetPoint("TOPLEFT", f, "TOPLEFT", LABEL_X, TOP)
+        L.label:SetJustifyH("LEFT")
+        L.value = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        L.value:SetPoint("TOPRIGHT", f, "TOPRIGHT", VALUE_RIGHT, TOP)
+        L.value:SetJustifyH("RIGHT")
+        f.lines[i] = L
+        return L
+    end
+
+    -- Reposition + write line content. y is the running y offset (negative).
+    local function placeLine(i, y, label, value, isHeader)
+        local L = ensureLine(i)
+        L.label:ClearAllPoints()
+        L.value:ClearAllPoints()
+        L.label:SetPoint("TOPLEFT", f, "TOPLEFT", LABEL_X, y)
+        L.value:SetPoint("TOPRIGHT", f, "TOPRIGHT", VALUE_RIGHT, y)
+        if isHeader then
+            L.label:SetText("|cffffd200" .. label .. "|r")
+            L.value:SetText("")
+        else
+            L.label:SetText(label)
+            L.value:SetText(value or "0")
+        end
+        L.label:Show()
+        L.value:Show()
+    end
+
+    local function hideLinesFrom(i)
+        local k = i
+        while f.lines[k] do
+            f.lines[k].label:Hide()
+            f.lines[k].value:Hide()
+            k = k + 1
+        end
+    end
+
+    function f.SetPlayer(player, group)
+        f.title:SetText(string.format("Stats — %s", (player and player.name) or "?"))
+        if not player or not player.sets or not player.sets[group] then
+            placeLine(1, TOP, "(no set data)", "", true)
+            hideLinesFrom(2)
+            return
+        end
+        local set = player.sets[group]
+        local agg = AggregateItemStats(set.gear)
+        local s = agg.stats
+
+        local i = 0
+        local y = TOP
+        local function row(label, value, isHeader)
+            i = i + 1
+            placeLine(i, y, label, value, isHeader)
+            y = y - (isHeader and (LINE_H + 2) or LINE_H)
+        end
+        local function gap()
+            y = y - SECTION_GAP
+        end
+
+        -- Base Stats
+        row("Base Stats", nil, true)
+        row("Strength",  FmtNum(s["ITEM_MOD_STRENGTH_SHORT"]))
+        row("Agility",   FmtNum(s["ITEM_MOD_AGILITY_SHORT"]))
+        row("Stamina",   FmtNum(s["ITEM_MOD_STAMINA_SHORT"]))
+        row("Intellect", FmtNum(s["ITEM_MOD_INTELLECT_SHORT"]))
+        row("Spirit",    FmtNum(s["ITEM_MOD_SPIRIT_SHORT"]))
+        -- Item armor isn't always exposed via GetItemStats — try a few likely
+        -- keys. Falls back to 0 silently if our cache doesn't carry it.
+        local armor = (s["RESISTANCE0_NAME"] or s["ITEM_MOD_ARMOR"]
+            or s["ITEM_MOD_RESISTANCE_BASE_SHORT"] or 0)
+        row("Armor (bonus)", FmtNum(armor))
+        gap()
+
+        -- Melee
+        row("Melee", nil, true)
+        if agg.weapon then
+            row("Damage", string.format("%.0f-%.0f", agg.weapon.min or 0, agg.weapon.max or 0))
+            row("Speed",  string.format("%.2f", agg.weapon.speed or 0))
+        else
+            row("Damage", "—")
+            row("Speed",  "—")
+        end
+        local meleeAP = (s["ITEM_MOD_ATTACK_POWER_SHORT"] or 0)
+        local hitR    = (s["ITEM_MOD_HIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_HIT_MELEE_RATING_SHORT"] or 0)
+        local critR   = (s["ITEM_MOD_CRIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_CRIT_MELEE_RATING_SHORT"] or 0)
+        local hasteR  = (s["ITEM_MOD_HASTE_RATING_SHORT"] or 0) + (s["ITEM_MOD_HASTE_MELEE_RATING_SHORT"] or 0)
+        local expR    = (s["ITEM_MOD_EXPERTISE_RATING_SHORT"] or 0)
+        row("Power",       FmtNum(meleeAP))
+        row("Hit Chance",  FmtPct(hitR, RATING_PER_PERCENT_L80.melee_hit))
+        row("Crit Chance", FmtPct(critR, RATING_PER_PERCENT_L80.melee_crit))
+        row("Haste",       FmtPct(hasteR, RATING_PER_PERCENT_L80.melee_haste))
+        row("Expertise",   FmtPct(expR, RATING_PER_PERCENT_L80.expertise))
+        gap()
+
+        -- Ranged
+        row("Ranged", nil, true)
+        local rangedAP = (s["ITEM_MOD_RANGED_ATTACK_POWER_SHORT"] or 0)
+        local rHitR   = (s["ITEM_MOD_HIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_HIT_RANGED_RATING_SHORT"] or 0)
+        local rCritR  = (s["ITEM_MOD_CRIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_CRIT_RANGED_RATING_SHORT"] or 0)
+        local rHasteR = (s["ITEM_MOD_HASTE_RATING_SHORT"] or 0) + (s["ITEM_MOD_HASTE_RANGED_RATING_SHORT"] or 0)
+        row("Power",       FmtNum(rangedAP > 0 and rangedAP or meleeAP))
+        row("Hit Chance",  FmtPct(rHitR, RATING_PER_PERCENT_L80.ranged_hit))
+        row("Crit Chance", FmtPct(rCritR, RATING_PER_PERCENT_L80.ranged_crit))
+        row("Haste",       FmtPct(rHasteR, RATING_PER_PERCENT_L80.ranged_haste))
+        gap()
+
+        -- Spell
+        row("Spell", nil, true)
+        local spellPow = (s["ITEM_MOD_SPELL_POWER_SHORT"] or 0)
+        local sHitR   = (s["ITEM_MOD_HIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_HIT_SPELL_RATING_SHORT"] or 0)
+        local sCritR  = (s["ITEM_MOD_CRIT_RATING_SHORT"] or 0) + (s["ITEM_MOD_CRIT_SPELL_RATING_SHORT"] or 0)
+        local sHasteR = (s["ITEM_MOD_HASTE_RATING_SHORT"] or 0) + (s["ITEM_MOD_HASTE_SPELL_RATING_SHORT"] or 0)
+        local mp5     = (s["ITEM_MOD_POWER_REGEN0_SHORT"] or 0)
+        local pen     = (s["ITEM_MOD_SPELL_PENETRATION_SHORT"] or 0)
+        row("Spell Power", FmtNum(spellPow))
+        row("Hit Chance",  FmtPct(sHitR, RATING_PER_PERCENT_L80.spell_hit))
+        row("Crit Chance", FmtPct(sCritR, RATING_PER_PERCENT_L80.spell_crit))
+        row("Haste",       FmtPct(sHasteR, RATING_PER_PERCENT_L80.spell_haste))
+        row("Mana / 5s",   FmtNum(mp5))
+        row("Penetration", FmtNum(pen))
+        gap()
+
+        -- Defense
+        row("Defense", nil, true)
+        local defR     = (s["ITEM_MOD_DEFENSE_SKILL_RATING_SHORT"] or 0)
+        local dodgeR   = (s["ITEM_MOD_DODGE_RATING_SHORT"] or 0)
+        local parryR   = (s["ITEM_MOD_PARRY_RATING_SHORT"] or 0)
+        local blockR   = (s["ITEM_MOD_BLOCK_RATING_SHORT"] or 0)
+        local blockV   = (s["ITEM_MOD_BLOCK_VALUE_SHORT"] or 0)
+        local resilR   = (s["ITEM_MOD_RESILIENCE_RATING_SHORT"] or 0)
+        local arpR     = (s["ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT"] or 0)
+        row("Defense Rating", string.format("%d (+%.0f skill)", defR, defR / RATING_PER_PERCENT_L80.defense))
+        row("Dodge",         FmtPct(dodgeR, RATING_PER_PERCENT_L80.dodge))
+        row("Parry",         FmtPct(parryR, RATING_PER_PERCENT_L80.parry))
+        row("Block",         FmtPct(blockR, RATING_PER_PERCENT_L80.block))
+        row("Block Value",   FmtNum(blockV))
+        row("Resilience",    FmtPct(resilR, RATING_PER_PERCENT_L80.resilience))
+        row("Armor Pen",     FmtPct(arpR, RATING_PER_PERCENT_L80.armor_pen))
+
+        hideLinesFrom(i + 1)
+    end
+
+    tinsert(UISpecialFrames, "EpogArmoryStatsFrame")
+    return f
+end
+
+-- Public opener — called from the inspect frame's "Stats" button.
+function _G.EpogArmory_OpenStatsFor(player, group)
+    if not statsFrame then statsFrame = BuildStatsFrame() end
+    statsFrame:ClearAllPoints()
+    if inspectFrame and inspectFrame:IsShown() then
+        statsFrame:SetPoint("TOPRIGHT", inspectFrame, "TOPLEFT", -4, 0)
+    else
+        statsFrame:SetPoint("CENTER")
+    end
+    statsFrame:Show()
+    statsFrame.SetPlayer(player, group)
 end
 
 local function ShowInspect(player, group)
@@ -1003,6 +1302,10 @@ local function ShowInspect(player, group)
     -- v1.3: if the talent frame is open, refresh it for the new player
     if talentFrame and talentFrame:IsShown() and _G.EpogArmory_OpenTalentsFor then
         talentFrame.SetPlayer(player, inspectFrame.activeGroup)
+    end
+    -- Claude (v1.4.2): if the stats frame is open, refresh it too.
+    if statsFrame and statsFrame:IsShown() then
+        statsFrame.SetPlayer(player, inspectFrame.activeGroup)
     end
 
     local pending = RefreshIcons()
@@ -1033,7 +1336,9 @@ local BROWSER_ROW_HEIGHT = 18
 
 local function BuildBrowser()
     local f = CreateFrame("Frame", "EpogArmoryBrowserFrame", UIParent)
-    f:SetWidth(320); f:SetHeight(540)
+    -- Claude (v1.4.2): widened 320→380 to fit the new Guild column in the
+    -- Scanners view (and the Players view gets more name room as a bonus).
+    f:SetWidth(380); f:SetHeight(540)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetBackdrop({
@@ -1228,17 +1533,22 @@ local function BuildBrowser()
     f._colAgeRight  = COL_AGE_RIGHT
     f._colAgeWidth  = COL_AGE_WIDTH
 
-    -- Claude v0.49: column anchors for the Scanners-view table layout.
-    -- Five columns: Rank, Name, Contrib, In DB, Last. All in row-relative
-    -- coordinates. Row width ≈ 266px (scroll 270, minus 4 for inset).
-    -- Layout (row-local, left → right edge):
-    --   Rank:    4 → 28  (24w)
-    --   Name:   30 → 124 (94w)  4px gap
-    --   Contrib:128 → 168 (40w) 4px gap
-    --   DB:     172 → 208 (36w) 4px gap
-    --   Last:   212 → 262 (50w) 4px right padding
+    -- Claude v0.49 / v1.4.2: column anchors for the Scanners-view table.
+    -- Six columns now (added Guild between Name and Contrib in v1.4.2).
+    -- Layout, row-relative, with the right-anchored columns expressed as
+    -- offsets from row.RIGHT:
+    --   Rank:     LEFT 4   width 24
+    --   Name:     LEFT 30, RIGHT row.right - (guildLeft + 4)  ← flex
+    --   Guild:    RIGHT -142, width 76
+    --   Contrib:  RIGHT -98,  width 40
+    --   DB:       RIGHT -58,  width 36
+    --   Last:     RIGHT -4,   width 50
+    -- The browser frame was widened 320→380 in v1.4.2 to accommodate the
+    -- new Guild column without squeezing the others.
     local SCAN_RANK_LEFT     = 4
     local SCAN_NAME_LEFT     = 30
+    local SCAN_GUILD_RIGHT   = -142  -- Claude (v1.4.2): new column
+    local SCAN_GUILD_WIDTH   = 76
     local SCAN_CONTRIB_RIGHT = -98  -- offset from row RIGHT → right edge at 168
     local SCAN_CONTRIB_WIDTH = 40
     local SCAN_DB_RIGHT      = -58  -- right edge at 208
@@ -1255,6 +1565,12 @@ local function BuildBrowser()
     f.scanHeaderName:SetPoint("BOTTOMLEFT", scroll, "TOPLEFT", SCAN_NAME_LEFT + 2, 2)
     f.scanHeaderName:SetText("|cffffd200Name|r")
     f.scanHeaderName:Hide()
+
+    -- Claude (v1.4.2): Guild column header
+    f.scanHeaderGuild = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.scanHeaderGuild:SetPoint("BOTTOMRIGHT", scroll, "TOPRIGHT", SCAN_GUILD_RIGHT - 2, 2)
+    f.scanHeaderGuild:SetText("|cffffd200Guild|r")
+    f.scanHeaderGuild:Hide()
 
     f.scanHeaderContrib = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     f.scanHeaderContrib:SetPoint("BOTTOMRIGHT", scroll, "TOPRIGHT", SCAN_CONTRIB_RIGHT - 2, 2)
@@ -1273,6 +1589,8 @@ local function BuildBrowser()
 
     f._scanRankLeft     = SCAN_RANK_LEFT
     f._scanNameLeft     = SCAN_NAME_LEFT
+    f._scanGuildRight   = SCAN_GUILD_RIGHT   -- Claude (v1.4.2)
+    f._scanGuildWidth   = SCAN_GUILD_WIDTH   -- Claude (v1.4.2)
     f._scanContribRight = SCAN_CONTRIB_RIGHT
     f._scanContribWidth = SCAN_CONTRIB_WIDTH
     f._scanDBRight      = SCAN_DB_RIGHT
@@ -1329,9 +1647,20 @@ local function BuildBrowser()
 
         row.scanName = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
         row.scanName:SetPoint("LEFT", f._scanNameLeft, 0)
-        row.scanName:SetPoint("RIGHT", row, "RIGHT", f._scanContribRight - f._scanContribWidth - 4, 0)
+        -- Claude (v1.4.2): right-anchor pulled in to make room for the Guild
+        -- column inserted between Name and Contrib.
+        row.scanName:SetPoint("RIGHT", row, "RIGHT", f._scanGuildRight - f._scanGuildWidth - 4, 0)
         row.scanName:SetJustifyH("LEFT")
         row.scanName:Hide()
+
+        -- Claude (v1.4.2): Guild column. Sourced from peerInfo[name].guild,
+        -- which is populated from wire field 42 on every broadcast. Empty
+        -- string for unguilded peers or older clients that didn't send it.
+        row.scanGuild = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        row.scanGuild:SetPoint("RIGHT", row, "RIGHT", f._scanGuildRight, 0)
+        row.scanGuild:SetWidth(f._scanGuildWidth)
+        row.scanGuild:SetJustifyH("LEFT")
+        row.scanGuild:Hide()
 
         row.scanContrib = row:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
         row.scanContrib:SetPoint("RIGHT", f._scanContribRight, 0)
@@ -1516,6 +1845,7 @@ local function BuildBrowser()
             end
             stats[name].reportedDB = info.dbSize
             stats[name].reportedAt = info.lastSeen
+            stats[name].guild      = info.guild -- Claude (v1.4.2): Guild column source
         end
         -- Claude v0.52: peerInfo never tracks self (Ingest's
         -- `effectiveScanner ~= MyIdentity()` guard skips self-writes), so
@@ -1532,6 +1862,15 @@ local function BuildBrowser()
                 for _ in pairs(EpogArmoryDB.players) do myDBSize = myDBSize + 1 end
             end
             stats[myIdentity].reportedDB = myDBSize
+            -- Claude (v1.4.2): self-row Guild column. peerInfo never tracks
+            -- self (Ingest's `effectiveScanner ~= MyIdentity()` guard skips
+            -- self-writes), so we populate the guild live from the API here.
+            if GetGuildInfo then
+                local g = GetGuildInfo("player")
+                if type(g) == "string" and g ~= "" then
+                    stats[myIdentity].guild = g
+                end
+            end
         end
         -- v0.45: drop scanners whose latest signal (last contribution OR
         -- last live broadcast we heard) is older than 30 days. Keeps the
@@ -1548,6 +1887,7 @@ local function BuildBrowser()
                     lastContribution = info.lastContribution,
                     reportedDB       = info.reportedDB,
                     reportedAt       = info.reportedAt,
+                    guild            = info.guild, -- Claude (v1.4.2)
                 }
             end
         end
@@ -1599,7 +1939,7 @@ local function BuildBrowser()
                 row.colName:Show(); row.colClass:Show(); row.colAge:Show()
                 row.text:Hide()
                 -- Claude v0.49: hide scanner-mode columns when in players mode
-                row.scanRank:Hide(); row.scanName:Hide(); row.scanContrib:Hide()
+                row.scanRank:Hide(); row.scanName:Hide(); row.scanGuild:Hide(); row.scanContrib:Hide()
                 row.scanDB:Hide(); row.scanLast:Hide()
                 row.player = p
                 row.scannerName = nil
@@ -1722,6 +2062,15 @@ local function BuildBrowser()
 
                 row.scanRank:SetText(string.format("|cffaaaaaa#%d|r", rank))
                 row.scanName:SetText(nameColor .. (s.name or "?") .. "|r")
+                -- Claude (v1.4.2): Guild column. Empty string for unguilded
+                -- peers and pre-v1.4.2 senders; render as a soft em-dash so
+                -- the column doesn't look broken when most rows are empty.
+                local guildText = s.guild
+                if not guildText or guildText == "" then
+                    row.scanGuild:SetText("|cff666666—|r")
+                else
+                    row.scanGuild:SetText(string.format("|cffaaaaff%s|r", guildText))
+                end
                 row.scanContrib:SetText(string.format("|cffaaaaaa%d|r", s.contributed or 0))
 
                 if active then
@@ -1746,7 +2095,7 @@ local function BuildBrowser()
                     end
                 end
 
-                row.scanRank:Show(); row.scanName:Show(); row.scanContrib:Show()
+                row.scanRank:Show(); row.scanName:Show(); row.scanGuild:Show(); row.scanContrib:Show()
                 row.scanDB:Show(); row.scanLast:Show()
                 row.text:Hide() -- single-line text replaced by the columns
                 row.colName:Hide(); row.colClass:Hide(); row.colAge:Hide()
@@ -1812,7 +2161,7 @@ local function BuildBrowser()
             f.colHeaderClass:Show()  -- Claude v0.48
             f.colHeaderAge:Show()    -- Claude v0.48
             -- Claude v0.49: hide Scanners-mode column headers
-            f.scanHeaderRank:Hide(); f.scanHeaderName:Hide()
+            f.scanHeaderRank:Hide(); f.scanHeaderName:Hide(); f.scanHeaderGuild:Hide()
             f.scanHeaderContrib:Hide(); f.scanHeaderDB:Hide(); f.scanHeaderLast:Hide()
             f.acceptSyncBtn:Hide()
             f.refreshPeersBtn:Hide() -- Claude v0.47
@@ -1826,7 +2175,7 @@ local function BuildBrowser()
             f.colHeaderClass:Hide()  -- Claude v0.48
             f.colHeaderAge:Hide()    -- Claude v0.48
             -- Claude v0.49: show Scanners-mode column headers
-            f.scanHeaderRank:Show(); f.scanHeaderName:Show()
+            f.scanHeaderRank:Show(); f.scanHeaderName:Show(); f.scanHeaderGuild:Show()
             f.scanHeaderContrib:Show(); f.scanHeaderDB:Show(); f.scanHeaderLast:Show()
             -- Sync current state from SavedVariables into the checkbox UI.
             local accept = true

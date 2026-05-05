@@ -1445,6 +1445,16 @@ local function BuildPayload(unit, guid)
     -- interactive talent tree on epoglogs.com. Format described at
     -- BuildTalentRanks. Backward compatible — pre-v1.3 receivers ignore.
     parts[#parts + 1] = BuildTalentRanks(unit)
+    -- Claude (v1.4.2): wire position 42 — scanner's guild name. Captured
+    -- from GetGuildInfo("player"). Receivers persist to peerInfo[name].guild
+    -- so the Scanners view in the Browser can show a Guild column. Empty
+    -- string when the scanner is unguilded. Strip wire-control chars
+    -- defensively (^ separator and | item-link escape) so a guild name
+    -- containing those can't break payload parsing downstream.
+    local myGuild = GetGuildInfo and GetGuildInfo("player") or ""
+    if type(myGuild) ~= "string" then myGuild = "" end
+    myGuild = myGuild:gsub("[%^|]", "")
+    parts[#parts + 1] = myGuild
     -- v1.3: capture talent metadata locally for this class (name, icon,
     -- tier, column, maxRank per talent). Stored in EpogTalentTreeDB.
     -- Doesn't go on the wire — it's bulky and stable per-class. Each
@@ -1663,6 +1673,12 @@ local function ParsePayload(payload)
     if t[41] and t[41] ~= "" then
         entry.talentRanks = ParseTalentRanks(t[41])
     end
+    -- Claude (v1.4.2): wire position 42 — scanner's guild name. Used by
+    -- Ingest to populate peerInfo[name].guild for the Scanners view's
+    -- Guild column. Absent on pre-v1.4.2 payloads / unguilded scanners.
+    if t[42] and t[42] ~= "" then
+        entry.senderGuild = t[42]
+    end
     if entry.name == "" or entry.guid == "" then return nil end
     return entry
 end
@@ -1690,10 +1706,16 @@ local function Ingest(payload, sender)
     local effectiveScanner = (entry.senderMain ~= nil and entry.senderMain ~= "") and entry.senderMain or sender
     if entry.senderDBSize and effectiveScanner and effectiveScanner ~= "" and effectiveScanner ~= MyIdentity() then
         EpogArmoryDB.peerInfo = EpogArmoryDB.peerInfo or {}
+        -- Claude (v1.4.2): preserve any previously-known guild on the
+        -- existing peerInfo row so we don't blow it away when an old
+        -- pre-v1.4.2 client (no senderGuild) broadcasts. Only overwrite
+        -- when the new payload actually carries a guild value.
+        local prevGuild = (EpogArmoryDB.peerInfo[effectiveScanner] and EpogArmoryDB.peerInfo[effectiveScanner].guild) or nil
         EpogArmoryDB.peerInfo[effectiveScanner] = {
             dbSize       = entry.senderDBSize,
             lastSeen     = entry.scanTime or time(),
             lastCharName = sender, -- character actually broadcasting (for reachability lookups)
+            guild        = entry.senderGuild or prevGuild, -- Claude (v1.4.2): for Scanners-view Guild column
         }
     end
 
