@@ -4,6 +4,59 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.5.0 — Stats overview, Guild column, talent tree polish *(2026-05-05)*
+
+Consolidated release covering the v1.4.1–v1.4.6 iteration cycle. Headline features: a full Stats overview panel showing real character-pane numbers, a Guild column in the Scanners view, and a visual pass on the talent tree to bring it closer to Blizzard's PlayerTalentFrame look.
+
+**Stats overview panel**
+
+A new Stats button on the inspect frame opens a side-panel showing aggregated stats for the active set. Layout: Stats | Inspect | Talents when all three are open.
+
+- **Live character snapshot at scan time.** New `CapturePlayerStats(unit)` reads `UnitStat` / `UnitArmor` / `UnitAttackPower` / `UnitRangedAttackPower` / `UnitDamage` — these all work on inspected unit tokens, so the snapshot fires for both self-scans and inspect-scans of others. Player-only APIs (`GetCritChance`, `GetCombatRatingBonus`, `GetSpellBonusDamage`, `GetDodgeChance`, etc.) only fire when scanning self; for inspect-scans of others the panel falls back to derived-from-rating sums.
+- **Sections**: Base Stats (STR/AGI/STA/INT/SPI/Armor) + Melee (Damage/Speed/Power/Hit/Crit/Haste/Expertise) + Ranged + Spell + Defense.
+- **Combines rating-based and tooltip-based stats**: Vanilla L60 gear stores percentages as tooltip text (`+1% crit`, parsed into `entry.tooltipStats`) instead of as ratings. New `CombinePct` helper merges both sources into one displayed % so Vanilla, TBC, and WotLK gear all sum correctly.
+- **Wire field 43** carries the encoded snapshot (`str=74,agi=339,sta=220,armor=2399,mAP=722,...`). Stored as `set.charStats`, persisted in `EpogArmoryDB`, eventually flowing to epoglogs.com via the standard upload path.
+- **Sub-L80 conversion**: rating→% uses WotLK level-80 constants. Sub-80 inspects show slightly inflated %s but ordering is correct.
+
+**Scanners view: Guild column**
+
+- New wire field 42 carries the scanner's guild name (`GetGuildInfo("player")`). Receivers persist to `peerInfo[name].guild`.
+- New "Guild" column inserted between Name and Contrib in the Scanners-view leaderboard. Self-row guild populated live from the API since `peerInfo` never tracks self.
+- Forward-compat: pre-v1.5 senders without field 42 don't blow away existing guild values when they broadcast.
+
+**Frame sizing & layout**
+
+- Inspect frame: 320 → 360 wide. Slot icon offsets pushed inward (15 → 35 left/right; 55 → 75 for bottom-row weapons) so items have more breathing room around the edges. Icon spacing in the middle gap is unchanged — only outer padding grew.
+- Browser frame: 320 → 380 wide to fit the new Guild column.
+- Talent frame: now 360 wide (matching inspect) and 600 tall. Drag disabled — talents always docks to the inspect frame's right edge via a relative anchor (`TOPLEFT → TOPRIGHT`), so dragging the inspect frame carries talents along automatically. Previously letting talents drag independently broke the "stick" relationship.
+- Stats button grouped horizontally next to Talents on the inspect frame (`Talents | Stats` row), with the spec-tab row dropped 10px for clearance.
+
+**Talent tree visual pass**
+
+Closer to Blizzard's `PlayerTalentFrame` look:
+- Cell size: 36 → 40 px
+- Horizontal gap: 6 → 12 px, **vertical gap: 6 → 14 px** (the biggest visual change — in-game has noticeably more vertical breathing room)
+- Brighter rank-state colors: max-rank cells glow gold instead of dim amber, in-progress cells use saturated green instead of muted, empty cells stay near-black
+- Frame height bumped from 540 to 600 to accommodate the larger cells
+
+**Defense section**
+
+`GetCombatRatingBonus(3/4/5)` only returns the rating-derived bonus — a Hunter with no dodge rating still has 4-5% dodge from base Agility. Switched to `GetDodgeChance / GetParryChance / GetBlockChance` for the totals. Defense skill uses `UnitDefense("player")` (base + rating modifier).
+
+**Backward compatibility**
+
+- Wire format additive — pre-v1.5 receivers ignore positions 42 (senderGuild) and 43 (charStats) silently.
+- Pre-v1.5 cached entries render with v1.4.0-style item-only fallbacks. Title shows `(item-only)` indicator.
+- No DB wipe on update. All accumulated mesh data preserved.
+- `MigratePlayers` continues to handle pre-v0.13 flat entries and v0.13+ unkeyed sets.
+- Mixed-version mesh works: v1.5 senders carry the new fields, older senders don't, receivers handle both.
+
+**Test track conclusion (v1.4.1–v1.4.5 internal)**
+
+A test build with `REQUIRE_REALITY_AURA = false` validated whether the v1.4.0 settle (400ms) + verify (1.5s) pipeline could replace the aura interlock. Result: no — Ascension/Epoch's transmog override holds the cosmetic itemID well past the 1.9s combined window for inspected players, so without the aura we just broadcast junk gear. The interlock is back on. Flag kept (default `true`) for one-line revert if server behavior ever changes.
+
+---
+
 ## EpogArmory v1.4.6 — Reality Recalibrators interlock re-enabled *(2026-05-05)*
 
 **Test result from v1.4.1 → v1.4.5: the aura interlock is genuinely required on Epoch.** Without `Reality Recalibrators`, the v1.4.0 settle (400ms) + verify (1.5s) pipeline isn't sufficient — Ascension/Epoch's transmog override keeps returning cosmetic itemIDs for inspected players past the 1.9s combined window, so scans broadcast junk gear. The settle+verify is still useful for catching short flips when the aura *is* active, but it can't replace the aura.
