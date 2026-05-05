@@ -4,6 +4,26 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.4.1 — Test build: aura interlock disabled *(2026-05-05)*
+
+**Internal test version. Patch-level bump means the auto-update notification on the mesh stays silent (`CompareMajorMinor` returns 0 for 1.4.0 → 1.4.1).** No GitHub Release post for this version.
+
+Goal of this build: validate whether the v1.4.0 gear-read settle (400ms) + vanity-flip verify pass (1.5s) is enough on its own to filter out Ascension's transmog visual reads, *without* the `Reality Recalibrators` aura interlock backstop.
+
+- New top-level flag `local REQUIRE_REALITY_AURA = false`. Wraps all three existing interlock points (`BuildPayload`, `ScanRoster`, `TryInspect`) so they only enforce the aura check when `true`. Flipping back to `true` is a one-line revert if data quality regresses.
+- Diagnostic surfaces (`/epogarmory status`, `/epogarmory aura`, browser banner, minimap tooltip) now read the flag and accurately describe behavior in test mode — they say "TEST MODE: scanning anyway" rather than "auto-inspect paused", which would be misleading when the gate is off.
+- New public API `_G.EpogArmory.RequiresRealityAura()` so the UI module can check the flag without re-importing the constant.
+
+What to watch for during testing:
+
+1. **Gear quality**: do scans without the aura now produce real-gear payloads, or do transmog visuals slip through despite the settle+verify? If transmog leaks, we know the timing-only approach isn't sufficient and the aura gate has to come back.
+2. **Mesh pollution**: with the gate off, every aura-less inspect generates a broadcast. If the verify pass detects flips and corrects, the corrected payload eventually wins. But the *initial* broadcast might still be wrong gear. Watch peer scan logs.
+3. **Self-scans**: should be unchanged. Self-side never depended on the aura.
+
+To revert: set `REQUIRE_REALITY_AURA = true` in EpogArmory.lua (single line near the `REALITY_AURA_NAME` constant).
+
+---
+
 ## EpogArmory v1.4.0 — Inspect reliability + quality gate *(2026-05-05)*
 
 Consolidated release covering the v1.3.1–v1.3.5 iteration cycle. Headline improvements: inspects produce more accurate gear data, partial loadouts no longer pollute the mesh, and the addon no longer leaks frames over a long session.

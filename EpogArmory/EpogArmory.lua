@@ -205,6 +205,16 @@ local MOUNT_ENCHANT_SLOTS = { 8, 10 } -- feet, hands
 -- you), so self-scans aren't gated.
 local REALITY_AURA_NAME = "Reality Recalibrators"
 
+-- Claude (v1.4.1 test mode): toggle the auto-inspect gating on the Reality
+-- Recalibrators aura. When false, all three interlock points (BuildPayload,
+-- ScanRoster, TryInspect) skip the aura check and let scans proceed
+-- regardless. The 400ms settle + 1.5s verify pass added in v1.4.0 might be
+-- enough on its own to filter out transmog visual reads — this flag lets
+-- us validate that hypothesis. Diagnostic surfaces (status command,
+-- browser banner, minimap tooltip) still show the aura state for visibility.
+-- Flip back to true if data quality regresses without the gate.
+local REQUIRE_REALITY_AURA = false
+
 -- v1.1.7+: track whether we've ever seen the aura active this session.
 -- Used to suppress the "aura not active" hint for users who clearly
 -- know about it (avoids false-positive nags during zone transitions
@@ -1323,7 +1333,8 @@ local function BuildPayload(unit, guid)
     -- check). Self-scans pass: you always see your own real gear regardless
     -- of transmog. Other-unit scans require Reality Recalibrators because
     -- inspect APIs return transmog visuals on Ascension without it.
-    if not UnitIsUnit(unit, "player") and not HasRealityAura() then
+    -- v1.4.1: gate is conditional on REQUIRE_REALITY_AURA flag (test mode).
+    if REQUIRE_REALITY_AURA and not UnitIsUnit(unit, "player") and not HasRealityAura() then
         return nil, "Reality Recalibrators aura not active (transmog would override real gear)"
     end
     local realm = GetRealmName() or ""
@@ -2230,7 +2241,8 @@ local function ScanRoster()
     -- "naked" or low-level cosmetics), not real gear — bypass so we don't
     -- pollute the mesh with junk scans. Show a one-time hint when the
     -- user has groupmates we'd otherwise be scanning.
-    if not HasRealityAura() then
+    -- v1.4.1: gate conditional on REQUIRE_REALITY_AURA (test mode).
+    if REQUIRE_REALITY_AURA and not HasRealityAura() then
         local hasGroup = (GetNumRaidMembers() > 0) or (GetNumPartyMembers() > 0)
         -- v1.1.7+: skip the hint entirely during the post-zone-change
         -- settle window. UnitBuff returns nothing for a few seconds after
@@ -2293,7 +2305,8 @@ local function TryInspect()
     -- — UnitBuff briefly returns nothing after PLAYER_ENTERING_WORLD
     -- even when the aura is active. Just hold the queue and retry next
     -- tick; auras restore within a few seconds.
-    if not HasRealityAura() then
+    -- v1.4.1: gate conditional on REQUIRE_REALITY_AURA (test mode).
+    if REQUIRE_REALITY_AURA and not HasRealityAura() then
         if InAuraSettleWindow() then
             dprint("[inspect] aura check skipped — within settle window (queue held)")
             nextInspectAt = now() + 1 -- recheck soon
@@ -2829,6 +2842,9 @@ _G.EpogArmory.MyIdentity = function() return MyIdentity() end
 -- instead of true gear, so we pause auto-scanning when missing.
 _G.EpogArmory.HasRealityAura = HasRealityAura
 _G.EpogArmory.RealityAuraName = REALITY_AURA_NAME
+-- Claude (v1.4.1 test): expose the test-mode flag so UI surfaces can
+-- accurately describe inspect behaviour when the aura is missing.
+_G.EpogArmory.RequiresRealityAura = function() return REQUIRE_REALITY_AURA end
 -- Also resets the 24h HasFreshScan gate for this GUID (by wiping
 -- lastScanned[guid]) and the in-memory 15min inspect cooldown (seen[guid]),
 -- so *this client* can re-inspect immediately if they're in range. If the
@@ -2930,8 +2946,11 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         -- v1.2: surface aura status as part of the standard status output
         if HasRealityAura() then
             print(string.format("  |cff00ff66%s aura: ACTIVE|r — auto-inspect enabled", REALITY_AURA_NAME))
-        else
+        elseif REQUIRE_REALITY_AURA then
             print(string.format("  |cffff6666%s aura: NOT ACTIVE|r — auto-inspect of groupmates paused (transmog hides true gear)", REALITY_AURA_NAME))
+        else
+            -- Claude (v1.4.1 test): aura interlock disabled, scanning anyway to test settle+verify
+            print(string.format("  |cffffaa00%s aura: NOT ACTIVE|r — |cffff9966TEST MODE|r: scanning anyway (settle+verify validation)", REALITY_AURA_NAME))
         end
     elseif msg == "cache" then
         print(string.format("|cffffaa44EpogArmory|r cache: %d items known, %d pending client fetch",
@@ -3154,11 +3173,16 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         if HasRealityAura() then
             print(string.format("|cffffaa44EpogArmory|r: |cff00ff66%s|r aura |cff00ff66ACTIVE|r — auto-inspect of groupmates enabled.",
                 REALITY_AURA_NAME))
-        else
+        elseif REQUIRE_REALITY_AURA then
             print(string.format("|cffffaa44EpogArmory|r: |cffff9966%s|r aura |cffff6666NOT ACTIVE|r — auto-inspect of groupmates is paused.",
                 REALITY_AURA_NAME))
             print("|cff888888  Without the aura, Ascension's transmog hides true gear from inspect. Self-scans still work normally.|r")
             realityAuraHintShown = false
+        else
+            -- Claude (v1.4.1 test): aura interlock disabled
+            print(string.format("|cffffaa44EpogArmory|r: |cffff9966%s|r aura |cffff6666NOT ACTIVE|r — |cffffaa00TEST MODE|r: scanning anyway.",
+                REALITY_AURA_NAME))
+            print("|cff888888  v1.4.1 test build: validating whether the 400ms settle + 1.5s verify pass is enough on its own to filter out transmog visual reads. Self-scans always work.|r")
         end
     elseif msg == "refreshpeers" or msg == "refresh" then
         -- v0.47: ask everyone in guild/group "give me your latest info".
