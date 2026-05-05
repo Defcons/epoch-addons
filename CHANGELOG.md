@@ -4,6 +4,35 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.4.5 — Defense totals + talent tree visual pass *(2026-05-05)*
+
+**Defense section was showing 0% for everything**
+
+`GetCombatRatingBonus(3/4/5)` only returns the rating-derived bonus — a Hunter with no dodge rating still has 4-5% base dodge from Agility, but my v1.4.4 captured the rating component (0) and displayed 0%. Switched to:
+- `GetDodgeChance()` — total dodge incl. base + Agility + items + buffs
+- `GetParryChance()` — same for parry
+- `GetBlockChance()` — same for block
+- `UnitDefense("player")` — for Defense skill (base + rating modifier)
+
+Display row labels updated: "Defense Rating: N (+ skill)" → "Defense: N skill" when live snapshot present (matches in-game character pane wording).
+
+**Talent tree visuals**
+
+Closer to Blizzard's `PlayerTalentFrame` look:
+- Cell size: 36 → 40 px
+- Horizontal gap: 6 → 12 px
+- **Vertical gap: 6 → 14 px** (the biggest visual change — the in-game tree has noticeably more vertical breathing room than horizontal)
+- Frame height: 540 → 600 (to fit 9 rows × 54 px pitch + 86 top + 42 bottom padding)
+- Brighter rank-state colors: max-rank cells now glow gold `(1.0, 0.78, 0.18)` instead of dim amber, in-progress cells use saturated green `(0.18, 0.78, 0.22)` instead of muted, empty cells stay near-black
+
+**About the in-game character pane showing 0% hit chance**
+
+EpogArmory's stat-capture is read-only — `UnitStat`, `UnitArmor`, `GetCombatRatingBonus`, etc. cannot modify game state. If the in-game pane shows 0% but our snapshot showed 6%, it's because the gear/buff state changed between the snapshot and the current view (e.g., unequipped a hit-rating item, lost an aura). No bug from our side.
+
+Patch-level bump (1.4.4 → 1.4.5) — mesh auto-update notification stays silent.
+
+---
+
 ## EpogArmory v1.4.4 — Stats panel: live character snapshot *(2026-05-05)*
 
 The v1.4.3 panel summed only what was literally on items, missing everything the in-game character pane shows: race+level base attributes, class AP formulas (warrior STR×2, hunter AGI×2), weapon damage with AP scaling, talent multipliers (Toughness +Stamina, Durability, etc.), and active buff effects. So a L60 Hunter with 339 Agility on the character pane showed only 180 in EpogArmory (item-only sum).

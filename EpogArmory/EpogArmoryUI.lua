@@ -622,19 +622,24 @@ local talentFrame
 local function BuildTalentFrame()
     local TIERS = 9    -- Claude: Ascension has TBC trees with up to 9 tiers
     local COLS  = 4
-    local CELL  = 36   -- Claude: slightly smaller to keep 9-row frame on screen
-    local GAP   = 6
+    -- Claude (v1.4.5): bump cell size 36→40 and split GAP into horizontal
+    -- and vertical components. The Blizzard talent panel has notably more
+    -- vertical breathing room than horizontal — splitting matches that
+    -- look without making the grid wider than the frame allows. Frame
+    -- height bumped 540→600 to fit 9 rows at the new pitch.
+    local CELL    = 40
+    local GAP_H   = 12
+    local GAP_V   = 14
     local TIER_LABEL_W = 20  -- column on left for tier numbers
     local GRID_LEFT = 14 + TIER_LABEL_W
     local GRID_TOP  = -86
 
-    local GRID_W = COLS * (CELL + GAP) - GAP
-    local GRID_H = TIERS * (CELL + GAP) - GAP
+    local GRID_W = COLS  * (CELL + GAP_H) - GAP_H
+    local GRID_H = TIERS * (CELL + GAP_V) - GAP_V
     local t = CreateFrame("Frame", "EpogArmoryTalentFrame", UIParent)
-    -- Claude (v1.4.2): match the inspect frame size (360x540) so the two
-    -- frames look balanced when docked side-by-side. Grid stays its
-    -- natural size, just centered horizontally inside the wider frame.
-    t:SetWidth(360); t:SetHeight(540)
+    -- Claude (v1.4.5): height 540→600 to accommodate the larger cells +
+    -- vertical breathing room. Width still matches the inspect frame.
+    t:SetWidth(360); t:SetHeight(600)
     -- Claude (v1.4.2): re-center (tier labels + grid) horizontally inside
     -- the wider frame. Tier labels sit just left of the grid (offset of -4
     -- per the GRID_LEFT-4 anchor at line 678).
@@ -700,7 +705,7 @@ local function BuildTalentFrame()
         local label = t:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         label:SetPoint("RIGHT", t, "TOPLEFT",
             GRID_LEFT - 4,
-            GRID_TOP - (tier - 1) * (CELL + GAP) - CELL / 2)
+            GRID_TOP - (tier - 1) * (CELL + GAP_V) - CELL / 2)
         label:SetText(tostring(tier))
         label:SetTextColor(0.7, 0.7, 0.4)
         label:SetShadowOffset(1, -1)
@@ -738,8 +743,8 @@ local function BuildTalentFrame()
             b:EnableMouse(true)
             b:SetWidth(CELL); b:SetHeight(CELL)
             b:SetPoint("TOPLEFT", t, "TOPLEFT",
-                GRID_LEFT + (col - 1) * (CELL + GAP),
-                GRID_TOP - (tier - 1) * (CELL + GAP))
+                GRID_LEFT + (col - 1) * (CELL + GAP_H),
+                GRID_TOP - (tier - 1) * (CELL + GAP_V))
 
             -- Background texture fills the full button. Doubles as the "border"
             -- because the icon is inset 2px, leaving a 2px strip of bg color
@@ -783,7 +788,8 @@ local function BuildTalentFrame()
 
     -- Stash for use in RenderTab
     t._CELL = CELL
-    t._GAP  = GAP
+    t._GAP_H = GAP_H -- Claude (v1.4.5): split into horizontal/vertical
+    t._GAP_V = GAP_V
     t._GRID_LEFT = GRID_LEFT
     t._GRID_TOP  = GRID_TOP
     t._getArrow = getArrow
@@ -847,7 +853,7 @@ local function BuildTalentFrame()
         end
 
         -- Render talents
-        local CELL, GAP, GL, GT = t._CELL, t._GAP, t._GRID_LEFT, t._GRID_TOP
+        local CELL, GAP_H, GAP_V, GL, GT = t._CELL, t._GAP_H, t._GAP_V, t._GRID_LEFT, t._GRID_TOP
         for i, talent in pairs(meta.talents) do
             if talent.tier and talent.tier > 0 and talent.column and talent.column > 0 then
                 local key = talent.tier .. "," .. talent.column
@@ -866,20 +872,23 @@ local function BuildTalentFrame()
                         (talent.icon and talent.icon ~= "") and talent.icon
                         or "Interface\\Icons\\INV_Misc_QuestionMark")
 
-                    -- bg:SetVertexColor colors the 2px border strip around icon
+                    -- bg:SetVertexColor colors the 2px border strip around icon.
+                    -- Claude (v1.4.5): brighter golden for max-rank talents,
+                    -- saturated green for partially-spent, near-black for
+                    -- empty — closer to Blizzard's PlayerTalentFrame palette.
                     if rank > 0 then
                         cell.icon:SetDesaturated(false)
                         if rank >= maxRank then
-                            cell.bg:SetVertexColor(0.15, 0.55, 0.15, 1)  -- green
-                            cell.rankText:SetTextColor(0.2, 1, 0.2)
+                            cell.bg:SetVertexColor(1.0, 0.78, 0.18, 1)   -- bright gold (maxed)
+                            cell.rankText:SetTextColor(1.0, 0.95, 0.55)
                         else
-                            cell.bg:SetVertexColor(0.5, 0.4, 0.05, 1)    -- amber
-                            cell.rankText:SetTextColor(1, 0.95, 0.5)
+                            cell.bg:SetVertexColor(0.18, 0.78, 0.22, 1)  -- vibrant green (in progress)
+                            cell.rankText:SetTextColor(0.5, 1, 0.5)
                         end
                         cell.rankText:SetText(tostring(rank))
                     else
                         cell.icon:SetDesaturated(true)
-                        cell.bg:SetVertexColor(0.12, 0.12, 0.12, 1)      -- dark gray
+                        cell.bg:SetVertexColor(0.08, 0.08, 0.08, 1)      -- near-black (empty)
                         cell.rankText:SetTextColor(0.55, 0.55, 0.55)
                         cell.rankText:SetText("0")
                     end
@@ -897,8 +906,8 @@ local function BuildTalentFrame()
             if talent.prereqTier and talent.prereqCol then
                 -- Center coords of dependent and prereq cells
                 local function cellCenter(tier, col)
-                    return GL + (col - 1) * (CELL + GAP) + CELL / 2,
-                           GT - (tier - 1) * (CELL + GAP) - CELL / 2
+                    return GL + (col - 1) * (CELL + GAP_H) + CELL / 2,
+                           GT - (tier - 1) * (CELL + GAP_V) - CELL / 2
                 end
                 local dx, dy = cellCenter(talent.tier, talent.column)
                 local px, py = cellCenter(talent.prereqTier, talent.prereqCol)
@@ -1364,10 +1373,14 @@ local function BuildStatsFrame()
         local defR     = (s["ITEM_MOD_DEFENSE_SKILL_RATING_SHORT"] or 0)
         local defFlat  = (t["DEFENSE_FLAT"] or 0)
         local blockV   = (s["ITEM_MOD_BLOCK_VALUE_SHORT"] or 0) + (t["BLOCK_VALUE_FLAT"] or 0)
+        -- Claude (v1.4.5): cs.def is now the total defense skill (UnitDefense
+        -- base + modifier), not a rating-derived percent. Matches the
+        -- in-game character pane's "Defense: 405" line. Fallback shows
+        -- the rating-derived skill bonus when no live snapshot.
         if cs and cs.def then
-            row("Defense Rating", string.format("%.2f%% (live)", cs.def))
+            row("Defense", string.format("%d skill", cs.def))
         else
-            row("Defense Rating", string.format("%d (+%.0f skill)", defR, defR / RATING_PER_PERCENT_L80.defense + defFlat))
+            row("Defense (rating)", string.format("%d (+%.0f skill)", defR, defR / RATING_PER_PERCENT_L80.defense + defFlat))
         end
         row("Dodge",       csPct("dod",
             CombinePct(s, t, { "ITEM_MOD_DODGE_RATING_SHORT" }, { "DODGE_PCT" },

@@ -1342,19 +1342,37 @@ local function CapturePlayerStats(unit)
         if GetRangedCritChance  then out.rCrit = GetRangedCritChance() end
         if GetSpellCritChance   then out.sCrit = GetSpellCritChance(2) end -- fire school = typical caster value
         if GetCombatRatingBonus then
+            -- These rating-bonus values are correct for Hit/Haste/Expertise:
+            -- the character pane's displayed % for those is rating-derived
+            -- (talents/racials add their own line in the tooltip but the
+            -- top-line % is from rating).
             out.mHit  = GetCombatRatingBonus(6)  -- CR_HIT_MELEE
             out.rHit  = GetCombatRatingBonus(7)  -- CR_HIT_RANGED
             out.sHit  = GetCombatRatingBonus(8)  -- CR_HIT_SPELL
             out.mHa   = GetCombatRatingBonus(18) -- CR_HASTE_MELEE
             out.rHa   = GetCombatRatingBonus(19) -- CR_HASTE_RANGED
             out.sHa   = GetCombatRatingBonus(20) -- CR_HASTE_SPELL
-            out.exp   = GetCombatRatingBonus(24) -- CR_EXPERTISE (% reduced by)
-            out.dod   = GetCombatRatingBonus(3)  -- CR_DODGE
-            out.par   = GetCombatRatingBonus(4)  -- CR_PARRY
-            out.blk   = GetCombatRatingBonus(5)  -- CR_BLOCK
-            out.res   = GetCombatRatingBonus(15) -- CR_CRIT_TAKEN_RANGED ≈ resilience
+            out.exp   = GetCombatRatingBonus(24) -- CR_EXPERTISE
+            out.res   = GetCombatRatingBonus(15) -- CR_CRIT_TAKEN_MELEE ≈ resilience
             out.arp   = GetCombatRatingBonus(25) -- CR_ARMOR_PENETRATION
-            out.def   = GetCombatRatingBonus(2)  -- CR_DEFENSE_SKILL
+        end
+        -- Claude (v1.4.5): defense-side totals. GetCombatRatingBonus(3/4/5)
+        -- only returns the rating-derived bonus; a Hunter with no dodge
+        -- rating still has ~4-5% dodge from base Agility, which the v1.4.4
+        -- code was displaying as 0%. The Get*Chance APIs return the full
+        -- dodge/parry/block including base, items, buffs, talents — which
+        -- is what the in-game character pane shows.
+        if GetDodgeChance then out.dod = GetDodgeChance() end
+        if GetParryChance then out.par = GetParryChance() end
+        if GetBlockChance then out.blk = GetBlockChance() end
+        -- Defense skill: UnitDefense("player") returns (base, modifier)
+        -- where base is the level-scaled minimum and modifier is the
+        -- bonus from defense-rating items + talents. Stored as the raw
+        -- skill total so the panel can display "(N skill)" similar to
+        -- the in-game tooltip.
+        if UnitDefense then
+            local defBase, defMod = UnitDefense("player")
+            out.def = (defBase or 0) + (defMod or 0)
         end
         if GetSpellBonusDamage then
             local maxSP = 0
