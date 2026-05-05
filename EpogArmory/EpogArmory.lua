@@ -205,15 +205,20 @@ local MOUNT_ENCHANT_SLOTS = { 8, 10 } -- feet, hands
 -- you), so self-scans aren't gated.
 local REALITY_AURA_NAME = "Reality Recalibrators"
 
--- Claude (v1.4.1 test mode): toggle the auto-inspect gating on the Reality
+-- Claude (v1.4.1 → v1.4.6): toggle the auto-inspect gating on the Reality
 -- Recalibrators aura. When false, all three interlock points (BuildPayload,
--- ScanRoster, TryInspect) skip the aura check and let scans proceed
--- regardless. The 400ms settle + 1.5s verify pass added in v1.4.0 might be
--- enough on its own to filter out transmog visual reads — this flag lets
--- us validate that hypothesis. Diagnostic surfaces (status command,
--- browser banner, minimap tooltip) still show the aura state for visibility.
--- Flip back to true if data quality regresses without the gate.
-local REQUIRE_REALITY_AURA = false
+-- ScanRoster, TryInspect) skip the aura check and let scans proceed.
+--
+-- v1.4.1 test result (validated on Epoch): the 400ms settle + 1.5s verify
+-- pass is NOT sufficient on its own — Ascension/Epoch's transmog override
+-- holds the cosmetic itemID well past those windows for inspected players,
+-- so without the aura we just broadcast junk. Re-enabled the interlock as
+-- the only way to get real gear data.
+--
+-- Flag kept (rather than removed) so we can re-test if server behavior
+-- changes — flipping false is a one-line revert. Diagnostic surfaces
+-- (status command, browser banner, minimap tooltip) still honor the flag.
+local REQUIRE_REALITY_AURA = true
 
 -- v1.1.7+: track whether we've ever seen the aura active this session.
 -- Used to suppress the "aura not active" hint for users who clearly

@@ -4,6 +4,18 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.4.6 — Reality Recalibrators interlock re-enabled *(2026-05-05)*
+
+**Test result from v1.4.1 → v1.4.5: the aura interlock is genuinely required on Epoch.** Without `Reality Recalibrators`, the v1.4.0 settle (400ms) + verify (1.5s) pipeline isn't sufficient — Ascension/Epoch's transmog override keeps returning cosmetic itemIDs for inspected players past the 1.9s combined window, so scans broadcast junk gear. The settle+verify is still useful for catching short flips when the aura *is* active, but it can't replace the aura.
+
+`REQUIRE_REALITY_AURA = true` (was `false` in v1.4.1-v1.4.5 test branch). All three interlock points (`BuildPayload`, `ScanRoster`, `TryInspect`) are gating on the aura again, matching v1.4.0 behavior.
+
+The flag itself is kept rather than removed — flipping back to `false` is a one-line revert if we want to re-test (e.g., if server transmog behavior changes). Diagnostic surfaces (`/epogarmory status`, `/epogarmory aura`, browser banner, minimap tooltip) continue to honor the flag and would correctly say "TEST MODE: scanning anyway" if it ever flips false again.
+
+Patch-level bump (1.4.5 → 1.4.6) — mesh auto-update notification stays silent.
+
+---
+
 ## EpogArmory v1.4.5 — Defense totals + talent tree visual pass *(2026-05-05)*
 
 **Defense section was showing 0% for everything**
