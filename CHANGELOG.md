@@ -4,6 +4,16 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.3.5 — Remove schema-version cache wipe *(2026-05-05)*
+Reverts the `DB_SCHEMA_VERSION` wipe logic that was added in v1.3.2. The original idea was to drop stale cache entries on shape-breaking addon updates, but the tradeoff was wrong: throwing away the user's accumulated mesh data on every bump is a significantly worse outcome than the hypothetical "stale shape might mis-render" scenario. The wire format is already forward-compat (every receiver does `t[N] or default` for trailing fields), and any genuine on-disk shape change should be handled with a per-field migration in the read path — not a full wipe.
+
+- Removed the `DB_SCHEMA_VERSION` constant from the top of the file.
+- Removed the `storedSchema < DB_SCHEMA_VERSION` check + wipe block from `PLAYER_LOGIN`.
+- Removed the orphaned `EpogArmoryDB.meta = EpogArmoryDB.meta or {...}` defensive init that was only there to give the wipe block a stable place to write the schema field.
+- The `meta` field still gets initialized via the top-level `EpogArmoryDB or {...}` fallback, just no longer referenced for migration decisions.
+
+---
+
 ## EpogArmory v1.3.4 — Audit fixes: frame-leak elimination *(2026-05-04)*
 Codebase audit findings, three real bugs fixed:
 

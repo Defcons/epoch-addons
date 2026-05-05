@@ -373,14 +373,11 @@ local CACHE_GIVE_UP        = 60
 --      Existing v10 entries get re-validated on next observation.
 local CACHE_SCHEMA = 11
 
--- Claude: schema version for EpogArmoryDB.players entries (the inspect cache).
--- Stored at EpogArmoryDB.meta.schemaVersion. On addon load, if the stored
--- version is missing or lower than this constant, players[] and lastScanned[]
--- are wiped so stale entries from an older wire format can't corrupt new
--- renders. config, knownChars, peerInfo are preserved (user-facing prefs).
--- Bump this constant when the on-disk shape of a players[] entry changes
--- incompatibly (new required field, removed field still being read, etc).
-local DB_SCHEMA_VERSION = 1
+-- Claude (v1.3.5): DB_SCHEMA_VERSION removed. The wipe-on-mismatch logic
+-- was throwing away accumulated mesh data on every breaking-shape bump —
+-- net negative UX. The wire format is already forward-compat (missing
+-- fields default via t[N] or X), and any real shape change should be
+-- handled by per-field migration in the read path, not by wiping.
 
 -- Tooltip-text patterns for percent-based stats that predate the rating
 -- system and aren't in GetItemStats' enum. Keys are plain uppercase tokens
@@ -2660,30 +2657,10 @@ f:RegisterEvent("PLAYER_TALENT_UPDATE")   -- respec / dual-spec switch triggers 
 f:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
         EpogArmoryDB = EpogArmoryDB or { meta = { version = 1, created = time() }, players = {}, lastScanned = {}, config = {} }
-        EpogArmoryDB.meta        = EpogArmoryDB.meta        or { version = 1, created = time() }
         EpogArmoryDB.players     = EpogArmoryDB.players     or {}
         EpogArmoryDB.lastScanned = EpogArmoryDB.lastScanned or {}
         EpogArmoryDB.config      = EpogArmoryDB.config      or {}
         EpogArmoryDB.peerInfo    = EpogArmoryDB.peerInfo    or {}
-
-        -- Claude: schema-version cache wipe. If the stored players[] shape
-        -- is older than the current addon's expectation, drop the inspect
-        -- cache (players + lastScanned) so old wire-format leftovers can't
-        -- corrupt new renders. config / peerInfo / knownChars survive.
-        local storedSchema = tonumber(EpogArmoryDB.meta.schemaVersion) or 0
-        if storedSchema < DB_SCHEMA_VERSION then
-            if storedSchema > 0 then -- only print when actually wiping a populated cache
-                local nWiped = 0
-                for _ in pairs(EpogArmoryDB.players) do nWiped = nWiped + 1 end
-                print(string.format("|cffffaa44EpogArmory|r: schema v%d → v%d — wiped %d cached inspects (config preserved).",
-                    storedSchema, DB_SCHEMA_VERSION, nWiped))
-                dprint(string.format("[migrate] schema bump %d→%d, wiped %d players entries",
-                    storedSchema, DB_SCHEMA_VERSION, nWiped))
-            end
-            EpogArmoryDB.players = {}
-            EpogArmoryDB.lastScanned = {}
-            EpogArmoryDB.meta.schemaVersion = DB_SCHEMA_VERSION
-        end
         -- v0.43: track every character that's logged into this account so
         -- /epogarmory main can validate against the list. SavedVariables is
         -- account-scoped, so this set accumulates across alts naturally.
