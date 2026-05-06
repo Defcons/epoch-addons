@@ -309,6 +309,20 @@ local activeSyncs         = {} -- peerName -> estimatedEndTime
 local SYNC_GLOBAL_COOLDOWN = 900 -- 15 min between any sync responses
 local lastSyncResponseAt   = 0   -- any-peer global timestamp of last response
 
+-- Claude (v1.5.1): auto-sync. Background catch-up from reachable peers
+-- without the user typing /epogarmory syncfrom <name>. Picks one new peer
+-- every AUTO_SYNC_TICK_INTERVAL, respects SYNC_MAX_CONCURRENT, applies a
+-- 24h per-peer cooldown so we don't drain the same person over and over.
+-- The cooldown is persisted in EpogArmoryDB.peerInfo[name].lastSyncedFrom
+-- so it survives /reload and re-login. Disabled via /epogarmory autosync off.
+local AUTO_SYNC_PEER_COOLDOWN  = 24 * 3600 -- once per peer per day
+local AUTO_SYNC_TICK_INTERVAL  = 5 * 60    -- at most one new auto-sync every 5 min
+local AUTO_SYNC_MIN_DBSIZE     = 10        -- skip peers with tiny DBs (not worth bandwidth)
+local AUTO_SYNC_DEFAULT_DAYS   = 7         -- request last 7 days of scans
+local AUTO_SYNC_PEER_FRESHNESS = 24 * 3600 -- only consider peers heard from in last 24h
+local AUTO_SYNC_INITIAL_DELAY  = 90        -- first attempt N seconds after PLAYER_LOGIN
+local lastAutoSyncAttemptAt    = 0
+
 -- v0.47: lightweight "who's out there" peer refresh. Lets the UI button in
 -- the Scanners view actively poll the guild for current identity + dbSize
 -- instead of waiting for organic gear-scan broadcasts. PEERPING is a tiny
@@ -2820,6 +2834,154 @@ local function MigratePlayers()
     end
 end
 
+-- ---------------- Sync initiation (v1.5.1: shared by manual + auto) ----------------
+
+-- Claude (v1.5.1): the sync-start logic was originally inlined in the
+-- /epogarmory syncfrom slash handler. Extracted so auto-sync can reuse
+-- the same wire path. Returns (ok, info, extra1, extra2):
+--   ok=true  → info=etaSeconds, extra1=channels, extra2=estimatedSets
+--   ok=false → info=reason ("active"/"capped"/"nochannel"), extra1=remaining-secs (for "active") or nil
+-- Persists peerInfo[name].lastSyncedFrom so the auto-sync 24h cooldown
+-- works across both /reload and re-login.
+local function StartSyncFromPeer(name, days)
+    CleanExpiredSyncs()
+    if activeSyncs[name] then
+        return false, "active", math.max(0, activeSyncs[name] - time())
+    end
+    if CountActiveSyncs() >= SYNC_MAX_CONCURRENT then
+        return false, "capped"
+    end
+    local channels = PickChannels()
+    if #channels == 0 then
+        return false, "nochannel"
+    end
+
+    local sinceTS = days > 0 and (time() - days * 86400) or 0
+    msgCounter = msgCounter + 1
+    local msgID = string.format("S%x", msgCounter % 0xffff)
+    local manifest = BuildSyncManifest()
+    local fullPayload = string.format("SYNCREQ^%s^%s^%d^%s",
+        MyIdentity(), name, sinceTS, manifest)
+    local chunks = MakeChunks(fullPayload, msgID)
+    for _, ch in ipairs(channels) do
+        for _, chunk in ipairs(chunks) do
+            outQueue[#outQueue + 1] = { ch = ch, body = chunk }
+        end
+    end
+
+    -- ETA estimation: ~2s per set + 30s buffer. Capped at SYNC_MAX_SETS_PER_RESPONSE.
+    local estimatedSets = SYNC_MAX_SETS_PER_RESPONSE
+    if EpogArmoryDB and EpogArmoryDB.peerInfo and EpogArmoryDB.peerInfo[name]
+       and EpogArmoryDB.peerInfo[name].dbSize then
+        estimatedSets = math.min(EpogArmoryDB.peerInfo[name].dbSize, SYNC_MAX_SETS_PER_RESPONSE)
+    end
+    local etaSeconds = estimatedSets * 2 + 30
+    activeSyncs[name] = time() + etaSeconds
+
+    -- Persist last-synced-from for auto-sync's per-peer cooldown. Whether
+    -- this sync was manual or automatic, the peer just got drained — no
+    -- point in the auto-sync ticker re-picking them within 24h.
+    if EpogArmoryDB then
+        EpogArmoryDB.peerInfo = EpogArmoryDB.peerInfo or {}
+        EpogArmoryDB.peerInfo[name] = EpogArmoryDB.peerInfo[name] or {}
+        EpogArmoryDB.peerInfo[name].lastSyncedFrom = time()
+    end
+
+    return true, etaSeconds, channels, estimatedSets, manifest, #chunks
+end
+
+-- Claude (v1.5.1): mirrors EpogArmoryUI's BuildReachableSet — names of
+-- characters that are currently in our guild (online) or current group.
+-- Plus main-name peers whose lastCharName is in that set, so consolidated
+-- alts resolve to their main identity.
+local function BuildAutoSyncReachable()
+    local charSet = {}
+    local me = UnitName("player")
+    if me then charSet[me] = true end
+    for i = 1, GetNumPartyMembers() do
+        local n = UnitName("party" .. i)
+        if n then charSet[n] = true end
+    end
+    for i = 1, GetNumRaidMembers() do
+        local n = UnitName("raid" .. i)
+        if n then charSet[n] = true end
+    end
+    if IsInGuild() and GetNumGuildMembers then
+        local n = GetNumGuildMembers() or 0
+        for i = 1, n do
+            local gname, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
+            if gname and online then charSet[gname] = true end
+        end
+    end
+    local reachable = {}
+    for n in pairs(charSet) do reachable[n] = true end
+    if EpogArmoryDB and EpogArmoryDB.peerInfo then
+        for mainName, info in pairs(EpogArmoryDB.peerInfo) do
+            if info.lastCharName and charSet[info.lastCharName] then
+                reachable[mainName] = true
+            end
+        end
+    end
+    return reachable
+end
+
+-- Claude (v1.5.1): auto-sync ticker. Called from the main OnUpdate driver.
+-- Picks one stale-but-reachable peer every AUTO_SYNC_TICK_INTERVAL and
+-- starts a sync. Honors SYNC_MAX_CONCURRENT and the per-peer 24h cooldown.
+local function TryAutoSync()
+    if not (EpogArmoryDB and EpogArmoryDB.config and EpogArmoryDB.config.autoSync) then
+        return
+    end
+    if now() < lastAutoSyncAttemptAt + AUTO_SYNC_TICK_INTERVAL then return end
+    lastAutoSyncAttemptAt = now() -- always advance — even if no candidate, we don't want to busy-loop
+
+    if CountActiveSyncs() >= SYNC_MAX_CONCURRENT then return end
+    if #PickChannels() == 0 then return end -- solo + no guild → can't sync
+
+    -- Trigger guild roster fetch so the online flag is fresh. GuildRoster
+    -- itself is rate-limited by the client; safe to call every tick.
+    if IsInGuild() and GuildRoster then GuildRoster() end
+
+    local reachable = BuildAutoSyncReachable()
+    local now_t = time()
+    local me = MyIdentity()
+    local candidates = {}
+    if EpogArmoryDB and EpogArmoryDB.peerInfo then
+        for name, info in pairs(EpogArmoryDB.peerInfo) do
+            local lastSeen   = info.lastSeen or 0
+            local lastSynced = info.lastSyncedFrom or 0
+            local dbSize     = info.dbSize or 0
+            if name ~= me
+               and reachable[name]
+               and dbSize >= AUTO_SYNC_MIN_DBSIZE
+               and (now_t - lastSeen)   <= AUTO_SYNC_PEER_FRESHNESS
+               and (now_t - lastSynced) >= AUTO_SYNC_PEER_COOLDOWN
+               and not activeSyncs[name]
+            then
+                candidates[#candidates + 1] = { name = name, dbSize = dbSize }
+            end
+        end
+    end
+    if #candidates == 0 then return end
+
+    -- Prefer biggest-DB peers — most data to gain per sync.
+    table.sort(candidates, function(a, b) return a.dbSize > b.dbSize end)
+    local pick = candidates[1]
+
+    local ok, info, _, estimatedSets = StartSyncFromPeer(pick.name, AUTO_SYNC_DEFAULT_DAYS)
+    if ok then
+        dprint(string.format("[autosync] requested sync from %s (db=%d, ETA ~%dm)",
+            pick.name, pick.dbSize, math.ceil(info / 60)))
+        -- Refresh browser scanners view if it's open so the row dims.
+        if _G.EpogArmoryBrowserFrame and _G.EpogArmoryBrowserFrame:IsShown()
+            and _G.EpogArmoryBrowserFrame.Refresh then
+            _G.EpogArmoryBrowserFrame.Refresh()
+        end
+    else
+        dprint(string.format("[autosync] %s skipped — %s", pick.name, info))
+    end
+end
+
 -- ---------------- Main loop + events ----------------
 
 local acc, gcAcc = 0, 0
@@ -2845,6 +3007,7 @@ f:SetScript("OnUpdate", function(self, elapsed)
     TryScanSelf()
     TryCachePending()
     TrySendVersionPing()
+    TryAutoSync() -- Claude (v1.5.1)
 
     gcAcc = gcAcc + 0.25
     if gcAcc >= 10 then gcAcc = 0; GCAssembly() end
@@ -2879,6 +3042,15 @@ f:SetScript("OnEvent", function(self, event, ...)
         if EpogArmoryDB.config.acceptSync == nil then
             EpogArmoryDB.config.acceptSync = true
         end
+        -- Claude (v1.5.1): auto-sync default-on. Background catch-up from
+        -- reachable peers. Toggle via /epogarmory autosync on|off.
+        if EpogArmoryDB.config.autoSync == nil then
+            EpogArmoryDB.config.autoSync = true
+        end
+        -- Claude (v1.5.1): defer the first auto-sync attempt by ~90s after
+        -- login so the guild roster, peer pings, and outQueue have time to
+        -- settle. Subsequent attempts happen every AUTO_SYNC_TICK_INTERVAL.
+        lastAutoSyncAttemptAt = now() + AUTO_SYNC_INITIAL_DELAY - AUTO_SYNC_TICK_INTERVAL
         -- v0.43: optional main-name identity. When set, all broadcasts from
         -- this client carry it at wire position 39. Receivers use it as the
         -- canonical scanner identity, consolidating alts under the main.
@@ -3115,6 +3287,7 @@ local function ShowHelp()
     print("  /epogarmory main [name]   — set/show your main-character identity (consolidates alts in the mesh)")
     print("  /epogarmory merge <newname> <alias1> [alias2] ... — locally re-attribute scans from peer aliases to one canonical name")
     print("  /epogarmory refreshpeers  — ping guildmates for fresh identity + DB-size info (Scanners-view leaderboard)")
+    print("  /epogarmory autosync [on|off|status] — background catch-up sync from reachable peers (default: on, 24h per-peer cooldown)")
     print("  /epogarmory aura          — check if Reality Recalibrators aura is active (gates auto-inspect of groupmates)")
     print("  /epogarmory dump <name>   — diagnostic dump of every layer (itemstring, GetItemInfo, GetItemStats, cache) for each slot of a stored player")
     print("|cff888888  Source + releases: github.com/Defcons/epogarmory-addon|r")
@@ -3376,6 +3549,50 @@ SlashCmdList["EPOGARMORY"] = function(msg)
                 REALITY_AURA_NAME))
             print("|cff888888  v1.4.1 test build: validating whether the 400ms settle + 1.5s verify pass is enough on its own to filter out transmog visual reads. Self-scans always work.|r")
         end
+    elseif msg == "autosync" or msg:sub(1, 9) == "autosync " then
+        -- Claude (v1.5.1): toggle background auto-sync. Same wire path as
+        -- /syncfrom but ticks itself; cap is SYNC_MAX_CONCURRENT (3) and
+        -- cooldown is AUTO_SYNC_PEER_COOLDOWN (24h) per peer.
+        EpogArmoryDB = EpogArmoryDB or {}
+        EpogArmoryDB.config = EpogArmoryDB.config or {}
+        local arg = msg:sub(10):lower():match("^%s*(%S*)%s*$") or ""
+        if arg == "" or arg == "status" then
+            local enabled = EpogArmoryDB.config.autoSync
+            print(string.format("|cffffaa44EpogArmory|r autosync: %s",
+                enabled and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+            local nextIn = math.max(0, (lastAutoSyncAttemptAt + AUTO_SYNC_TICK_INTERVAL) - now())
+            print(string.format("|cff888888  next attempt in ~%ds  ·  active syncs: %d/%d  ·  per-peer cooldown: %dh|r",
+                math.ceil(nextIn), CountActiveSyncs(), SYNC_MAX_CONCURRENT,
+                math.ceil(AUTO_SYNC_PEER_COOLDOWN / 3600)))
+            -- Show eligible candidates (helpful diagnostic)
+            local reachable = BuildAutoSyncReachable()
+            local now_t = time()
+            local me = MyIdentity()
+            local elig, blocked = 0, 0
+            if EpogArmoryDB.peerInfo then
+                for name, info in pairs(EpogArmoryDB.peerInfo) do
+                    if name ~= me and reachable[name] and (info.dbSize or 0) >= AUTO_SYNC_MIN_DBSIZE
+                       and (now_t - (info.lastSeen or 0)) <= AUTO_SYNC_PEER_FRESHNESS then
+                        if (now_t - (info.lastSyncedFrom or 0)) >= AUTO_SYNC_PEER_COOLDOWN
+                           and not activeSyncs[name] then
+                            elig = elig + 1
+                        else
+                            blocked = blocked + 1
+                        end
+                    end
+                end
+            end
+            print(string.format("|cff888888  eligible peers: %d  ·  on cooldown / active: %d|r",
+                elig, blocked))
+        elseif arg == "on" then
+            EpogArmoryDB.config.autoSync = true
+            print("|cffffaa44EpogArmory|r autosync: |cff00ff00ON|r")
+        elseif arg == "off" then
+            EpogArmoryDB.config.autoSync = false
+            print("|cffffaa44EpogArmory|r autosync: |cffff0000OFF|r")
+        else
+            print("|cffffaa44EpogArmory|r: usage — /epogarmory autosync [on|off|status]")
+        end
     elseif msg == "refreshpeers" or msg == "refresh" then
         -- v0.47: ask everyone in guild/group "give me your latest info".
         -- Each peer running v0.47+ replies with identity + dbSize + version
@@ -3406,73 +3623,32 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         end
         -- Canonical name casing (peer compares UnitName("player") == name exactly)
         name = name:sub(1, 1):upper() .. name:sub(2):lower()
-        -- Active-sync cap (requester side).
-        CleanExpiredSyncs()
-        if activeSyncs[name] then
-            local remain = math.max(0, activeSyncs[name] - time())
-            print(string.format("|cffffaa44EpogArmory|r: already syncing from |cff00ff00%s|r — ~%dm remaining",
-                name, math.ceil(remain / 60)))
-            return
-        end
-        if CountActiveSyncs() >= SYNC_MAX_CONCURRENT then
-            -- v0.50: don't quote a fixed "~25 min" anymore — actual time
-            -- depends on peer DB size. Just say "wait for one to finish".
-            print(string.format("|cffffaa44EpogArmory|r: already at %d concurrent syncs. Wait for one to finish (varies by peer DB size — see Scanners view for countdowns).",
-                SYNC_MAX_CONCURRENT))
-            return
-        end
         local days = tonumber(daysStr) or 7
-        local sinceTS = days > 0 and (time() - days * 86400) or 0
-        local channels = PickChannels()
-        if #channels == 0 then
-            print("|cffffaa44EpogArmory|r: sync requires being in a guild or group (request is sent via addon-message channel)")
+        -- Claude (v1.5.1): delegate to the shared StartSyncFromPeer so
+        -- auto-sync and manual /syncfrom take the same code path.
+        local ok, info, channels, estimatedSets, manifest, chunkCount = StartSyncFromPeer(name, days)
+        if not ok then
+            if info == "active" then
+                print(string.format("|cffffaa44EpogArmory|r: already syncing from |cff00ff00%s|r — ~%dm remaining",
+                    name, math.ceil((channels or 0) / 60))) -- 'channels' carries remaining-secs in this branch
+            elseif info == "capped" then
+                print(string.format("|cffffaa44EpogArmory|r: already at %d concurrent syncs. Wait for one to finish (varies by peer DB size — see Scanners view for countdowns).",
+                    SYNC_MAX_CONCURRENT))
+            elseif info == "nochannel" then
+                print("|cffffaa44EpogArmory|r: sync requires being in a guild or group (request is sent via addon-message channel)")
+            end
             return
         end
-        msgCounter = msgCounter + 1
-        local msgID = string.format("S%x", msgCounter % 0xffff)
-        -- v0.43: requester field uses MyIdentity (configured main name or
-        -- character name fallback). Per-requester cooldowns on the responder
-        -- side now consolidate across all alts of the same admin.
-        -- v0.46: append a manifest of (guid:group:scanTime;...) so the
-        -- responder can skip sets we already have at >= their scanTime.
-        -- Eliminates the dominant duplicate-send waste from full-DB syncs.
-        -- Manifest can be ~4.5 KB for 100 players, so chunk via MakeChunks.
-        local manifest = BuildSyncManifest() -- Claude v0.46: include manifest
-        local fullPayload = string.format("SYNCREQ^%s^%s^%d^%s",
-            MyIdentity(), name, sinceTS, manifest)
-        local chunks = MakeChunks(fullPayload, msgID) -- Claude v0.46: multi-chunk
-        for _, ch in ipairs(channels) do
-            for _, chunk in ipairs(chunks) do
-                outQueue[#outQueue + 1] = { ch = ch, body = chunk }
-            end
-        end
-        -- v0.50: estimate sync duration from peerInfo.dbSize instead of
-        -- always advertising 25 min (the worst-case 200-set cap).
-        -- v0.51: ~4 chunks per set × 0.5s stagger = ~2s/set (was ~8s/set
-        -- with the old 2.0s stagger). Manifest dedup may shrink the
-        -- actual count further but we don't know what they have, so the
-        -- upper bound here is min(reportedDB, SYNC_MAX_SETS_PER_RESPONSE).
-        -- 30s safety buffer for any drift.
-        local estimatedSets = SYNC_MAX_SETS_PER_RESPONSE
-        if EpogArmoryDB and EpogArmoryDB.peerInfo and EpogArmoryDB.peerInfo[name]
-           and EpogArmoryDB.peerInfo[name].dbSize then
-            estimatedSets = math.min(EpogArmoryDB.peerInfo[name].dbSize,
-                                     SYNC_MAX_SETS_PER_RESPONSE)
-        end
-        local etaSeconds = estimatedSets * 2 + 30
-        local etaMinutes = math.max(1, math.ceil(etaSeconds / 60))
-        activeSyncs[name] = time() + etaSeconds
+        local etaMinutes = math.max(1, math.ceil(info / 60))
         print(string.format("|cffffaa44EpogArmory|r: requested sync from |cff00ff00%s|r (last %d days) via %s. ETA ~%d min (peer has ~%d entries).",
             name, days, table.concat(channels, "+"), etaMinutes, estimatedSets))
         local manifestEntries = 0
         if manifest ~= "" then
-            -- count separators + 1 (entries are joined by ";")
             local _, n = manifest:gsub(";", ";")
             manifestEntries = n + 1
         end
         dprint(string.format("[sync] sent SYNCREQ in %d chunk(s), manifest = %d bytes (%d entries)",
-            #chunks, #manifest, manifestEntries))
-        -- Refresh the browser scanners view if it's open so the row dims.
+            chunkCount, #manifest, manifestEntries))
         if _G.EpogArmoryBrowserFrame and _G.EpogArmoryBrowserFrame:IsShown()
             and _G.EpogArmoryBrowserFrame.Refresh then
             _G.EpogArmoryBrowserFrame.Refresh()

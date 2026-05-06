@@ -4,6 +4,41 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpogArmory v1.5.1 — Background auto-sync *(2026-05-06)*
+
+The `/epogarmory syncfrom` command catches you up on a peer's stored scans, but you had to type it manually for each name. v1.5.1 adds a background ticker that does the same thing automatically — slow and steady, one new peer every few minutes, with a 24h per-peer cooldown so the same person doesn't get drained over and over.
+
+**Behavior**
+
+- Every `AUTO_SYNC_TICK_INTERVAL` (5 min), the ticker picks one reachable peer and starts a sync. Uses the same wire path as `/syncfrom` — capped at `SYNC_MAX_CONCURRENT` (3) simultaneous active syncs.
+- Per-peer cooldown: `AUTO_SYNC_PEER_COOLDOWN` (24h). Tracked at `EpogArmoryDB.peerInfo[name].lastSyncedFrom`, so it survives `/reload` and re-login.
+- Candidate selection: peer must be (a) currently reachable — in our guild online, party, or raid; (b) heard from in the last 24h (`peerInfo.lastSeen`); (c) have at least 10 stored scans (`AUTO_SYNC_MIN_DBSIZE`); (d) off the per-peer cooldown; (e) not already syncing.
+- When multiple candidates qualify, picks the **largest-DB peer first** — most data to gain per sync.
+- First attempt fires `AUTO_SYNC_INITIAL_DELAY` (90s) after `PLAYER_LOGIN` so the guild roster, peer pings, and outQueue have time to settle.
+- Defaults to last 7 days of scans per request (matches `/syncfrom <name>` default).
+
+**Manual sync still works the same** — `/syncfrom <name> [days]` always starts a sync regardless of cooldown. Both manual and auto syncs write `peerInfo[name].lastSyncedFrom`, so a manual sync also satisfies the auto-sync's 24h gate for that peer.
+
+**Config + slash control**
+
+- `EpogArmoryDB.config.autoSync` — boolean, defaults to `true` for new and upgrading users.
+- `/epogarmory autosync` — show status (on/off, next attempt countdown, eligible peer count, on-cooldown count).
+- `/epogarmory autosync on|off` — toggle.
+
+**Refactor: shared sync-start path**
+
+Both manual `/syncfrom` and auto-sync now go through one `StartSyncFromPeer(name, days)` helper. The slash handler dropped from ~80 lines of inline sync-start logic to a thin wrapper around the helper. Reduces drift risk between the two paths.
+
+**Backward compatibility**
+
+- `peerInfo[name].lastSyncedFrom` is a new field — pre-v1.5.1 entries simply don't have it, treated as 0 (never synced) so the first auto-sync candidate scan picks them up immediately.
+- No wire format change. Sync protocol unchanged. Pre-v1.5.1 peers respond to auto-sync requests the same as manual ones.
+- `EpogArmoryDB.config.autoSync` only added on first run after upgrade — existing configs keep their values.
+
+Patch-level bump (1.5.0 → 1.5.1) — mesh auto-update notification stays silent. Public release deferred until tested in real conditions; the monorepo has the change and a future v1.6 minor will surface it to users.
+
+---
+
 ## EpogArmory v1.5.0 — Stats overview, Guild column, talent tree polish *(2026-05-05)*
 
 Consolidated release covering the v1.4.1–v1.4.6 iteration cycle. Headline features: a full Stats overview panel showing real character-pane numbers, a Guild column in the Scanners view, and a visual pass on the talent tree to bring it closer to Blizzard's PlayerTalentFrame look.
