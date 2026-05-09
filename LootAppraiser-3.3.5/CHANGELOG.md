@@ -1,5 +1,43 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.15 — Crafted items don't add to session value *(2026-05-04)*
+
+Crafting was visually double-counting: the gathered runecloth showed
+as session loot, then the bandage crafted from it showed as additional
+session loot. Both now resolve correctly:
+
+### What changed
+1. **`LOOT_ITEM_CREATED_SELF*` patterns removed from `LOOT_PATTERNS`.**
+   Crafted items aren't real loot — they're transformations of mats
+   the player already had. They no longer appear as session rows.
+2. **New `CRAFT_PATTERNS` checked separately** in `HandleChatMsgLoot`.
+   When a `"You create: …"` line fires, we set
+   `craftingWindowUntil = GetTime() + 0.7`.
+3. **`ReconcileBags` is skipped during the craft window.** Otherwise
+   the BAG_UPDATEs from the spell consuming the mats would debit the
+   already-counted gathered runecloth, making session value drop
+   whenever the player crafts. The `pendingReconcile` flag still
+   resets after each skipped pass so future (post-window) bag changes
+   are reconciled normally.
+
+### Net effect
+* Loot 12 Runecloth → session shows `Runecloth x12 @ 12g`
+* Craft a Heavy Runecloth Bandage (consumes 5 Runecloth + 1 Silk):
+  * No new bandage row added.
+  * Mats are NOT debited — Runecloth row stays at x12.
+  * Session value remains `12g` (the gathered loot).
+* Subsequent destroy/vendor/mail outside the craft window still
+  reconcile and debit normally.
+
+### Window length
+0.7s is enough to cover the typical craft sequence (BAG_UPDATEs +
+0.3s reconcile timer + slack) without bleeding much into unrelated
+activity. If you destroy or vendor an item within ~0.7s of crafting,
+that change won't be debited until the next bag event re-arms the
+reconcile.
+
+---
+
 ## v1.14 — Vertical resize via bottom-right grip *(2026-05-04)*
 
 The frame can now be resized to show more (or fewer) rows. Drag the

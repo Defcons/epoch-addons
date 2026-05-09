@@ -304,6 +304,14 @@ Three visual bugs fixed in the in-game talent tree panel (`BuildTalentFrame`):
 
 ---
 
+## LootAppraiser-3.3.5 v1.15 — Crafted items don't add to session value *(2026-05-04)*
+- **Removed `LOOT_ITEM_CREATED_SELF*` from `LOOT_PATTERNS`.** Crafted items aren't real loot — they're transformations of gathered mats, and counting them visually double-up alongside the mats they consumed. Crafted items no longer appear as session rows.
+- **New `CRAFT_PATTERNS` matched separately** in `HandleChatMsgLoot`. A `"You create:"` chat line sets `craftingWindowUntil = GetTime() + 0.7`.
+- **`ReconcileBags` skipped during the craft window.** Otherwise the BAG_UPDATEs for ingredient consumption would debit the already-counted gathered mats, making session value drop on crafting. `pendingReconcile` still resets each skipped pass so future (post-window) bag changes reconcile normally.
+- **Net effect**: loot 12 Runecloth → session shows 12g. Craft a bandage (consumes 5 Runecloth + 1 Silk) → no bandage row added, mats not debited, session value stays at 12g. Destroy/vendor/mail outside the craft window still reconcile.
+
+---
+
 ## LootAppraiser-3.3.5 v1.14 — Vertical resize via bottom-right grip *(2026-05-04)*
 - **Drag the bottom-right corner to grow the row count** (not scale). `frame:SetResizable(true)` + `SetMinResize/SetMaxResize` with width pinned to `WINDOW_W` so only height moves. Blizzard chat-style size grabber (`Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-*`) at the corner; `StartSizing("BOTTOMRIGHT")` on mousedown, `StopMovingOrSizing` on mouseup.
 - **`OnSizeChanged` recomputes `MAX_ROWS`** every drag tick and lazily builds new row widgets via `BuildRow(content, idx)` (cheap: one font string per row, only when needed). Mouseup snaps height to an exact multiple of `ROW_H` so rows never half-clip, and persists `windowPos.h` alongside the existing point/x/y.

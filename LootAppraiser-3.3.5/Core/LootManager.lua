@@ -123,7 +123,14 @@ end
 -- Catches: group loot ("Player receives loot: [Item] x2"), bonus rolls,
 -- crafted-item drops on close-target loot. Solo loot has already been
 -- counted via LOOT_OPENED, but the time-bucketed dedup key catches doubles.
-local LOOT_PATTERNS = nil
+local LOOT_PATTERNS  = nil
+local CRAFT_PATTERNS = nil
+-- After a "You create:" CHAT_MSG_LOOT line, suppress reconcile-debit until
+-- this timestamp. Long enough to cover a typical craft sequence (BAG_UPDATE
+-- bursts complete and the 0.3s reconcile timer fires) without bleeding
+-- much into unrelated bag activity.
+local craftingWindowUntil  = 0
+local CRAFT_WINDOW_DURATION = 0.7
 local function BuildPatterns()
     if LOOT_PATTERNS then return end
     -- The Blizzard global pattern strings have %s placeholders. Convert them
@@ -148,15 +155,20 @@ local function BuildPatterns()
     -- BEFORE their single-item counterparts. Lua's regex engine returns
     -- the FIRST matching pattern, so a single "You won: (.+)$" placed
     -- first would gobble "[Item]x5" as the link and lose the count.
+    -- Crafted items ("You create:" patterns) are intentionally NOT in
+    -- LOOT_PATTERNS — they aren't real loot, they're transformations of
+    -- mats the player already had. Adding the bandage to the session on
+    -- top of the runecloth that produced it visually double-counts the
+    -- value. We do still match those messages separately (CRAFT_PATTERNS
+    -- below) so we can arm a short "craft window" that tells
+    -- ReconcileBags to skip its debit pass; otherwise the consumed mats
+    -- would be subtracted from session totals, making the displayed
+    -- value drop whenever the player crafts.
     LOOT_PATTERNS = {
         -- "You receive loot: [item]xN." (LOOT_ITEM_SELF_MULTIPLE) — stacks
         { p = toLua(LOOT_ITEM_SELF_MULTIPLE),         multi = true },
         -- "You receive loot: [item]." (LOOT_ITEM_SELF) — single
         { p = toLua(LOOT_ITEM_SELF),                  multi = false },
-        -- "You create: [item]xN." (LOOT_ITEM_CREATED_SELF_MULTIPLE)
-        { p = toLua(LOOT_ITEM_CREATED_SELF_MULTIPLE), multi = true },
-        -- "You create: [item]." (LOOT_ITEM_CREATED_SELF)
-        { p = toLua(LOOT_ITEM_CREATED_SELF),          multi = false },
         -- Ascension custom: "You won: [Item]xN" for stack wins (e.g.
         -- a stack of Runecloth via Greed). The greedy `.+` backtracks
         -- until `x(%d+)$` matches at the end, so the link itself can
@@ -165,6 +177,12 @@ local function BuildPatterns()
         { p = "^You won: (.+)x(%d+)$",                multi = true },
         -- Ascension custom: "You won: [Item]" for single-item wins
         { p = "^You won: (.+)$",                      multi = false },
+    }
+    -- Craft signals: matched solely to set craftingWindowUntil. Captured
+    -- groups discarded.
+    CRAFT_PATTERNS = {
+        toLua(LOOT_ITEM_CREATED_SELF_MULTIPLE),
+        toLua(LOOT_ITEM_CREATED_SELF),
     }
 end
 
@@ -185,8 +203,31 @@ local function ParseChatLoot(msg)
     end
 end
 
+-- Returns true if `msg` is a "You create:" line. Discards captures.
+local function IsCraftMessage(msg)
+    BuildPatterns()
+    for _, p in ipairs(CRAFT_PATTERNS or {}) do
+        if p and msg:match(p) then return true end
+    end
+    return false
+end
+
 local function HandleChatMsgLoot(msg)
     if not msg then return end
+
+    -- "You create:" → arm craft window so ReconcileBags skips the debit
+    -- pass for the imminent BAG_UPDATEs (consumed mats + new crafted item).
+    -- We do NOT ingest the crafted item itself: it's a transformation, not
+    -- new gain — counting it would visually double up alongside the mats
+    -- the player just gathered.
+    if IsCraftMessage(msg) then
+        craftingWindowUntil = GetTime() + CRAFT_WINDOW_DURATION
+        if LA._verboseLoot then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA verbose]|r craft msg: " .. tostring(msg) .. " (debit-skip window armed)")
+        end
+        return
+    end
+
     local link, count = ParseChatLoot(msg)
     if LA._verboseLoot then
         DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA verbose]|r CHAT_MSG_LOOT: " .. tostring(msg))
@@ -243,6 +284,20 @@ frame:SetScript("OnUpdate", function(self, elapsed)
     if reconcileAccum < BAG_DEBOUNCE then return end
     pendingReconcile = false
     reconcileAccum   = 0
+
+    -- Within a craft window, skip the debit pass entirely. The recent
+    -- BAG_UPDATEs were the spell consuming mats and producing the new
+    -- item; we don't want session totals to drop just because the
+    -- player crafted from their gathered loot. The pendingReconcile
+    -- flag is reset above so any *future* (post-window) BAG_UPDATE
+    -- still re-arms the timer cleanly.
+    if GetTime() < craftingWindowUntil then
+        if LA._verboseLoot then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[LA verbose]|r reconcile: SKIPPED (craft window)")
+        end
+        return
+    end
+
     if LA.Session and LA.Session.IsRunning() then
         local lossChanged    = LA.Session.ReconcileBags()
         -- Re-price recently-ingested vendor rows. ArkInventory has
