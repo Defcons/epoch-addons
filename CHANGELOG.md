@@ -4,6 +4,22 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## unitscan v1.2 — Suppress ADDON_ACTION_BLOCKED spam on Ascension *(2026-05-10)*
+unitscan probes for nearby units by repeatedly calling `TargetUnit(name)` and watching for `ADDON_ACTION_FORBIDDEN` (the protection event that signals the unit exists but can't be targeted from non-secure code). On retail 3.3.5 this fires the FORBIDDEN variant; on Ascension's server some calls fire `ADDON_ACTION_BLOCKED` instead — and unitscan was only listening for / suppressing FORBIDDEN, so:
+- the addon's "found a unit" detection silently failed when the server emitted BLOCKED, and
+- the default UI's red "AddOn 'unitscan' tried to call protected function 'TargetUnit()'" message leaked through (BugSack collected 29× in one session).
+
+Three fixes in `unitscan.lua`:
+1. **`unitscan.target()` now bails on `InCombatLockdown()`** as a belt-and-suspenders combat guard. `UPDATE()` already does this, but a state transition mid-frame could otherwise let one TargetUnit reach the protected path. Closes most of the loud combat-lockdown BLOCKED reports.
+2. **OnEvent dispatcher now treats `ADDON_ACTION_BLOCKED` identically to `ADDON_ACTION_FORBIDDEN`** — sets the internal `forbidden` flag so unitscan's "found" detection works regardless of which variant Ascension emits.
+3. **`UIParent:UnregisterEvent('ADDON_ACTION_BLOCKED')`** added next to the existing FORBIDDEN unregister, so the default-UI red error and the static popup are both suppressed for both events.
+
+Note: BugSack/BugGrabber collect events on their own frame and may still log these. Configure their ignore filter for `ADDON_ACTION_BLOCKED` originating from `unitscan` if the BugSack count is still annoying.
+
+TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
+
+---
+
 ## EpogArmory v1.5.1 — Background auto-sync *(2026-05-06)*
 
 The `/epogarmory syncfrom` command catches you up on a peer's stored scans, but you had to type it manually for each name. v1.5.1 adds a background ticker that does the same thing automatically — slow and steady, one new peer every few minutes, with a 24h per-peer cooldown so the same person doesn't get drained over and over.

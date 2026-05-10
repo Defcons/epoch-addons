@@ -7,7 +7,7 @@
 
 ## Author: shirsig, tablegrapes, Sattva (original), Defcon (Epoch modifications)
 ## Title: unitscan
-## Version: 1.0
+## Version: 1.2
 ## Notes: Unit scanner with flashy alert. Modified for Ascension/Epoch by Defcon — uses independent version history.
 ## SavedVariables: unitscanDB, unitscan_defaults, unitscan_targets, unitscan_ignored, unitscan_dead
 

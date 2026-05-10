@@ -457,7 +457,13 @@ function unitscanLC:FriendCheck(name)
 	unitscan:SetScript('OnEvent', function(_, event, arg1)
 		if event == 'ADDON_LOADED' and arg1 == 'unitscan' then
 			unitscan.LOAD()
-		elseif event == 'ADDON_ACTION_FORBIDDEN' and arg1 == 'unitscan' then
+		elseif (event == 'ADDON_ACTION_FORBIDDEN' or event == 'ADDON_ACTION_BLOCKED') and arg1 == 'unitscan' then
+			-- Treat BLOCKED the same as FORBIDDEN: both indicate the
+			-- protected TargetUnit() call hit a unit that's "real but
+			-- unreachable from non-secure code", which is exactly the
+			-- signal we want — the unit exists nearby. Ascension's
+			-- server seems to emit BLOCKED in cases where retail emits
+			-- FORBIDDEN, so we listen for both.
 			forbidden = true
 		elseif event == 'PLAYER_TARGET_CHANGED' then
 			if UnitName'target' and strupper(UnitName'target') == unitscan.button:GetText() and not GetRaidTargetIndex'target' and (not UnitInRaid'player' or IsRaidOfficer() or IsRaidLeader()) then
@@ -527,6 +533,7 @@ function unitscanLC:FriendCheck(name)
 
 	unitscan:RegisterEvent'ADDON_LOADED'
 	unitscan:RegisterEvent'ADDON_ACTION_FORBIDDEN'
+	unitscan:RegisterEvent'ADDON_ACTION_BLOCKED'
 	unitscan:RegisterEvent'PLAYER_TARGET_CHANGED'
 	unitscan:RegisterEvent'UNIT_HEALTH'
 	unitscan:RegisterEvent'ZONE_CHANGED_NEW_AREA'
@@ -2384,6 +2391,12 @@ end
 
 
 function unitscan.target(name)
+	-- Belt-and-suspenders combat guard. UPDATE() already returns early
+	-- when InCombatLockdown() is true, but a state transition mid-frame
+	-- could otherwise let a TargetUnit() reach the protected path —
+	-- which fires ADDON_ACTION_BLOCKED, the loud variant of the
+	-- protection event that BugSack and similar collectors report.
+	if InCombatLockdown() then return end
 	forbidden = false
 	TargetUnit(name)
 	if forbidden then
@@ -2465,7 +2478,13 @@ function unitscan.LOAD()
 		end
 	end
 
+	-- Silence the default UI's "AddOn tried to call protected function"
+	-- popup AND its red on-screen message for both protection events.
+	-- The scan probes hundreds of names per minute; the noise would
+	-- otherwise be unbearable. unitscan listens for these events on
+	-- its own frame to drive the "found a unit" detection.
 	UIParent:UnregisterEvent'ADDON_ACTION_FORBIDDEN'
+	UIParent:UnregisterEvent'ADDON_ACTION_BLOCKED'
 	do
 		local flash = CreateFrame'Frame'
 		unitscan.flash = flash
