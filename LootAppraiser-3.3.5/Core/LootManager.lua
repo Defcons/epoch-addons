@@ -53,12 +53,19 @@ end
 -- Build a session row entry from a single looted stack.
 local function BuildEntry(link, count, source)
     local quality = select(3, GetItemInfo(link)) or 0
+    -- Item level is captured at ingest so the UI can disambiguate rows that
+    -- share a display name (WoW has many duplicate-named items across
+    -- level brackets — e.g. multiple "Traveler's Spaulders" at different
+    -- ilvls). 0 = unknown (GetItemInfo cold-cache); the renderer hides
+    -- the suffix in that case.
+    local ilvl = select(4, GetItemInfo(link)) or 0
     local copper, src, isBoP = PriceItem(link)
     local total = copper * (count or 1)
     return {
         link    = link,
         count   = count or 1,
         quality = quality,
+        ilvl    = ilvl,
         unit    = copper,        -- per-item value
         value   = total,         -- stack value
         src     = src,           -- price source tag

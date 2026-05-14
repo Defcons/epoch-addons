@@ -151,8 +151,14 @@ local function RefreshList()
                 local color = LA_CONST.QUALITY_COLOR[entry.quality] or "|cffffffff"
                 local nameTxt = entry.link:match("%[(.-)%]") or "?"
                 local countSuffix = (entry.count and entry.count > 1) and ("x" .. entry.count) or ""
+                -- Item level after the name (and stack count) so rows
+                -- sharing a display name but with different itemIDs/ilvls
+                -- can be told apart at a glance. Closes the row's quality
+                -- colour first so the ilvl can have its own muted grey.
+                local ilvlSuffix = (entry.ilvl and entry.ilvl > 0)
+                    and (" |cff888888(" .. entry.ilvl .. ")|r") or ""
                 local srcSuffix = "  |cff666666[" .. (LA_CONST.PRICE_LABEL[entry.src] or "?") .. "]|r"
-                row.name:SetText(color .. nameTxt .. countSuffix .. "|r" .. srcSuffix)
+                row.name:SetText(color .. nameTxt .. countSuffix .. "|r" .. ilvlSuffix .. srcSuffix)
                 row.value:SetText(color .. FormatMoney(entry.value) .. "|r")
                 row.link = entry.link
                 row:Show()

@@ -1,5 +1,28 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.16 — Item level in loot rows *(2026-05-11)*
+
+Loot rows now show the item level next to the name in a muted grey:
+
+```
+Traveler's Spaulders (40)  [de]    3g 4s
+Traveler's Spaulders (28)  [v]     1g 44s
+```
+
+Captured once in `BuildEntry` (`entry.ilvl = select(4, GetItemInfo(link))`),
+rendered next to the row name in `RefreshList`. Items where
+`GetItemInfo` was still cold at ingest get `ilvl = 0` and the
+suffix is hidden — those entries can be re-priced cheaply via
+`/la wipecache` once the item cache is warm if you want them to
+re-render with the level.
+
+Helpful for telling apart same-named items across level brackets
+(WoW has many — *Traveler's Spaulders*, *Robust*…, *Resilient*…)
+that resolve to different itemIDs and therefore can take
+different pricing branches (one BoP → `[de]`, one BoE → `[v]`).
+
+---
+
 ## v1.15 — Crafted items don't add to session value *(2026-05-04)*
 
 Crafting was visually double-counting: the gathered runecloth showed
