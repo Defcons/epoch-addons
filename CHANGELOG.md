@@ -20,6 +20,29 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.5.2 — Stricter quality gate *(2026-05-06)*
+
+Tighter rules on what qualifies for the mesh. Reduces low-value entries that pollute the DB and the upload to epoglogs.com.
+
+**New blacklist entries** (name-matched at `UTILITY_ITEM_NAMES_ANY_SLOT`):
+- Argent Dawn Commission — +rep trinket, common Stratholme leveling drop
+- Finkle's Skinner — skinning-only one-handed dagger (Stratholme drop)
+- Skull of Impending Doom — novelty trinket (Wailing Caverns)
+
+Name-based rather than itemID because Ascension reassigns vanilla item IDs server-side; names stay stable across reassignments.
+
+**Average item-level gate.** New `MIN_AVG_ILVL = 55`. Sets where the average ilvl across filled non-cosmetic slots (shirt + tabard excluded) falls below 55 are rejected. Catches leveling alts and quest-gear loadouts that aren't raid-relevant. Threshold picks the floor of L60 dungeon-blue territory; pure greens average ~45-50, full T0/dungeon-set ~55-58, raid epics 65+.
+
+Implementation detail: gate only fires when we have ≥10 valid ilvl reads. If most items aren't yet in the item cache (fresh installs, cold mesh), we let the scan through and catch it next time when the cache has settled. Avoids false rejections during the warm-up period.
+
+**Offhand always optional.** The prior v1.3.3 rule conditionally required slot 17 unless mainhand was an `INVTYPE_2HWEAPON`. That was too strict — fury warriors swapping titan-grip configs, prot warriors going 2H briefly mid-fight, etc. would fail the gate. Slot 17 (offhand) is now in the same category as 4 (shirt) and 19 (tabard) — never required.
+
+Removed the now-orphaned `IsTwoHandRef` helper (only used by the conditional offhand check).
+
+Patch-level bump (1.5.1 → 1.5.2) — mesh auto-update notification stays silent. Bundled with the v1.5.1 auto-sync into the eventual v1.6 minor release.
+
+---
+
 ## EpogArmory v1.5.1 — Background auto-sync *(2026-05-06)*
 
 The `/epogarmory syncfrom` command catches you up on a peer's stored scans, but you had to type it manually for each name. v1.5.1 adds a background ticker that does the same thing automatically — slow and steady, one new peer every few minutes, with a 24h per-peer cooldown so the same person doesn't get drained over and over.

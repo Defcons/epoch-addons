@@ -127,6 +127,12 @@ local UTILITY_ENCHANTS = {
 local UTILITY_ITEM_NAMES_ANY_SLOT = {
     "Rugged Sandle",   -- user's spelling (exact)
     "Rugged Sandal",   -- alternate spelling ("Rugged Sandals")
+    -- Claude (v1.5.2): low-level "utility" trinkets / weapons that pollute
+    -- raid-relevant gear scans. Name-based (not ID) because Ascension
+    -- reassigns vanilla itemIDs server-side — names are more stable.
+    "Argent Dawn Commission",  -- +rep trinket, common Stratholme leveling drop
+    "Finkle's Skinner",        -- skinning-only one-handed dagger
+    "Skull of Impending Doom", -- novelty trinket (Wailing Caverns)
 }
 
 -- Slot-restricted name patterns. Applied only when the item is in the listed
@@ -722,26 +728,56 @@ local GEAR_SLOT_NAMES = {
     [15] = "back",    [16] = "mainhand",[17] = "offhand", [18] = "ranged",
 }
 
--- Claude: itemRef may be a link, an item-string ("12345:0:0:..."), or nil.
--- Returns true if the item's equipLoc is INVTYPE_2HWEAPON. Returns false
--- when nil, empty, or GetItemInfo can't resolve the item — that's the
--- conservative answer (treats unknown as "not 2H", which forces the
--- offhand requirement and rejects ambiguous payloads for retry).
-local function IsTwoHandRef(itemRef)
-    if not itemRef or itemRef == "" then return false end
-    local equipLoc
+-- Claude (v1.5.2): item-ref → ilvl lookup. Accepts an inventory link, an
+-- item-string ("12345:0:0:..."), or a numeric itemID. Returns 0 when
+-- GetItemInfo can't resolve the item (cache miss).
+local function ItemIlvl(itemRef)
+    if not itemRef or itemRef == "" then return 0 end
+    local ilvl
     if type(itemRef) == "string" and itemRef:find("|H") then
-        equipLoc = select(9, GetItemInfo(itemRef))
+        ilvl = select(4, GetItemInfo(itemRef))
     else
         local id = tonumber(tostring(itemRef):match("^(%d+)"))
-        if id then equipLoc = select(9, GetItemInfo(id)) end
+        if id then ilvl = select(4, GetItemInfo(id)) end
     end
-    return equipLoc == "INVTYPE_2HWEAPON"
+    return ilvl or 0
+end
+
+-- Claude (v1.5.2): minimum average ilvl gate. Below this threshold a set
+-- is considered "leveling gear" and rejected from the mesh — keeps the
+-- DB focused on raid-relevant scans. 55 picks the floor of L60 dungeon-
+-- blue territory; pure greens average ~45-50, full T0 / dungeon set is
+-- ~55-58, raid epics 65+.
+local MIN_AVG_ILVL = 55
+
+-- Claude (v1.5.2): average ilvl across filled non-cosmetic slots.
+-- Cosmetic slots (shirt 4, tabard 19) are excluded — they're not always
+-- equipped and don't reflect gear progression. Empty slots also excluded
+-- from the denominator so a 2H wielder with no offhand isn't penalized.
+local function AverageIlvl(gearLookup)
+    local sum, count = 0, 0
+    for slot = 1, 19 do
+        if slot ~= 4 and slot ~= 19 then -- skip cosmetic slots
+            local ref = gearLookup(slot)
+            if ref and ref ~= "" then
+                local ilvl = ItemIlvl(ref)
+                if ilvl > 0 then
+                    sum = sum + ilvl
+                    count = count + 1
+                end
+            end
+        end
+    end
+    if count == 0 then return 0, 0 end
+    return sum / count, count
 end
 
 -- Claude: gearLookup(slot) returns a link, item-string, or nil/"".
--- Returns true if every required slot is filled (with the conditional
--- offhand rule applied), false + reason otherwise.
+-- Returns true if every required slot is filled, false + reason otherwise.
+-- v1.5.2: offhand (17) is now ALWAYS optional — the prior conditional
+-- "required unless mainhand is 2H" rule was too strict for fury warriors
+-- swapping titan grip configs etc. Also gates on average ilvl > 55 to
+-- keep leveling-gear scans out of the mesh.
 local function CheckFullSet(gearLookup)
     for _, slot in ipairs(REQUIRED_GEAR_SLOTS) do
         local v = gearLookup(slot)
@@ -750,11 +786,12 @@ local function CheckFullSet(gearLookup)
                 GEAR_SLOT_NAMES[slot] or "?", slot)
         end
     end
-    if not IsTwoHandRef(gearLookup(16)) then
-        local off = gearLookup(17)
-        if not off or off == "" then
-            return false, "missing offhand (slot 17, mainhand isn't 2H)"
-        end
+    -- ilvl gate. If we have enough valid ilvl reads (≥10 slots), enforce
+    -- the average minimum. Sparser reads (cache miss on most items) skip
+    -- the check defensively — next scan will catch it once items resolve.
+    local avg, samples = AverageIlvl(gearLookup)
+    if samples >= 10 and avg < MIN_AVG_ILVL then
+        return false, string.format("avg ilvl %.1f < %d (leveling gear)", avg, MIN_AVG_ILVL)
     end
     return true
 end
