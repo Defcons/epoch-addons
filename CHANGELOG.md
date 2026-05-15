@@ -20,6 +20,34 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.5.3 — PvP-set routing hardening *(2026-05-06)*
+
+Audit pass on the "Insignia/Medallion/Battlemaster's → sets\[\"pvp\"\]" routing. The logic was structurally correct (centralized at one write site in `Ingest`, receiver recomputes locally instead of trusting wire pos 31) but had a real gap on the receiver side.
+
+**The gap:** `EntryGearLooksPvP` resolved trinket names via `GetItemInfo(itemID)`, which reads the WoW *client* cache. That cache is populated by async server queries — a freshly-received itemID may not yet have a name when the routing decision happens in `Ingest`. Our own `EpogItemCacheDB` IS seeded synchronously from v1.2+ item-info hints (and from the scanner's own scans), and contains server-correct names. But the resolver wasn't consulting it.
+
+**Fix:** new `ResolveItemName(iid)` helper checks `EpogItemCacheDB[iid].name` first, falls back to `GetItemInfo`. Used by both:
+- `EntryGearLooksPvP` (receiver path) — primary beneficiary
+- `UnitLooksPvP` (sender path) — symmetry, helps inspect-scans where the inspected unit's items aren't yet in the client cache
+
+**Diagnostic log added.** When a scan routes to `sets["pvp"]`, a `dprint` line fires:
+```
+[route] Defcom → sets["pvp"] (PvP trinket detected in slot 13/14)
+```
+Toggle via `/epogarmory debug` to verify the gate is firing in real conditions.
+
+**No behavior change for the success case** — Insignia trinkets already routed correctly when the name resolved. This patch closes the silent-fail window where the name was momentarily unresolvable during a fresh broadcast ingest.
+
+**Confirmed correct (pre-existing):**
+- Only one write site: `existing.sets[group] = {...}` at line 2061
+- `group = "pvp"` if `EntryGearLooksPvP(entry.gear)` else `group = DominantTree(entry.spec)` — no third option, no bypass
+- Trinket scan slot-restricted to `TRINKET_SLOTS = {13, 14}` — shoulder/shield items with "Insignia" in the name don't false-trigger
+- Patterns `{"Insignia", "Medallion", "Battlemaster's"}` cover all standard WoW 3.3.5 PvP trinkets
+
+Patch-level bump (1.5.2 → 1.5.3) — mesh auto-update notification stays silent.
+
+---
+
 ## EpogArmory v1.5.2 — Stricter quality gate *(2026-05-06)*
 
 Tighter rules on what qualifies for the mesh. Reduces low-value entries that pollute the DB and the upload to epoglogs.com.

@@ -166,12 +166,36 @@ local function GearLooksPvP(gearLookup)
     return false
 end
 
+-- Claude (v1.5.3): name-resolution fallback chain. GetItemInfo reads the
+-- WoW *client* cache (server-fetched), which is async — a freshly-received
+-- itemID may not yet have a name available when we make the routing
+-- decision in Ingest. EpogItemCacheDB is seeded synchronously from
+-- v1.2+ item-info hints BEFORE EntryGearLooksPvP runs, so checking it
+-- first guarantees we have a name to pattern-match against if the
+-- broadcaster sent one. Critical for "Insignia/Medallion/Battlemaster's"
+-- routing — a missed name match would silently route a PvP set to a
+-- talent-tree key.
+local function ResolveItemName(iid)
+    if not iid then return nil end
+    if EpogItemCacheDB and EpogItemCacheDB[iid] and EpogItemCacheDB[iid].name
+       and EpogItemCacheDB[iid].name ~= "" then
+        return EpogItemCacheDB[iid].name
+    end
+    return GetItemInfo(iid) or nil
+end
+
 -- Live-unit variant: queries GetInventoryItemLink + GetItemInfo. Used in
 -- BuildPayload when we're the scanner.
 local function UnitLooksPvP(unit)
     return GearLooksPvP(function(slot)
         local link = GetInventoryItemLink(unit, slot)
-        return link and GetItemInfo(link) or nil
+        if not link then return nil end
+        local name = GetItemInfo(link)
+        if name then return name end
+        -- Claude (v1.5.3): fall back to our own item cache if WoW's client
+        -- cache hasn't resolved the inspected item yet.
+        local iid = tonumber(link:match("item:(%d+)"))
+        return ResolveItemName(iid)
     end)
 end
 
@@ -183,7 +207,7 @@ local function EntryGearLooksPvP(gear)
         local str = gear[slot]
         if not str or str == "" then return nil end
         local iid = tonumber(str:match("^(%d+)"))
-        return iid and GetItemInfo(iid) or nil
+        return ResolveItemName(iid)
     end)
 end
 
@@ -1993,12 +2017,18 @@ local function Ingest(payload, sender)
 
     -- Set key — computed locally, NOT read from wire position 31, so we're
     -- robust against sender bugs and older clients that key differently.
-    -- If the scanned player has an Insignia trinket equipped (slot 13/14)
-    -- the loadout is a PvP set and routes to sets["pvp"]. Otherwise it goes
-    -- to sets[DominantTree(spec)] for 1/2/3 class-tree keying.
+    -- If the scanned player has an Insignia/Medallion/Battlemaster's
+    -- trinket equipped (slot 13/14) the loadout is a PvP set and routes
+    -- to sets["pvp"]. Otherwise it goes to sets[DominantTree(spec)] for
+    -- 1/2/3 class-tree keying.
     local group
     if EntryGearLooksPvP(entry.gear) then
         group = "pvp"
+        -- Claude (v1.5.3): log the PvP routing decision so users can verify
+        -- the gate is firing for Insignia-equipped scans. Toggle via
+        -- /epogarmory debug.
+        dprint(string.format("[route] %s → sets[\"pvp\"] (PvP trinket detected in slot 13/14)",
+            entry.name or "?"))
     else
         group = DominantTree(entry.spec)
     end
