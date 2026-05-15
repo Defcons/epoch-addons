@@ -20,6 +20,50 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.6.0 — Auto-sync + quality controls *(2026-05-06)*
+
+Consolidated release covering the v1.5.1–v1.5.3 iteration cycle. Headline feature: background auto-sync. Supporting changes: tighter quality gates on what enters the mesh, and a long-standing PvP-routing gap closed.
+
+**Background auto-sync**
+
+No more `/epogarmory syncfrom <name>` for every peer you want to catch up on. A new background ticker picks one reachable peer every 5 minutes and starts a sync via the existing wire path. Slow and steady — bandwidth-friendly even in a 100-person guild.
+
+- 24h per-peer cooldown (`peerInfo[name].lastSyncedFrom`), persisted in SavedVariables so it survives `/reload` and re-login.
+- Selection criteria: peer must be reachable (in guild online / party / raid), heard from in last 24h, have ≥10 stored scans, off cooldown, not already syncing.
+- Ties broken by largest peer DB first — most data per sync.
+- Respects the existing 3-concurrent cap and 90s post-login delay before first attempt.
+- Same wire path as manual `/syncfrom` — both write `lastSyncedFrom`, so a manual sync satisfies the auto-sync gate.
+- Default-on for new and upgrading users. Toggle via `/epogarmory autosync on|off|status`.
+
+**Quality gates**
+
+Three new rules for what qualifies for the mesh:
+
+- **Average ilvl floor**: `MIN_AVG_ILVL = 55`. Sets averaging below 55 ilvl across filled non-cosmetic slots are rejected as leveling gear. Sparse-cache safe — only fires when ≥10 valid ilvl reads are available, so fresh installs aren't false-rejected during warm-up.
+- **Three new utility-item blacklist patterns** added at `UTILITY_ITEM_NAMES_ANY_SLOT`: Argent Dawn Commission, Finkle's Skinner, Skull of Impending Doom. Name-based (not itemID) so Ascension's server-side ID reassignment doesn't break the filter.
+- **Offhand always optional**: the v1.3.3 "required unless mainhand is 2H" conditional was too strict for titan-grip swaps and mid-fight weapon configs. Slot 17 now joins shirt (4) and tabard (19) as never-required.
+
+**PvP-set routing hardening**
+
+Insignia/Medallion/Battlemaster's trinket → `sets["pvp"]` routing was structurally correct but had a silent-fail gap: `EntryGearLooksPvP` resolved trinket names via `GetItemInfo`, which reads WoW's *async* client cache. Freshly-received itemIDs sometimes had no resolved name when the routing decision happened in `Ingest` — result, the set quietly went to a talent-tree key instead of `sets["pvp"]`.
+
+Fixed with a new `ResolveItemName(iid)` helper that checks `EpogItemCacheDB` (seeded synchronously from v1.2+ item-info hints) before falling back to `GetItemInfo`. Applied to both receiver and sender paths.
+
+Added a `dprint` log when routing to `sets["pvp"]` so users can verify the gate fires on real scans (toggle via `/epogarmory debug`).
+
+**Refactor: shared sync-start path**
+
+Both `/syncfrom` and auto-sync now go through one `StartSyncFromPeer(name, days)` helper. The slash command dropped from ~80 lines of inline sync-start logic to a thin wrapper around the helper. Reduces drift risk between the two paths.
+
+**Backward compatibility**
+
+- Wire format unchanged (no new fields added in v1.5.x).
+- New SavedVariables fields are additive and optional: `peerInfo[name].lastSyncedFrom`, `config.autoSync`. Missing values treated as never-synced and default-on respectively.
+- No DB wipe on update. Existing accumulated mesh data preserved.
+- Mixed-version mesh works: v1.6 peers respond to legacy clients' sync requests the same as v1.5 peers; older clients receive v1.6 broadcasts cleanly.
+
+---
+
 ## EpogArmory v1.5.3 — PvP-set routing hardening *(2026-05-06)*
 
 Audit pass on the "Insignia/Medallion/Battlemaster's → sets\[\"pvp\"\]" routing. The logic was structurally correct (centralized at one write site in `Ingest`, receiver recomputes locally instead of trusting wire pos 31) but had a real gap on the receiver side.
