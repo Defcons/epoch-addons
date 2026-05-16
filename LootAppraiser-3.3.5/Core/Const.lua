@@ -85,6 +85,11 @@ LA_DEFAULTS = {
     -- relative to UIParent at the same anchor point). Nil on first
     -- install — Build() falls back to "CENTER, 0, 0".
     windowPos         = nil,
+    -- Window visibility, persisted across /reload and login. Hooked
+    -- to the frame's OnShow / OnHide. Default false so a fresh install
+    -- doesn't pop the window unexpectedly; the user opens it with /la
+    -- once and from then on it stays in whatever state they left it.
+    windowShown       = false,
 
     -- Persistence
     rememberLastSession = true,   -- restore last session totals on /reload (within the same play session)

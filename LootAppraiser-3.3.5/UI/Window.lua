@@ -255,6 +255,19 @@ function UI.Build()
         frame:SetHeight(pos.h)
     end
 
+    -- Apply saved visibility BEFORE wiring OnShow/OnHide so the initial
+    -- state-restore doesn't itself trigger a save. A frame is created
+    -- shown by default; if the user had it hidden last session we need
+    -- to honour that.
+    local wasShown = LA.db and LA.db.profile and LA.db.profile.windowShown
+    if wasShown then frame:Show() else frame:Hide() end
+    frame:SetScript("OnShow", function()
+        if LA.db and LA.db.profile then LA.db.profile.windowShown = true  end
+    end)
+    frame:SetScript("OnHide", function()
+        if LA.db and LA.db.profile then LA.db.profile.windowShown = false end
+    end)
+
     frame:SetBackdrop({
         bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",

@@ -415,6 +415,11 @@ Three visual bugs fixed in the in-game talent tree panel (`BuildTalentFrame`):
 
 ---
 
+## LootAppraiser-3.3.5 v1.17 — Window visibility persists across reload/login *(2026-05-16)*
+- Removed the unconditional `LootAppraiserFrame:Hide()` from `PLAYER_LOGIN`. New profile field `windowShown` (default `false`) is read in `UI.Build()` to apply the initial state, with `OnShow` / `OnHide` hooks keeping it in sync for the rest of the session. Net: open it once, leave it open — reload/logout/login keeps the window in the same state, same position, same size.
+
+---
+
 ## LootAppraiser-3.3.5 v1.16 — Item level in loot rows *(2026-05-11)*
 - Loot rows now show item level next to the name in muted grey, e.g. `Traveler's Spaulders (40)  [de]   3g 4s`. Captured once in `BuildEntry` (`entry.ilvl = select(4, GetItemInfo(link))`) and rendered in `RefreshList`. Items where `GetItemInfo` was still cold at ingest get `ilvl = 0` and the suffix is hidden.
 - Useful for telling apart same-named items across level brackets — WoW has many duplicate-named items (Traveler's, Robust, Resilient) with different itemIDs that resolve to different pricing branches (one BoP → `[de]`, one BoE → `[v]`).

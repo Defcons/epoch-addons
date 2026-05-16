@@ -1,5 +1,24 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.17 — Window visibility persists across reload/login *(2026-05-16)*
+
+Removed the unconditional `LootAppraiserFrame:Hide()` from the
+`PLAYER_LOGIN` handler. The window now remembers whether you
+had it open or closed:
+
+* New profile field `windowShown` (boolean, default `false`).
+* `UI.Build()` applies the saved state BEFORE wiring the
+  OnShow / OnHide hooks, so the initial state restore doesn't
+  itself trigger a save.
+* OnShow / OnHide hooks then keep `windowShown` in sync with
+  any user-driven Show/Hide (Hide button, `/la`, `/la toggle`,
+  Esc, `showOnLoot` auto-pop) for the rest of the session.
+
+Net: open it once, leave it open. `/reload`, log out, log back
+in — it stays open in the same spot at the same size.
+
+---
+
 ## v1.16 — Item level in loot rows *(2026-05-11)*
 
 Loot rows now show the item level next to the name in a muted grey:

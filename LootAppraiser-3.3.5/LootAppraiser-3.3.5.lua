@@ -229,8 +229,8 @@ boot:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
         InitDB()
         LA.UI.Build()
-        -- Hide on login; user opens with /la.
-        if LootAppraiserFrame then LootAppraiserFrame:Hide() end
+        -- Visibility is restored inside UI.Build() from
+        -- LA.db.profile.windowShown — don't force-hide here.
     elseif event == "AUCTION_HOUSE_CLOSED" then
         LA.Pricing.WipeAHCache()
     end
