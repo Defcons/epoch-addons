@@ -1,5 +1,27 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.18 — Stop hiding on death / instance entry *(2026-05-16)*
+
+Removed the frame from `UISpecialFrames`. WoW's
+`CloseSpecialWindows()` iterates that list and hides every entry —
+and it gets called from more than just the Esc key. Several
+Blizzard UI flows (resurrection-/spirit-release popups, instance-
+entry confirmation popups, and various dialog dismissals) end up
+triggering it. Combined with v1.17's persistent visibility tracking,
+each of those events was silently flipping `windowShown` to `false`
+and persisting it, so the window stayed hidden across the next
+reload too.
+
+Trade-off: **Esc no longer closes the window.** Use the **Hide**
+button on the frame, `/la`, or `/la toggle` instead.
+
+If you want Esc-to-close back at some future point, the right
+implementation is a custom `OnKeyDown` handler that only closes
+when no other dialog has Esc-priority — too much complexity for
+v1.18.
+
+---
+
 ## v1.17 — Window visibility persists across reload/login *(2026-05-16)*
 
 Removed the unconditional `LootAppraiserFrame:Hide()` from the

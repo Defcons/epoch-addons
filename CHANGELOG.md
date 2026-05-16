@@ -415,6 +415,11 @@ Three visual bugs fixed in the in-game talent tree panel (`BuildTalentFrame`):
 
 ---
 
+## LootAppraiser-3.3.5 v1.18 — Stop hiding on death / instance entry *(2026-05-16)*
+- Removed the frame from `UISpecialFrames`. WoW's `CloseSpecialWindows()` iterates that list and hides every entry — and it's called from more than the Esc key (some popup dismissals on death/spirit-release/instance-entry trigger it). Combined with v1.17's persistent visibility, each of those events silently flipped `windowShown` to `false` and persisted it. Trade-off: **Esc no longer closes the window** — use the Hide button, `/la`, or `/la toggle`.
+
+---
+
 ## LootAppraiser-3.3.5 v1.17 — Window visibility persists across reload/login *(2026-05-16)*
 - Removed the unconditional `LootAppraiserFrame:Hide()` from `PLAYER_LOGIN`. New profile field `windowShown` (default `false`) is read in `UI.Build()` to apply the initial state, with `OnShow` / `OnHide` hooks keeping it in sync for the rest of the session. Net: open it once, leave it open — reload/logout/login keeps the window in the same state, same position, same size.
 

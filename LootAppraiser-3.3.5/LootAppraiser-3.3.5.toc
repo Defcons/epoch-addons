@@ -2,7 +2,7 @@
 ## Title: |cff33ccffLoot Appraiser|r
 ## Notes: Live loot tracker with gold-per-hour, auction house value, vendor and disenchant pricing. Inspired by ProfitzTV's LootAppraiser, rewritten for WoW 3.3.5.
 ## Author: Defcon
-## Version: 1.17
+## Version: 1.18
 ## SavedVariables: LootAppraiserDB
 ## OptionalDeps: Aux-addon, AuxTSMBridge, TradeSkillMaster, TradeSkillMaster_AuctionDB, ArkInventory
 

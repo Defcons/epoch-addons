@@ -276,7 +276,14 @@ function UI.Build()
     })
     frame:SetBackdropColor(0, 0, 0, (LA_DEFAULTS.windowAlpha or 0.85))
     frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-    tinsert(UISpecialFrames, "LootAppraiserFrame")  -- escape closes
+    -- Deliberately NOT in UISpecialFrames. Membership there means WoW's
+    -- CloseSpecialWindows() iterates and Hides the window — which gets
+    -- called from various Blizzard UI flows (some popup dismissals,
+    -- handling of death / spirit-release / instance-entry popups, etc.),
+    -- not just from pressing Esc. Combined with v1.17's persistent
+    -- windowShown, every one of those events made the addon "auto-hide"
+    -- across reloads. Trade-off: Esc no longer closes the window —
+    -- use the Hide button, /la, or /la toggle instead.
 
     -- Single-line summary header. Anchored across the full top of the
     -- frame; centre-justified keeps the layout balanced as values change
