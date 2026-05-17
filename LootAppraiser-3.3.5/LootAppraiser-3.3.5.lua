@@ -219,6 +219,33 @@ SlashCmdList["LOOTAPPRAISER"] = function(input)
     LA._lastSlashRaw = nil
 end
 
+-- ----- CloseSpecialWindows wrapper ---------------------------------------
+-- WoW's CloseSpecialWindows() iterates every entry in UISpecialFrames and
+-- calls Hide() on it. The Esc key invokes it, but so do a surprising
+-- number of automatic-close flows in Blizzard UI code: dismissing the
+-- spirit-release/resurrection popup, closing the instance-entry
+-- confirmation, certain dialog flows on death. With our OnHide hook in
+-- Window.lua, each of those invocations was silently flipping
+-- windowShown=false and persisting it, so the window appeared to
+-- "autohide" across reloads.
+--
+-- Wrapping the global with a flag lets the OnHide hook tell whether it's
+-- being called from a CloseSpecialWindows pass (skip persistence) or
+-- from a direct user-driven Hide button click (persist normally).
+--
+-- This is a global function replacement, not a hooksecurefunc, because
+-- hooksecurefunc post-hooks fire AFTER the OnHide we want to gate. The
+-- function isn't a secure-template function so replacement is safe.
+do
+    local orig = CloseSpecialWindows
+    CloseSpecialWindows = function(...)
+        LA._inCloseSpecialWindows = true
+        local rv = orig(...)
+        LA._inCloseSpecialWindows = false
+        return rv
+    end
+end
+
 -- ----- bootstrap on PLAYER_LOGIN -----------------------------------------
 local boot = CreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")

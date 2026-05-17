@@ -415,6 +415,12 @@ Three visual bugs fixed in the in-game talent tree panel (`BuildTalentFrame`):
 
 ---
 
+## LootAppraiser-3.3.5 v1.19 — Restore Esc-to-close without persisting hidden state *(2026-05-17)*
+- Put the frame back in `UISpecialFrames` (so Esc closes it just like v1.16 and earlier), but wrap `CloseSpecialWindows` globally to set `LA._inCloseSpecialWindows = true` for the duration of the iteration. The `OnHide` hook then skips its `windowShown = false` persistence whenever the flag is set — so Esc-closes, death/spirit-release popup dismissals, instance-entry confirmations, etc., all hide the window for the current session but `/reload` brings it back. Only the **Hide** button on the frame persists hidden state (it's the one user-driven Hide() path outside the CloseSpecialWindows wrapper).
+- Function-replacement on `CloseSpecialWindows` is intentional. `hooksecurefunc` only post-hooks, which would fire after the OnHide we want to gate.
+
+---
+
 ## LootAppraiser-3.3.5 v1.18 — Stop hiding on death / instance entry *(2026-05-16)*
 - Removed the frame from `UISpecialFrames`. WoW's `CloseSpecialWindows()` iterates that list and hides every entry — and it's called from more than the Esc key (some popup dismissals on death/spirit-release/instance-entry trigger it). Combined with v1.17's persistent visibility, each of those events silently flipped `windowShown` to `false` and persisted it. Trade-off: **Esc no longer closes the window** — use the Hide button, `/la`, or `/la toggle`.
 

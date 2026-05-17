@@ -1,5 +1,42 @@
 # Loot Appraiser (3.3.5) — Changelog
 
+## v1.19 — Restore Esc-to-close without the auto-hide persistence *(2026-05-17)*
+
+v1.18 removed the frame from `UISpecialFrames` to stop the
+"autohide on death/instance entry" behaviour. Side effect: Esc
+no longer closed the window, and the user reported their
+backpack/other frames seeming to close on their own — possibly
+unrelated, but having LA out of `UISpecialFrames` changes the
+position of the remaining entries that WoW's Esc handler walks.
+
+Better fix: put LA back in `UISpecialFrames`, but distinguish
+WHO called Hide:
+
+* Wrap the global `CloseSpecialWindows` in
+  `LootAppraiser-3.3.5.lua`. The wrapper sets
+  `LA._inCloseSpecialWindows = true` before calling the
+  original, and clears the flag afterwards.
+* The Window.lua `OnHide` hook checks the flag and skips the
+  `windowShown = false` persistence when it's set.
+
+Net behaviour:
+* **Esc** closes the window for the current session, just like
+  v1.16 and earlier — but `windowShown` stays `true` so a
+  `/reload` brings it back. (Different from v1.17, which would
+  have persisted hidden.)
+* **Death / instance / popup dismissals** that internally call
+  `CloseSpecialWindows` similarly leave the persisted state
+  alone; the window re-appears once you're back in the world.
+* **Hide button** on the frame still persists hidden — it's the
+  only user-driven path that goes through Hide() outside the
+  CloseSpecialWindows wrapper.
+
+Implementation note: function-replacement on `CloseSpecialWindows`
+is intentional. `hooksecurefunc` only adds post-hooks, which
+would fire after the OnHide we want to gate.
+
+---
+
 ## v1.18 — Stop hiding on death / instance entry *(2026-05-16)*
 
 Removed the frame from `UISpecialFrames`. WoW's

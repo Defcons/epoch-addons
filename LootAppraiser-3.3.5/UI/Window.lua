@@ -265,6 +265,13 @@ function UI.Build()
         if LA.db and LA.db.profile then LA.db.profile.windowShown = true  end
     end)
     frame:SetScript("OnHide", function()
+        -- LA._inCloseSpecialWindows is set by our wrapper around
+        -- CloseSpecialWindows. When true, this Hide() came from one of
+        -- Blizzard's automatic-close flows (Esc, death popup dismissal,
+        -- instance entry confirmation, etc.) rather than a deliberate
+        -- user click on our Hide button — so skip persistence and the
+        -- next /reload will restore the window to its previous shown state.
+        if LA._inCloseSpecialWindows then return end
         if LA.db and LA.db.profile then LA.db.profile.windowShown = false end
     end)
 
@@ -276,14 +283,17 @@ function UI.Build()
     })
     frame:SetBackdropColor(0, 0, 0, (LA_DEFAULTS.windowAlpha or 0.85))
     frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-    -- Deliberately NOT in UISpecialFrames. Membership there means WoW's
-    -- CloseSpecialWindows() iterates and Hides the window — which gets
-    -- called from various Blizzard UI flows (some popup dismissals,
-    -- handling of death / spirit-release / instance-entry popups, etc.),
-    -- not just from pressing Esc. Combined with v1.17's persistent
-    -- windowShown, every one of those events made the addon "auto-hide"
-    -- across reloads. Trade-off: Esc no longer closes the window —
-    -- use the Hide button, /la, or /la toggle instead.
+
+    -- Restore Esc-to-close behaviour by being a UISpecialFrame, BUT use
+    -- the LA._inCloseSpecialWindows flag (set by our CloseSpecialWindows
+    -- wrapper in LootAppraiser-3.3.5.lua) so the OnHide hook below only
+    -- persists windowShown=false for user-driven Hide()s. Esc still
+    -- closes the window for the current session, but `/reload` shows it
+    -- again. The same flag suppresses the spurious persistence that
+    -- happens when various Blizzard popup flows (death/spirit-release,
+    -- instance-entry confirmations, etc.) call CloseSpecialWindows
+    -- internally without user input.
+    tinsert(UISpecialFrames, "LootAppraiserFrame")
 
     -- Single-line summary header. Anchored across the full top of the
     -- frame; centre-justified keeps the layout balanced as values change
