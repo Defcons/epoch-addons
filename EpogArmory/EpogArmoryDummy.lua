@@ -705,35 +705,31 @@ local function BuildFrame()
             f.stateBadge:SetTextColor(0.2, 0.9, 0.2)
             f.actionBtn:SetText("Stop")
         elseif state == "stopping" then
-            -- Past T+1:20 — user needs to disengage and click VALIDATE
-            -- to stamp the parse. Three sub-states:
-            --   (a) in combat → hide button, show "disengage first" hint
-            --   (b) out of combat + validThroughout false → hide button,
-            --       no need to validate an already-invalid parse
-            --   (c) out of combat + validThroughout true → show button
+            -- Past T+1:20 — user clicks VALIDATE to stamp the log AND
+            -- force-stop logging. Fishing fails instantly so the button
+            -- works regardless of combat state (no 10s-channel concern
+            -- like Hearthstone had). This also handles the case where
+            -- the player gets "stuck in combat" after attacking the
+            -- dummy and PLAYER_REGEN_ENABLED never fires naturally.
+            --
+            -- Three sub-states:
+            --   (a) markerEmitted true → "verifying marker..."
+            --   (b) validThroughout false → "parse invalidated - click Stop"
+            --   (c) otherwise → show VALIDATE button
             f.stateBadge:SetText("STOPPING...")
             f.stateBadge:SetTextColor(1, 0.7, 0.2)
             f.actionBtn:SetText("Stop")
-            local inCombat = InCombatLockdown and InCombatLockdown()
             if markerEmitted then
-                -- User already clicked, waiting for CLEU verify
                 f.verdictLabel:SetTextColor(1, 1, 1)
                 f.verdictLabel:SetText("|cff66ff66verifying marker...|r")
                 f.verdictLabel:Show()
-            elseif inCombat then
-                -- Combat still active — they need to disengage first
-                f.verdictLabel:SetTextColor(1, 1, 1)
-                f.verdictLabel:SetText("|cffffaa00disengage from dummy to validate|r")
-                f.verdictLabel:Show()
             elseif not validThroughout then
-                -- Parse is already invalid (foreign aura / consumable)
                 f.verdictLabel:SetTextColor(1, 1, 1)
                 f.verdictLabel:SetText("|cffff6666parse invalidated - click Stop|r")
                 f.verdictLabel:Show()
             else
-                -- Out of combat + still valid → show the VALIDATE button
                 f.validateBtn:Show()
-                f.validateHint:SetText("|cff888888click to stamp the log|r")
+                f.validateHint:SetText("|cff888888click to stamp the log and stop logging|r")
                 f.validateHint:Show()
             end
         elseif state == "stopped" then
