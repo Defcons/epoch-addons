@@ -245,29 +245,56 @@ end
 -- Emit the validation marker into the combat log. The exact mechanism is
 -- deliberately not surfaced to the user (we don't want people knowing
 -- how to fake validation). What's visible: brief red error flash + a
--- short interrupt sound. The flash is suppressed by temporarily hiding
--- UIErrorsFrame for ~0.5s around the cast.
+-- short interrupt sound.
+--
+-- CRITICAL: the cast and the stop MUST happen across separate frames.
+-- WoW's client queues spell casts to send to the server on the next
+-- network tick. If we call CastSpellByName + SpellStopCasting in the
+-- same Lua frame, the client cancels the queued cast BEFORE sending
+-- anything to the server — no SPELL_CAST_START event, no log line.
+-- The marker silently fails. (Verified empirically: the first test
+-- run produced "CLEAN" verdict but the log file had zero Hearthstone
+-- lines.) We defer the stop by ~150ms via an OnUpdate timer so the
+-- start has time to round-trip.
+
 local _restoreUIErrors = CreateFrame("Frame")
 _restoreUIErrors:Hide()
 local _restoreElapsed = 0
 _restoreUIErrors:SetScript("OnUpdate", function(self, e)
     _restoreElapsed = _restoreElapsed + e
-    if _restoreElapsed >= 0.5 then
+    if _restoreElapsed >= 0.6 then
         self:Hide()
         _restoreElapsed = 0
         if UIErrorsFrame then UIErrorsFrame:Show() end
     end
 end)
 
+local _stopCastFrame = CreateFrame("Frame")
+_stopCastFrame:Hide()
+local _stopElapsed = 0
+_stopCastFrame:SetScript("OnUpdate", function(self, e)
+    _stopElapsed = _stopElapsed + e
+    if _stopElapsed >= 0.15 then
+        self:Hide()
+        _stopElapsed = 0
+        if SpellStopCasting then SpellStopCasting() end
+    end
+end)
+
 local function EmitMarker()
-    -- Hide the error-text frame briefly so the user doesn't see the
-    -- red "Interrupted" flash. Restored 0.5s later by _restoreUIErrors.
+    -- Suppress the error-text flash for 0.6s (covers cast + stop + a bit).
     if UIErrorsFrame then UIErrorsFrame:Hide() end
     _restoreElapsed = 0
     _restoreUIErrors:Show()
 
+    -- Start the cast. Server receives it on next network tick.
     if CastSpellByName then CastSpellByName(MARKER_SPELL_NAME) end
-    if SpellStopCasting then SpellStopCasting() end
+
+    -- Schedule the stop ~150ms later so the START event has a chance to
+    -- reach the server and be echoed back into the combat log file before
+    -- the stop cancels it.
+    _stopElapsed = 0
+    _stopCastFrame:Show()
 end
 
 -- ============================================================================
@@ -679,6 +706,10 @@ _G.EpogArmoryDummy_Toggle = function()
     if frame:IsShown() then
         frame:Hide()
     else
+        -- Reset from "complete" state so the new view starts fresh.
+        -- "armed" and "logging" states are preserved (parse may still be
+        -- ongoing in the background).
+        if state == "complete" then SetState("idle") end
         AnchorTopLeft(frame)
         ValidateNow()
         frame:Show()
@@ -707,9 +738,15 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         EpogArmoryDB.dummyFights = EpogArmoryDB.dummyFights or {}
     elseif event == "PLAYER_TARGET_CHANGED" then
         -- Auto-open the frame when the user targets a dummy in a rested
-        -- area. Only fires when state is "idle" so we don't re-pop the
-        -- frame mid-fight if the user briefly retargets.
-        if IsDummyTargeted() and IsCity() and state == "idle" then
+        -- area. Fires when state is "idle" OR "complete" (re-target
+        -- after a finished parse should re-open for a fresh run).
+        -- Skipped during "armed" or "logging" so we don't disturb an
+        -- in-progress parse if the user briefly retargets something else
+        -- and back.
+        if IsDummyTargeted() and IsCity()
+           and (state == "idle" or state == "complete")
+        then
+            if state == "complete" then SetState("idle") end
             if not frame then frame = BuildFrame() end
             if not frame:IsShown() then
                 AnchorTopLeft(frame)
