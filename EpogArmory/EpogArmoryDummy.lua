@@ -600,11 +600,14 @@ local function BuildFrame()
     f.timerLabel:SetText("0:00 / 1:30")
 
     -- Verdict text. Hidden until state transitions to "stopped". Shows
-    -- "Log: CLEAN" (green) or "Log: INVALID" (red) so the user sees
-    -- the final result in a dedicated line rather than buried in the
-    -- state badge.
-    f.verdictLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    f.verdictLabel:SetPoint("TOP", 0, -104)
+    -- "Log: CLEAN" (green) or "Log: INVALID" (red).
+    -- Anchored to the empty space between Target Debuffs section and
+    -- the Auto-start checkbox so it doesn't overlap the aura lists.
+    -- Width-constrained + centered so long strings wrap cleanly.
+    f.verdictLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.verdictLabel:SetPoint("TOP", 0, -316)
+    f.verdictLabel:SetWidth(252)
+    f.verdictLabel:SetJustifyH("CENTER")
     f.verdictLabel:Hide()
 
     -- Progress bar
@@ -710,20 +713,23 @@ local function BuildFrame()
             f.stateBadge:SetText("STOPPING...")
             f.stateBadge:SetTextColor(1, 0.7, 0.2)
             f.actionBtn:SetText("Stop")
-            -- Show a hint past T+1:30 so user knows to disengage
+            -- Show a hint past T+1:30 so user knows to disengage.
+            -- Color comes from inline codes; reset SetTextColor so it
+            -- doesn't tint the embedded |cffXXXXXX| color.
             local elapsed = fightStartTime and (GetTime() - fightStartTime) or 0
             if elapsed >= LOG_DURATION_SEC then
+                f.verdictLabel:SetTextColor(1, 1, 1)
                 f.verdictLabel:SetText("|cffffaa00disengage from dummy to finalize log|r")
-                f.verdictLabel:SetTextColor(1, 0.85, 0.2)
                 f.verdictLabel:Show()
             end
         elseif state == "stopped" then
             f.stateBadge:SetText("STOPPED")
             f.stateBadge:SetTextColor(0.6, 0.6, 0.6)
             f.actionBtn:SetText("Reset")
-            -- Verdict line. CLEAN requires markerVerified (see
-            -- IsCleanVerdict — listens for the SPELL_CAST_FAILED line
-            -- to confirm the marker actually reached the log file).
+            -- Verdict line. CLEAN requires markerVerified — see
+            -- IsCleanVerdict above. Reset SetTextColor to white so the
+            -- inline color codes show through cleanly.
+            f.verdictLabel:SetTextColor(1, 1, 1)
             if IsCleanVerdict() then
                 f.verdictLabel:SetText("Log: |cff66ff66CLEAN|r - valid for upload")
             else
