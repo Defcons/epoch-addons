@@ -37,8 +37,19 @@ local IDLE_STOP_THRESHOLD = 3
 -- "Heroic Training Dummy") with one rule.
 local DUMMY_NAME_PATTERN = "Training Dummy"
 
--- Marker spell. CastSpellByName uses this exact string.
-local MARKER_SPELL_NAME  = "Hearthstone"
+-- Marker: Fishing (spell ID 7620). Picked because:
+--   - Universal (every character has it from level 1)
+--   - Fails INSTANTLY with "Must have a Fishing Pole equipped" when no
+--     pole is equipped (always true during a dummy parse — player has
+--     their real weapon out)
+--   - Single SPELL_CAST_FAILED log line, no SPELL_CAST_START / cast
+--     bar / SpellStopCasting timing required
+--   - No GCD, no resource cost, no visible cast bar
+--   - Distinctive failure reason that won't be confused with anything else
+-- Verified against user's empirical log:
+--   SPELL_CAST_FAILED ... 7620,"Fishing","Must have a Fishing Pole equipped"
+local MARKER_SPELL_ID    = 7620
+local MARKER_SPELL_NAME  = "Fishing"
 
 -- Allowed aura sources: self + own pets/summons + vehicle.
 -- Class summons (Hunter pet, Warlock demon, Mage Water Elemental, Priest
@@ -90,7 +101,8 @@ local state              = "idle"       -- "idle" | "armed" | "logging" | "stopp
 local fightStartTime     = nil          -- GetTime() when combat started
 local validThroughout    = true         -- sticky false on any violation
 local invalidReasons     = {}           -- set of reason strings
-local markerEmitted      = false        -- true once we've attempted the cast
+local markerEmitted      = false        -- true once EmitMarker() ran
+local markerVerified     = false        -- true once SPELL_CAST_FAILED for our marker was seen in CLEU
 local lastDummyName      = nil
 local savedDummyGUID     = nil          -- saved at combat start
 local lastDummyHitTime   = 0            -- GetTime() of last player/pet damage on dummy
@@ -250,57 +262,36 @@ end
 
 -- Emit the validation marker into the combat log. The exact mechanism is
 -- deliberately not surfaced to the user (we don't want people knowing
--- how to fake validation). What's visible: brief red error flash + a
--- short interrupt sound.
+-- how to fake validation).
 --
--- CRITICAL: the cast and the stop MUST happen across separate frames.
--- WoW's client queues spell casts to send to the server on the next
--- network tick. If we call CastSpellByName + SpellStopCasting in the
--- same Lua frame, the client cancels the queued cast BEFORE sending
--- anything to the server — no SPELL_CAST_START event, no log line.
--- The marker silently fails. (Verified empirically: the first test
--- run produced "CLEAN" verdict but the log file had zero Hearthstone
--- lines.) We defer the stop by ~150ms via an OnUpdate timer so the
--- start has time to round-trip.
+-- Fishing fails INSTANTLY with "Must have a Fishing Pole equipped" when
+-- the player's main hand isn't a fishing pole (always true during dummy
+-- parses — the player has their real weapon out). The fail produces a
+-- single SPELL_CAST_FAILED log line, no SPELL_CAST_START, no cast bar,
+-- no GCD, no SpellStopCasting timing dance. After the cast attempt,
+-- the addon listens for the SPELL_CAST_FAILED line in CLEU and sets
+-- markerVerified=true. CLEAN verdict requires markerVerified.
 
 local _restoreUIErrors = CreateFrame("Frame")
 _restoreUIErrors:Hide()
 local _restoreElapsed = 0
 _restoreUIErrors:SetScript("OnUpdate", function(self, e)
     _restoreElapsed = _restoreElapsed + e
-    if _restoreElapsed >= 0.6 then
+    if _restoreElapsed >= 0.4 then
         self:Hide()
         _restoreElapsed = 0
         if UIErrorsFrame then UIErrorsFrame:Show() end
     end
 end)
 
-local _stopCastFrame = CreateFrame("Frame")
-_stopCastFrame:Hide()
-local _stopElapsed = 0
-_stopCastFrame:SetScript("OnUpdate", function(self, e)
-    _stopElapsed = _stopElapsed + e
-    if _stopElapsed >= 0.15 then
-        self:Hide()
-        _stopElapsed = 0
-        if SpellStopCasting then SpellStopCasting() end
-    end
-end)
-
 local function EmitMarker()
-    -- Suppress the error-text flash for 0.6s (covers cast + stop + a bit).
+    -- Suppress the red "Must have a Fishing Pole equipped" flash. The
+    -- failure happens within ~50ms; 0.4s suppression covers it.
     if UIErrorsFrame then UIErrorsFrame:Hide() end
     _restoreElapsed = 0
     _restoreUIErrors:Show()
 
-    -- Start the cast. Server receives it on next network tick.
     if CastSpellByName then CastSpellByName(MARKER_SPELL_NAME) end
-
-    -- Schedule the stop ~150ms later so the START event has a chance to
-    -- reach the server and be echoed back into the combat log file before
-    -- the stop cancels it.
-    _stopElapsed = 0
-    _stopCastFrame:Show()
 end
 
 -- ============================================================================
@@ -312,22 +303,39 @@ local function SetState(newState)
     if frame and frame.UpdateUI then frame.UpdateUI() end
 end
 
+-- CLEAN requires all three:
+--   1. validThroughout: no foreign/consumable auras during the parse
+--   2. markerEmitted:   we actually called EmitMarker (validThroughout
+--                       was true at T+1:20)
+--   3. markerVerified:  CLEU confirmed the SPELL_CAST_FAILED for our
+--                       marker landed in the combat log file
+-- The third check is critical — without it we'd declare CLEAN even if
+-- the marker never actually reached the log file (which would cause
+-- the website to reject the upload after the user thought it was valid).
+local function IsCleanVerdict()
+    return validThroughout and markerEmitted and markerVerified
+end
+
 local function PrintVerdict()
-    -- Generic verdict that doesn't reveal the marker mechanism. Users
-    -- should only see "your parse was clean" or "your parse was invalid
-    -- with these reasons" — not the internal validation trick.
-    if validThroughout and markerEmitted then
+    -- Generic verdict text — doesn't reveal the marker mechanism.
+    if IsCleanVerdict() then
         print("|cffffaa44EpogArmory|r: |cff66ff66CLEAN dummy parse|r - log is valid for upload.")
-    else
-        print("|cffffaa44EpogArmory|r: |cffff6666INVALID dummy parse|r - log will be rejected. Reasons:")
-        local count = 0
-        for reason in pairs(invalidReasons) do
-            print("  |cffaaaaaa-|r " .. reason)
-            count = count + 1
-        end
-        if count == 0 then
-            print("  |cffaaaaaa-|r (no specific reason captured)")
-        end
+        return
+    end
+    print("|cffffaa44EpogArmory|r: |cffff6666INVALID dummy parse|r - log will be rejected. Reasons:")
+    local count = 0
+    for reason in pairs(invalidReasons) do
+        print("  |cffaaaaaa-|r " .. reason)
+        count = count + 1
+    end
+    -- Specific reason for marker-not-verified case (addon emitted but
+    -- the line didn't make it to the combat log file).
+    if validThroughout and markerEmitted and not markerVerified then
+        print("  |cffaaaaaa-|r validation marker did not land in combat log (cast may have been blocked)")
+        count = count + 1
+    end
+    if count == 0 then
+        print("  |cffaaaaaa-|r (no specific reason captured)")
     end
 end
 
@@ -346,9 +354,10 @@ local function SaveFightRecord()
         durationSec    = floor(elapsed),
         dummyName      = lastDummyName,
         dummyGUID      = savedDummyGUID,
-        valid          = (validThroughout and markerEmitted) or false,
+        valid          = IsCleanVerdict(),
         invalidReasons = reasonsList,
         markerEmitted  = markerEmitted,
+        markerVerified = markerVerified,
         addonVersion   = GetAddOnMetadata and GetAddOnMetadata("EpogArmory", "Version") or "?",
     })
 
@@ -365,6 +374,7 @@ local function DoStartLogging()
     validThroughout   = true
     invalidReasons    = {}
     markerEmitted     = false
+    markerVerified    = false
     lastDummyName     = UnitName("target")
     savedDummyGUID    = UnitGUID("target")
     lastDummyHitTime  = GetTime() -- count the start of combat as "just hit"
@@ -440,13 +450,15 @@ local function OnTick()
     -- this is the redundant timer-based check.
     ValidateNow()
 
-    -- Marker emission at 1:20 (only if the fight stayed clean).
-    -- Also transitions logging -> stopping.
-    if state == "logging" and elapsed >= MARKER_TIME_SEC and not markerEmitted then
+    -- T+1:20 transition: logging -> stopping. If the fight stayed clean
+    -- up to this point, also cast the marker. The CLEU handler will
+    -- confirm it landed in the log via markerVerified. State check
+    -- prevents re-entry on subsequent ticks.
+    if state == "logging" and elapsed >= MARKER_TIME_SEC then
         if validThroughout then
             EmitMarker()
+            markerEmitted = true
         end
-        markerEmitted = true -- "attempted", don't retry even if conditions degrade
         SetState("stopping")
     end
 
@@ -634,8 +646,10 @@ local function BuildFrame()
             f.stateBadge:SetText("STOPPED")
             f.stateBadge:SetTextColor(0.6, 0.6, 0.6)
             f.actionBtn:SetText("Reset")
-            -- Show the separate verdict line.
-            if validThroughout and markerEmitted then
+            -- Verdict line. CLEAN requires markerVerified (see
+            -- IsCleanVerdict — listens for the SPELL_CAST_FAILED line
+            -- to confirm the marker actually reached the log file).
+            if IsCleanVerdict() then
                 f.verdictLabel:SetText("Log: |cff66ff66CLEAN|r - valid for upload")
             else
                 f.verdictLabel:SetText("Log: |cffff6666INVALID|r - rejected on upload")
@@ -660,7 +674,7 @@ local function BuildFrame()
         elseif state == "stopped" then
             progressFraction = 1
             f.timerLabel:SetText("1:30 / 1:30")
-            if validThroughout and markerEmitted then
+            if IsCleanVerdict() then
                 f.progressFg:SetVertexColor(0.4, 1, 0.4, 1) -- green for clean
             else
                 f.progressFg:SetVertexColor(1, 0.4, 0.4, 1) -- red for invalid
@@ -829,17 +843,28 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         -- Hot path — fires many times per second in combat. Bail early.
         if state ~= "logging" and state ~= "stopping" then return end
-        if not savedDummyGUID then return end
         -- 3.3.5 signature: timestamp, subevent, sourceGUID, sourceName,
-        -- sourceFlags, destGUID, destName, destFlags, [spell info]...
-        local _, subevent, _, _, sourceFlags, destGUID = ...
-        if destGUID ~= savedDummyGUID then return end
-        -- Damage / miss events from us or our pet count as "still
-        -- attacking". The MINE affiliation bit (0x1) covers player +
-        -- pet + totem without needing to track GUIDs separately.
+        -- sourceFlags, destGUID, destName, destFlags, spellID, spellName,
+        -- spellSchool, [event-specific args]...
+        local _, subevent, _, _, sourceFlags, destGUID, _, _, spellID, spellName = ...
         if not sourceFlags or bit.band(sourceFlags, AFFILIATION_MINE_BIT) == 0 then
             return
         end
+
+        -- Marker verification: SPELL_CAST_FAILED for our marker spell from
+        -- us means the cast attempt actually landed in the combat log.
+        -- Match on spell ID (locale-independent) primarily, with name as
+        -- a fallback in case Epoch reassigned the ID.
+        if subevent == "SPELL_CAST_FAILED"
+           and (spellID == MARKER_SPELL_ID or spellName == MARKER_SPELL_NAME)
+        then
+            markerVerified = true
+            return -- not a hit on the dummy
+        end
+
+        -- Hit detection on the dummy (idle-stop trigger). Damage / miss
+        -- events from us or our pet count as "still attacking".
+        if not savedDummyGUID or destGUID ~= savedDummyGUID then return end
         if subevent == "SWING_DAMAGE"  or subevent == "SWING_MISSED"
         or subevent == "SPELL_DAMAGE"  or subevent == "SPELL_MISSED"
         or subevent == "RANGE_DAMAGE"  or subevent == "RANGE_MISSED"
