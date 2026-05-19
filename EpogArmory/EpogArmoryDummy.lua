@@ -272,14 +272,30 @@ end
 -- handler listens for that line and sets markerVerified=true.
 --
 -- See `EpogArmoryValidateButton` creation in BuildFrame for the actual
--- secure-button wiring. We keep EmitMarker as a no-op-for-symmetry hook
--- + debug helper so future code paths can still call it cleanly.
+-- secure-button wiring.
 
 local function _DebugPrint(msg)
     if EpogArmoryDebug then
         print("|cffffaa44EpogArmory|r |cff888888[dummy-debug]|r " .. msg)
     end
 end
+
+-- UIErrorsFrame suppression around the button click. Hides the red
+-- "Must have a Fishing Pole equipped" flash so the user (and any
+-- onlookers) don't see what the button actually does. The button's
+-- PreClick handler hides UIErrorsFrame and shows _restoreUIErrors;
+-- the OnUpdate timer below restores UIErrorsFrame after 0.8s.
+local _restoreUIErrors = CreateFrame("Frame")
+_restoreUIErrors:Hide()
+local _restoreElapsed = 0
+_restoreUIErrors:SetScript("OnUpdate", function(self, e)
+    _restoreElapsed = _restoreElapsed + e
+    if _restoreElapsed >= 0.8 then
+        self:Hide()
+        _restoreElapsed = 0
+        if UIErrorsFrame then UIErrorsFrame:Show() end
+    end
+end)
 
 -- Kept for diagnostic / debug print path. The actual cast happens via
 -- the secure button's macrotext attribute when the user clicks it.
@@ -572,35 +588,51 @@ local function BuildFrame()
     f.verdictLabel:SetJustifyH("CENTER")
     f.verdictLabel:Hide()
 
-    -- Validate button. SecureActionButtonTemplate + macrotext = "/cast Fishing".
+    -- Validate button. SecureActionButtonTemplate + macrotext "/cast Fishing".
     -- Hardware click puts the cast on the secure execution path, which
     -- produces a SPELL_CAST_FAILED line in the combat log file. The
     -- addon's automatic CastSpellByName won't do this on Epoch — the
     -- protection model requires a hardware event to elevate the call.
     --
-    -- Only shown when state == "stopping" AND user is out of combat.
-    -- Hidden in all other states; can't be safely clicked during combat
-    -- (Fishing might fail differently or be ignored client-side).
-    f.validateBtn = CreateFrame("Button", "EpogArmoryValidateButton", f,
-        "SecureActionButtonTemplate,UIPanelButtonTemplate")
-    f.validateBtn:SetWidth(180); f.validateBtn:SetHeight(36)
-    f.validateBtn:SetPoint("TOP", 0, -296)
+    -- IMPORTANT: SecureActionButton Show/Hide can be blocked during
+    -- combat lockdown. So we wrap it in a non-secure container frame
+    -- and show/hide the container instead. The secure button stays
+    -- always-shown within the container; the container's visibility
+    -- (which is non-protected) controls whether the user sees it.
+    f.validateContainer = CreateFrame("Frame", nil, f)
+    f.validateContainer:SetWidth(180); f.validateContainer:SetHeight(36)
+    f.validateContainer:SetPoint("TOP", 0, -296)
+    f.validateContainer:Hide()
+
+    f.validateBtn = CreateFrame("Button", "EpogArmoryValidateButton",
+        f.validateContainer, "SecureActionButtonTemplate,UIPanelButtonTemplate")
+    f.validateBtn:SetAllPoints(f.validateContainer)
     f.validateBtn:SetText("VALIDATE PARSE")
     f.validateBtn:SetAttribute("type", "macro")
     f.validateBtn:SetAttribute("macrotext", MARKER_MACROTEXT)
     f.validateBtn:RegisterForClicks("AnyUp")
+
+    -- PreClick (insecure, runs BEFORE the secure attribute fires):
+    -- hide UIErrorsFrame so the "Must have a Fishing Pole equipped"
+    -- error text doesn't flash and reveal what the button does.
+    -- Restored 0.8s later by the _restoreUIErrors OnUpdate.
+    f.validateBtn:SetScript("PreClick", function(self)
+        if UIErrorsFrame then UIErrorsFrame:Hide() end
+        _restoreElapsed = 0
+        _restoreUIErrors:Show()
+    end)
+
     f.validateBtn:SetScript("PostClick", function(self)
-        -- The secure macrotext has just executed (CastSpellByName fired
-        -- in a secure context). The combat log should be capturing the
-        -- SPELL_CAST_FAILED line within ~50ms. Start the verify wait.
+        -- Secure macrotext just fired. Combat log should capture the
+        -- SPELL_CAST_FAILED line for Fishing within ~50ms. Start the
+        -- verifier; FinishFight runs when it sees the CLEU event.
         _DebugPrint("validate button PostClick fired — starting verify wait")
         StartMarkerVerifyWait()
     end)
-    f.validateBtn:Hide()
 
     -- Validate hint label (shown next to the button to explain it)
     f.validateHint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.validateHint:SetPoint("TOP", f.validateBtn, "BOTTOM", 0, -2)
+    f.validateHint:SetPoint("TOP", f.validateContainer, "BOTTOM", 0, -2)
     f.validateHint:SetWidth(252)
     f.validateHint:SetJustifyH("CENTER")
     f.validateHint:Hide()
@@ -688,9 +720,12 @@ local function BuildFrame()
 
         -- State badge + button label + verdict line.
         -- Verdict shows only in "stopped" state (Log: CLEAN/INVALID).
-        -- Validate button shows only in "stopping" state out of combat.
+        -- Validate container shown in "stopping" state when valid.
+        -- We toggle the CONTAINER (non-secure) instead of the secure
+        -- button itself — Show/Hide on SecureActionButtonTemplate can
+        -- be blocked during combat lockdown.
         f.verdictLabel:Hide()
-        f.validateBtn:Hide()
+        f.validateContainer:Hide()
         f.validateHint:Hide()
         if state == "idle" then
             f.stateBadge:SetText("IDLE")
@@ -728,7 +763,7 @@ local function BuildFrame()
                 f.verdictLabel:SetText("|cffff6666parse invalidated - click Stop|r")
                 f.verdictLabel:Show()
             else
-                f.validateBtn:Show()
+                f.validateContainer:Show()
                 f.validateHint:SetText("|cff888888click to stamp the log and stop logging|r")
                 f.validateHint:Show()
             end
