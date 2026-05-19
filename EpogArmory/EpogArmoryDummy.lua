@@ -111,6 +111,7 @@ local lastDummyName      = nil
 local savedDummyGUID     = nil          -- saved at combat start
 local lastDummyHitTime   = 0            -- GetTime() of last player/pet damage on dummy
 local stoppingStartTime  = nil          -- GetTime() when state entered "stopping" (for hard timeout)
+local fightTotalDamage   = 0            -- sum of damage from player+pet to dummy this fight
 
 -- Live aura listings for the UI. Recomputed each tick.
 local currentPlayerAuras   = {}         -- list of { name, source, allowed }
@@ -280,6 +281,15 @@ local function _DebugPrint(msg)
     end
 end
 
+-- Compact integer formatter with thousands-separator commas. 12345 → "12,345".
+-- Used by the DPS / total-damage UI line.
+local function FmtNum(n)
+    n = math.floor(tonumber(n) or 0)
+    if n < 1000 then return tostring(n) end
+    local s = tostring(n)
+    return (s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""))
+end
+
 -- UIErrorsFrame suppression around the button click. Hides the red
 -- "Must have a Fishing Pole equipped" flash so the user (and any
 -- onlookers) don't see what the button actually does. The button's
@@ -358,6 +368,8 @@ local function SaveFightRecord()
     end
 
     local elapsed = (fightStartTime and (GetTime() - fightStartTime)) or 0
+    local cappedSecs = math.min(elapsed, LOG_DURATION_SEC)
+    local recordedDps = cappedSecs > 0 and (fightTotalDamage / cappedSecs) or 0
     table.insert(EpogArmoryDB.dummyFights, {
         endTime        = floor(time()),
         durationSec    = floor(elapsed),
@@ -367,6 +379,8 @@ local function SaveFightRecord()
         invalidReasons = reasonsList,
         markerEmitted  = markerEmitted,
         markerVerified = markerVerified,
+        totalDamage    = floor(fightTotalDamage),
+        dps            = floor(recordedDps + 0.5),
         addonVersion   = GetAddOnMetadata and GetAddOnMetadata("EpogArmory", "Version") or "?",
     })
 
@@ -386,6 +400,7 @@ local function DoStartLogging()
     markerVerified    = false
     pendingMarker     = false
     stoppingStartTime = nil
+    fightTotalDamage  = 0
     lastDummyName     = UnitName("target")
     savedDummyGUID    = UnitGUID("target")
     lastDummyHitTime  = GetTime() -- count the start of combat as "just hit"
@@ -576,6 +591,13 @@ local function BuildFrame()
     f.timerLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.timerLabel:SetPoint("TOP", 0, -72)
     f.timerLabel:SetText("0:00 / 1:30")
+
+    -- DPS label, just below the timer. Computed from our own CLEU
+    -- damage tracking (fightTotalDamage / elapsed) — no dependency on
+    -- Recount/Skada being loaded. Updated every tick during the fight.
+    f.dpsLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.dpsLabel:SetPoint("TOP", f.timerLabel, "BOTTOM", 0, -2)
+    f.dpsLabel:SetText("")
 
     -- Verdict text. Hidden until state transitions to "stopped". Shows
     -- "Log: CLEAN" (green) or "Log: INVALID" (red).
@@ -798,7 +820,7 @@ local function BuildFrame()
             f.verdictLabel:Show()
         end
 
-        -- Timer + progress bar
+        -- Timer + progress bar + DPS
         local progressFraction = 0
         if (state == "logging" or state == "stopping") and fightStartTime then
             local elapsed = GetTime() - fightStartTime
@@ -812,6 +834,12 @@ local function BuildFrame()
             else
                 f.progressFg:SetVertexColor(0.2, 0.7, 0.2, 1)
             end
+            -- Live DPS during the fight. Use math.max(elapsed, 1) so we
+            -- don't divide by ~0 in the first second.
+            local secs = math.max(elapsed, 1)
+            local dps = fightTotalDamage / secs
+            f.dpsLabel:SetText(string.format("|cffaaaaff%s DPS|r  |cff888888(%s total)|r",
+                FmtNum(dps), FmtNum(fightTotalDamage)))
         elseif state == "stopped" then
             progressFraction = 1
             f.timerLabel:SetText("1:30 / 1:30")
@@ -820,9 +848,18 @@ local function BuildFrame()
             else
                 f.progressFg:SetVertexColor(1, 0.4, 0.4, 1) -- red for invalid
             end
+            -- Final DPS — calculated over the parse duration, capped at
+            -- LOG_DURATION_SEC since we want "DPS per parse" not
+            -- "DPS including post-1:30 dragging-on time".
+            local secs = math.min(fightStartTime and (GetTime() - fightStartTime) or LOG_DURATION_SEC,
+                LOG_DURATION_SEC)
+            local dps = secs > 0 and (fightTotalDamage / secs) or 0
+            f.dpsLabel:SetText(string.format("|cffaaaaff%s DPS|r  |cff888888(%s total)|r",
+                FmtNum(dps), FmtNum(fightTotalDamage)))
         else
             f.timerLabel:SetText("0:00 / 1:30")
             f.progressFg:SetVertexColor(0.4, 0.4, 0.4, 1)
+            f.dpsLabel:SetText("")
         end
         local barFull = f:GetWidth() - 40
         f.progressFg:SetWidth(math.max(1, barFull * progressFraction))
@@ -1073,12 +1110,17 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         end
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         -- 3.3.5 signature: timestamp, subevent, sourceGUID, sourceName,
-        -- sourceFlags, destGUID, destName, destFlags, spellID, spellName,
-        -- spellSchool, [event-specific args]...
-        local _, subevent, _, _, sourceFlags, destGUID, _, _, _, spellName = ...
+        -- sourceFlags, destGUID, destName, destFlags, [event-specific args]...
+        -- Pull 12 args so we can read the damage amount in either layout:
+        --   SWING_DAMAGE:     arg9 = amount
+        --   SPELL_DAMAGE etc: arg9 = spellID, arg10 = spellName, arg11 = school, arg12 = amount
+        local _, subevent, _, _, sourceFlags, destGUID, _, _, p9, p10, _, p12 = ...
         if not sourceFlags or bit.band(sourceFlags, AFFILIATION_MINE_BIT) == 0 then
             return
         end
+        -- p10 carries spellName for SPELL_/RANGE_ events; for SWING events p10
+        -- is the overkill amount but doesn't matter for marker check below.
+        local spellName = p10
 
         -- Marker verification accepted in ANY state — the marker might
         -- arrive late, after we've already transitioned to "stopped".
@@ -1095,17 +1137,30 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             return
         end
 
-        -- Hit detection only matters during logging/stopping.
+        -- Hit + damage tracking only matters during logging/stopping.
         if state ~= "logging" and state ~= "stopping" then return end
 
-        -- Hit detection on the dummy (idle-stop UI signal). Damage / miss
-        -- events from us or our pet count as "still attacking".
+        -- Hit + damage tracking on the dummy.
         if not savedDummyGUID or destGUID ~= savedDummyGUID then return end
         if subevent == "SWING_DAMAGE"  or subevent == "SWING_MISSED"
         or subevent == "SPELL_DAMAGE"  or subevent == "SPELL_MISSED"
         or subevent == "RANGE_DAMAGE"  or subevent == "RANGE_MISSED"
         or subevent == "SPELL_PERIODIC_DAMAGE" then
             lastDummyHitTime = GetTime()
+        end
+        -- Damage amount: SWING_DAMAGE has it in arg9 (which we called p9
+        -- locally); SPELL_DAMAGE / RANGE_DAMAGE / SPELL_PERIODIC_DAMAGE
+        -- have spellID/Name/School first, so amount is at arg12 (p12).
+        local amount
+        if subevent == "SWING_DAMAGE" then
+            amount = p9
+        elseif subevent == "SPELL_DAMAGE"
+            or subevent == "RANGE_DAMAGE"
+            or subevent == "SPELL_PERIODIC_DAMAGE" then
+            amount = p12
+        end
+        if amount and type(amount) == "number" then
+            fightTotalDamage = fightTotalDamage + amount
         end
     end
 end)
