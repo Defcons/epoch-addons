@@ -608,6 +608,12 @@ local function BuildFrame()
         f.validateContainer, "SecureActionButtonTemplate,UIPanelButtonTemplate")
     f.validateBtn:SetAllPoints(f.validateContainer)
     f.validateBtn:SetText("VALIDATE PARSE")
+    -- IMPORTANT: SetAttribute on SecureActionButton is protected in
+    -- combat. If BuildFrame runs while user is in combat, these
+    -- silently fail and the button has no action set up.
+    if InCombatLockdown and InCombatLockdown() then
+        _DebugPrint("WARNING: BuildFrame ran during combat lockdown — secure attributes will not be set!")
+    end
     f.validateBtn:SetAttribute("type", "macro")
     f.validateBtn:SetAttribute("macrotext", MARKER_MACROTEXT)
     f.validateBtn:RegisterForClicks("AnyUp")
@@ -727,6 +733,7 @@ local function BuildFrame()
         f.verdictLabel:Hide()
         f.validateContainer:Hide()
         f.validateHint:Hide()
+        if state ~= "stopping" then f._lastStoppingSubState = nil end
         if state == "idle" then
             f.stateBadge:SetText("IDLE")
             f.stateBadge:SetTextColor(0.7, 0.7, 0.7)
@@ -741,31 +748,37 @@ local function BuildFrame()
             f.actionBtn:SetText("Stop")
         elseif state == "stopping" then
             -- Past T+1:20 — user clicks VALIDATE to stamp the log AND
-            -- force-stop logging. Fishing fails instantly so the button
-            -- works regardless of combat state (no 10s-channel concern
-            -- like Hearthstone had). This also handles the case where
-            -- the player gets "stuck in combat" after attacking the
-            -- dummy and PLAYER_REGEN_ENABLED never fires naturally.
-            --
-            -- Three sub-states:
-            --   (a) markerEmitted true → "verifying marker..."
-            --   (b) validThroughout false → "parse invalidated - click Stop"
-            --   (c) otherwise → show VALIDATE button
+            -- force-stop logging.
             f.stateBadge:SetText("STOPPING...")
             f.stateBadge:SetTextColor(1, 0.7, 0.2)
-            f.actionBtn:SetText("Stop")
+            -- Action button reads "Reset" here (was "Stop") since it
+            -- cancels the parse and returns to idle — "Reset" maps
+            -- more cleanly to that action than "Stop" did.
+            f.actionBtn:SetText("Reset")
+            local subState
             if markerEmitted then
+                subState = "verifying"
                 f.verdictLabel:SetTextColor(1, 1, 1)
                 f.verdictLabel:SetText("|cff66ff66verifying marker...|r")
                 f.verdictLabel:Show()
             elseif not validThroughout then
+                subState = "invalidated"
                 f.verdictLabel:SetTextColor(1, 1, 1)
-                f.verdictLabel:SetText("|cffff6666parse invalidated - click Stop|r")
+                f.verdictLabel:SetText("|cffff6666parse invalidated - click Reset|r")
                 f.verdictLabel:Show()
             else
+                subState = "show-button"
                 f.validateContainer:Show()
                 f.validateHint:SetText("|cff888888click to stamp the log and stop logging|r")
                 f.validateHint:Show()
+            end
+            -- Debug: only print when sub-state transitions (not every tick)
+            if subState ~= f._lastStoppingSubState then
+                f._lastStoppingSubState = subState
+                _DebugPrint(string.format("stopping sub-state -> %s (markerEmitted=%s, validThroughout=%s, container.IsShown=%s, InCombat=%s)",
+                    subState, tostring(markerEmitted), tostring(validThroughout),
+                    tostring(f.validateContainer and f.validateContainer:IsShown()),
+                    tostring(InCombatLockdown and InCombatLockdown())))
             end
         elseif state == "stopped" then
             f.stateBadge:SetText("STOPPED")
