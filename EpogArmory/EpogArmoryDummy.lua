@@ -46,10 +46,32 @@ local ALLOWED_CASTERS = {
     ["vehicle"] = true,
 }
 
--- Substring match overriding the caster check. Mana potion debuffs
--- (Potion Sickness / Mana Potion Cooldown / etc.) are allowed even though
--- their unitCaster is nil/server.
-local ALLOWED_POTION_SUBSTRING = "Mana Potion"
+-- Consumable name patterns — auras matching these are REJECTED even when
+-- self-cast. Most consumables are technically self-applied (you ate the
+-- food, you drank the elixir) so the caster check alone isn't enough.
+-- Mana potions don't create auras on Epoch (they're just SPELL_CAST_SUCCESS
+-- + SPELL_ENERGIZE for "Restore Mana", verified empirically) so they
+-- pass the aura check by not appearing in it at all — no special-case
+-- needed. Substring match, case-sensitive.
+local CONSUMABLE_PATTERNS = {
+    "Flask of",          -- "Flask of Endless Rage", etc.
+    "Elixir of",         -- "Elixir of Mighty Agility", "Elixir of the Mongoose"
+    "Well Fed",          -- food buff
+    "Sharpening Stone",  -- weapon stones
+    "Weightstone",
+    "Mana Oil",          -- weapon oils
+    "Wizard Oil",
+    "Scroll of",         -- "Scroll of Strength", etc.
+    "Battle Squawk",     -- engineering noisemaker
+    "Drums of",          -- leatherworking battle drums
+    "Battle Standard",   -- guild banners
+    "Toughness",         -- food (Spiced Mammoth Treats etc.)
+    "Sanctified",        -- food
+    "Mighty Rage",       -- berserker rage / similar potions
+    "Haste Potion",      -- consumable haste pots
+    "Indestructible",    -- defensive pots
+    "Wild Magic",        -- combat-pot family
+}
 
 -- Persistence: cap the fight-history table at this many records.
 local MAX_FIGHT_HISTORY = 50
@@ -106,10 +128,26 @@ end
 -- Helpers: aura validation
 -- ============================================================================
 
+-- Returns true, nil if the aura is allowed.
+-- Returns false, reason-fragment string if rejected.
 local function IsAllowedAura(name, source)
-    if source and ALLOWED_CASTERS[source] then return true end
-    if name and name:find(ALLOWED_POTION_SUBSTRING, 1, true) then return true end
-    return false
+    -- Reject if name matches a consumable pattern, regardless of caster.
+    -- Flasks/elixirs/food/oils are technically self-applied but the user
+    -- doesn't want them in dummy parses.
+    if name then
+        for _, pat in ipairs(CONSUMABLE_PATTERNS) do
+            if name:find(pat, 1, true) then
+                return false, "consumable"
+            end
+        end
+    end
+    -- Allowed sources: player self, pets/summons (all class types use
+    -- the "pet" token), vehicles.
+    if source and ALLOWED_CASTERS[source] then
+        return true
+    end
+    -- Anything else is a foreign caster.
+    return false, "foreign"
 end
 
 local function ScanPlayerAuras()
@@ -119,10 +157,12 @@ local function ScanPlayerAuras()
         -- expirationTime, source (unitCaster), isStealable, ...
         local name, _, _, _, _, _, _, source = UnitBuff("player", i)
         if not name then break end
+        local allowed, reasonTag = IsAllowedAura(name, source)
         list[#list + 1] = {
-            name    = name,
-            source  = source or "unknown",
-            allowed = IsAllowedAura(name, source),
+            name      = name,
+            source    = source or "unknown",
+            allowed   = allowed,
+            reasonTag = reasonTag, -- "consumable" or "foreign" when not allowed
         }
     end
     return list
@@ -134,10 +174,12 @@ local function ScanTargetDebuffs(unitToken)
     for i = 1, 40 do
         local name, _, _, _, _, _, _, source = UnitDebuff(unitToken, i)
         if not name then break end
+        local allowed, reasonTag = IsAllowedAura(name, source)
         list[#list + 1] = {
-            name    = name,
-            source  = source or "unknown",
-            allowed = IsAllowedAura(name, source),
+            name      = name,
+            source    = source or "unknown",
+            allowed   = allowed,
+            reasonTag = reasonTag,
         }
     end
     return list
@@ -156,8 +198,13 @@ local function ValidateNow()
         if not aura.allowed then
             nowClean = false
             if state == "logging" then
-                local reason = string.format("player buff: %s (from %s)",
-                    aura.name, aura.source)
+                local reason
+                if aura.reasonTag == "consumable" then
+                    reason = string.format("consumable buff: %s", aura.name)
+                else
+                    reason = string.format("foreign buff on player: %s (from %s)",
+                        aura.name, aura.source)
+                end
                 invalidReasons[reason] = true
             end
         end
@@ -166,8 +213,13 @@ local function ValidateNow()
         if not aura.allowed then
             nowClean = false
             if state == "logging" then
-                local reason = string.format("target debuff: %s (from %s)",
-                    aura.name, aura.source)
+                local reason
+                if aura.reasonTag == "consumable" then
+                    reason = string.format("consumable debuff on target: %s", aura.name)
+                else
+                    reason = string.format("foreign debuff on target: %s (from %s)",
+                        aura.name, aura.source)
+                end
                 invalidReasons[reason] = true
             end
         end
