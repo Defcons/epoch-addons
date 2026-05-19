@@ -242,11 +242,30 @@ end
 -- Marker emission
 -- ============================================================================
 
--- Cast Hearthstone then immediately interrupt. Combat log captures:
---   SPELL_CAST_START  ... "Hearthstone" ...
---   SPELL_CAST_FAILED ... "Hearthstone" ... "Interrupted"
--- Verified against Epoch's combat log writer.
+-- Emit the validation marker into the combat log. The exact mechanism is
+-- deliberately not surfaced to the user (we don't want people knowing
+-- how to fake validation). What's visible: brief red error flash + a
+-- short interrupt sound. The flash is suppressed by temporarily hiding
+-- UIErrorsFrame for ~0.5s around the cast.
+local _restoreUIErrors = CreateFrame("Frame")
+_restoreUIErrors:Hide()
+local _restoreElapsed = 0
+_restoreUIErrors:SetScript("OnUpdate", function(self, e)
+    _restoreElapsed = _restoreElapsed + e
+    if _restoreElapsed >= 0.5 then
+        self:Hide()
+        _restoreElapsed = 0
+        if UIErrorsFrame then UIErrorsFrame:Show() end
+    end
+end)
+
 local function EmitMarker()
+    -- Hide the error-text frame briefly so the user doesn't see the
+    -- red "Interrupted" flash. Restored 0.5s later by _restoreUIErrors.
+    if UIErrorsFrame then UIErrorsFrame:Hide() end
+    _restoreElapsed = 0
+    _restoreUIErrors:Show()
+
     if CastSpellByName then CastSpellByName(MARKER_SPELL_NAME) end
     if SpellStopCasting then SpellStopCasting() end
 end
@@ -261,17 +280,20 @@ local function SetState(newState)
 end
 
 local function PrintVerdict()
+    -- Generic verdict that doesn't reveal the marker mechanism. Users
+    -- should only see "your parse was clean" or "your parse was invalid
+    -- with these reasons" — not the internal validation trick.
     if validThroughout and markerEmitted then
-        print("|cffffaa44EpogArmory|r: |cff66ff66\226\156\147 CLEAN dummy parse|r \226\128\148 Hearthstone stamp at 1:20, log saved.")
+        print("|cffffaa44EpogArmory|r: |cff66ff66CLEAN dummy parse|r - log is valid for upload.")
     else
-        print("|cffffaa44EpogArmory|r: |cffff6666\226\156\151 INVALID dummy parse|r \226\128\148 no stamp emitted.")
+        print("|cffffaa44EpogArmory|r: |cffff6666INVALID dummy parse|r - log will be rejected. Reasons:")
         local count = 0
         for reason in pairs(invalidReasons) do
-            print("  |cffaaaaaa\226\128\162|r " .. reason)
+            print("  |cffaaaaaa-|r " .. reason)
             count = count + 1
         end
         if count == 0 then
-            print("  |cffaaaaaa\226\128\162|r (no specific reason captured)")
+            print("  |cffaaaaaa-|r (no specific reason captured)")
         end
     end
 end
@@ -403,9 +425,15 @@ end
 
 local function BuildFrame()
     local f = CreateFrame("Frame", "EpogArmoryDummyFrame", UIParent)
-    f:SetWidth(340); f:SetHeight(520)
-    f:SetPoint("CENTER")
-    f:SetFrameStrata("DIALOG")
+    -- Compact frame: 280 wide x 420 tall. Initial position is top-left of
+    -- the screen; users can drag from there. Re-anchored to top-left on
+    -- every Show (see EpogArmoryDummy_Toggle / OnEvent open paths).
+    f:SetWidth(280); f:SetHeight(420)
+    f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -20)
+    -- Bump strata above CombatLogQuickButtonFrame_Custom so its quick-
+    -- control buttons (Stop/Pause/Reset/Hide) don't render over our
+    -- aura list when /combatlog is active.
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
     f:SetBackdrop({
         bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -418,74 +446,74 @@ local function BuildFrame()
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
     f:Hide()
 
-    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    f.title:SetPoint("TOP", 0, -16)
-    f.title:SetText("EpogLogs \226\128\148 Dummy Parse")
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.title:SetPoint("TOP", 0, -12)
+    f.title:SetText("EpogLogs - Dummy Parse")
 
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -4, -4)
+    close:SetPoint("TOPRIGHT", -2, -2)
 
-    -- Target line
+    -- Target line (compact)
     f.targetLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.targetLabel:SetPoint("TOP", 0, -40)
-    f.targetLabel:SetWidth(300)
+    f.targetLabel:SetPoint("TOP", 0, -30)
+    f.targetLabel:SetWidth(240)
     f.targetLabel:SetJustifyH("CENTER")
 
-    -- Big state badge
-    f.stateBadge = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-    f.stateBadge:SetPoint("TOP", 0, -60)
+    -- State badge (use Large instead of Huge to compact)
+    f.stateBadge = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    f.stateBadge:SetPoint("TOP", 0, -48)
 
     -- Timer line
-    f.timerLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    f.timerLabel:SetPoint("TOP", 0, -94)
+    f.timerLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.timerLabel:SetPoint("TOP", 0, -72)
     f.timerLabel:SetText("0:00 / 1:30")
 
     -- Progress bar
     f.progressBg = f:CreateTexture(nil, "BACKGROUND")
     f.progressBg:SetTexture("Interface\\Buttons\\WHITE8X8")
     f.progressBg:SetVertexColor(0.12, 0.12, 0.12, 0.85)
-    f.progressBg:SetPoint("TOPLEFT", 20, -120)
-    f.progressBg:SetPoint("TOPRIGHT", -20, -120)
-    f.progressBg:SetHeight(8)
+    f.progressBg:SetPoint("TOPLEFT", 16, -94)
+    f.progressBg:SetPoint("TOPRIGHT", -16, -94)
+    f.progressBg:SetHeight(6)
 
     f.progressFg = f:CreateTexture(nil, "ARTWORK")
     f.progressFg:SetTexture("Interface\\Buttons\\WHITE8X8")
     f.progressFg:SetVertexColor(0.2, 0.7, 0.2, 1)
-    f.progressFg:SetPoint("TOPLEFT", 20, -120)
-    f.progressFg:SetHeight(8)
+    f.progressFg:SetPoint("TOPLEFT", 16, -94)
+    f.progressFg:SetHeight(6)
     f.progressFg:SetWidth(1)
 
-    -- Marker tick at 1:20 (80/90 of the bar width)
+    -- Marker tick at the "validation point" on the progress bar
     f.progressMark = f:CreateTexture(nil, "OVERLAY")
     f.progressMark:SetTexture("Interface\\Buttons\\WHITE8X8")
     f.progressMark:SetVertexColor(1, 0.85, 0.2, 1)
-    f.progressMark:SetWidth(2); f.progressMark:SetHeight(14)
+    f.progressMark:SetWidth(2); f.progressMark:SetHeight(10)
     f.progressMark:SetPoint("TOP", f.progressBg, "TOPLEFT",
-        (340 - 40) * (MARKER_TIME_SEC / LOG_DURATION_SEC), 3)
+        (280 - 32) * (MARKER_TIME_SEC / LOG_DURATION_SEC), 2)
 
-    -- Player auras header + container
-    f.playerAurasLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.playerAurasLabel:SetPoint("TOPLEFT", 20, -140)
+    -- Player auras header
+    f.playerAurasLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.playerAurasLabel:SetPoint("TOPLEFT", 14, -110)
 
-    local PA_TOP = -158
+    local PA_TOP = -124
     f.playerAurasTop = PA_TOP
     f.playerAuraTexts = {}
 
-    -- Target debuffs header + container
-    f.targetDebuffsLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.targetDebuffsLabel:SetPoint("TOPLEFT", 20, -290)
+    -- Target debuffs header
+    f.targetDebuffsLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.targetDebuffsLabel:SetPoint("TOPLEFT", 14, -236)
 
-    local TD_TOP = -308
+    local TD_TOP = -250
     f.targetDebuffsTop = TD_TOP
     f.targetDebuffTexts = {}
 
-    -- Auto-log checkbox
+    -- Auto-log checkbox (compact)
     f.autoLogCheck = CreateFrame("CheckButton", "EpogArmoryDummyAutoLog", f, "UICheckButtonTemplate")
-    f.autoLogCheck:SetPoint("BOTTOMLEFT", 16, 56)
-    f.autoLogCheck:SetWidth(22); f.autoLogCheck:SetHeight(22)
+    f.autoLogCheck:SetPoint("BOTTOMLEFT", 12, 46)
+    f.autoLogCheck:SetWidth(20); f.autoLogCheck:SetHeight(20)
     f.autoLogCheck.text = f.autoLogCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.autoLogCheck.text:SetPoint("LEFT", f.autoLogCheck, "RIGHT", 2, 1)
-    f.autoLogCheck.text:SetText("Auto-start log on combat (when targeting dummy in city)")
+    f.autoLogCheck.text:SetText("Auto-start log on combat")
     f.autoLogCheck:SetScript("OnClick", function(self)
         EpogArmoryDB = EpogArmoryDB or {}
         EpogArmoryDB.config = EpogArmoryDB.config or {}
@@ -494,8 +522,8 @@ local function BuildFrame()
 
     -- Action button (label changes with state)
     f.actionBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    f.actionBtn:SetWidth(140); f.actionBtn:SetHeight(28)
-    f.actionBtn:SetPoint("BOTTOM", 0, 20)
+    f.actionBtn:SetWidth(120); f.actionBtn:SetHeight(24)
+    f.actionBtn:SetPoint("BOTTOM", 0, 16)
     f.actionBtn:SetText("Ready")
     f.actionBtn:SetScript("OnClick", function()
         if state == "idle" then
@@ -534,12 +562,15 @@ local function BuildFrame()
             f.stateBadge:SetTextColor(0.2, 0.9, 0.2)
             f.actionBtn:SetText("Stop")
         elseif state == "complete" then
+            -- Plain ASCII text. The default WoW fonts in 3.3.5 don't
+            -- include the Unicode check/cross glyphs (they rendered as
+            -- "?" before this change).
             if validThroughout and markerEmitted then
-                f.stateBadge:SetText("CLEAN \226\156\147")
-                f.stateBadge:SetTextColor(1, 0.85, 0.2)
+                f.stateBadge:SetText("CLEAN")
+                f.stateBadge:SetTextColor(0.4, 1, 0.4)
             else
-                f.stateBadge:SetText("INVALID \226\156\151")
-                f.stateBadge:SetTextColor(0.9, 0.3, 0.3)
+                f.stateBadge:SetText("INVALID")
+                f.stateBadge:SetTextColor(1, 0.4, 0.4)
             end
             f.actionBtn:SetText("Reset")
         end
@@ -576,49 +607,51 @@ local function BuildFrame()
         local autoLog = (EpogArmoryDB and EpogArmoryDB.config and EpogArmoryDB.config.dummyAutoLog) or false
         f.autoLogCheck:SetChecked(autoLog)
 
-        -- Player auras list
-        local maxLines = 8
+        -- Player auras list — ASCII markers, tighter rows.
+        -- "[+]" green for allowed, "[x]" red for not allowed. 12px row pitch.
+        local PA_MAX = 8
         local nP = #currentPlayerAuras
         f.playerAurasLabel:SetText(string.format("|cffffd200Player Auras|r |cff888888(%d)|r", nP))
-        for i = 1, maxLines do
+        for i = 1, PA_MAX do
             local fs = f.playerAuraTexts[i]
             if not fs then
                 fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                fs:SetPoint("TOPLEFT", 20, PA_TOP - (i - 1) * 14)
-                fs:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+                fs:SetPoint("TOPLEFT", f, "TOPLEFT", 14, PA_TOP - (i - 1) * 12)
+                fs:SetPoint("RIGHT", f, "RIGHT", -14, 0)
                 fs:SetJustifyH("LEFT")
                 f.playerAuraTexts[i] = fs
             end
             local a = currentPlayerAuras[i]
             if a then
-                local icon = a.allowed and "|cff66ff66\226\156\147|r" or "|cffff6666\226\156\151|r"
+                local marker = a.allowed and "|cff66ff66+|r" or "|cffff6666x|r"
                 local nameColor = a.allowed and "|cffffffff" or "|cffff9999"
                 fs:SetText(string.format("%s %s%s|r |cff888888(%s)|r",
-                    icon, nameColor, a.name, a.source))
+                    marker, nameColor, a.name, a.source))
                 fs:Show()
             else
                 fs:Hide()
             end
         end
 
-        -- Target debuffs list
+        -- Target debuffs list (max 4 rows, dummies typically have few)
+        local TD_MAX = 4
         local nT = #currentTargetDebuffs
         f.targetDebuffsLabel:SetText(string.format("|cffffd200Target Debuffs|r |cff888888(%d)|r", nT))
-        for i = 1, 6 do
+        for i = 1, TD_MAX do
             local fs = f.targetDebuffTexts[i]
             if not fs then
                 fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                fs:SetPoint("TOPLEFT", 20, TD_TOP - (i - 1) * 14)
-                fs:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+                fs:SetPoint("TOPLEFT", f, "TOPLEFT", 14, TD_TOP - (i - 1) * 12)
+                fs:SetPoint("RIGHT", f, "RIGHT", -14, 0)
                 fs:SetJustifyH("LEFT")
                 f.targetDebuffTexts[i] = fs
             end
             local a = currentTargetDebuffs[i]
             if a then
-                local icon = a.allowed and "|cff66ff66\226\156\147|r" or "|cffff6666\226\156\151|r"
+                local marker = a.allowed and "|cff66ff66+|r" or "|cffff6666x|r"
                 local nameColor = a.allowed and "|cffffffff" or "|cffff9999"
                 fs:SetText(string.format("%s %s%s|r |cff888888(%s)|r",
-                    icon, nameColor, a.name, a.source))
+                    marker, nameColor, a.name, a.source))
                 fs:Show()
             else
                 fs:Hide()
@@ -633,11 +666,20 @@ end
 -- Public toggle (called from /epogarmory dummy)
 -- ============================================================================
 
+-- Re-anchor to the top-left of the screen every time the frame is shown,
+-- per user preference. Users can drag it during a session but next open
+-- snaps back to top-left.
+local function AnchorTopLeft(f)
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -20)
+end
+
 _G.EpogArmoryDummy_Toggle = function()
     if not frame then frame = BuildFrame() end
     if frame:IsShown() then
         frame:Hide()
     else
+        AnchorTopLeft(frame)
         ValidateNow()
         frame:Show()
         frame.UpdateUI()
@@ -669,7 +711,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- frame mid-fight if the user briefly retargets.
         if IsDummyTargeted() and IsCity() and state == "idle" then
             if not frame then frame = BuildFrame() end
-            if not frame:IsShown() then frame:Show() end
+            if not frame:IsShown() then
+                AnchorTopLeft(frame)
+                frame:Show()
+            end
             ValidateNow()
             frame.UpdateUI()
         end
