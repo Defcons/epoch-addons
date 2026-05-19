@@ -20,74 +20,80 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
-## EpogArmory v1.6.1 — Dummy parse validation (internal) *(2026-05-19)*
+## EpogArmory v1.7.0 — Dummy parse validation *(2026-05-19)*
 
-**Patch-level bump (1.6.0 → 1.6.1) — mesh auto-update notification stays silent.** This is a substantial new feature that warrants a minor bump (v1.7.0) eventually, but we hold the version at patch level while testing so v1.6.0 peers in groups don't get notification chat-lines pointing at a public release that doesn't exist yet. Promote to v1.7.0 via the full release flow once dummy validation has been verified in real conditions.
-
-Pivot: addon is no longer armory-only. New module `EpogArmoryDummy.lua` validates target-dummy combat logs against a clean-self-only rule and emits an in-log marker so epoglogs.com can gate dummy parses without requiring users to bundle SavedVariables uploads.
+New module `EpogArmoryDummy.lua` validates target-dummy combat logs against a clean-self-only rule and stamps an in-log marker so epoglogs.com can gate dummy parses without requiring users to bundle SavedVariables uploads. Addon is no longer armory-only — the dummy parse window is its second top-level surface.
 
 **The marker scheme** (verified empirically against Epoch's combat log writer):
 
+The user clicks a `SecureActionButtonTemplate` button labelled "Validate" after T+1:20. Its `macrotext` attribute is `/cast Fishing`. Without a fishing pole equipped this attempt fails immediately and Epoch's combat log writes:
+
 ```
-T+1:20  CastSpellByName("Hearthstone")   → SPELL_CAST_START line
-T+1:20  SpellStopCasting()               → SPELL_CAST_FAILED, "Hearthstone", "Interrupted"
+SPELL_CAST_FAILED,<playerGUID>,"<playerName>",0x511,0x0,nil,0x80000000,7620,"Fishing",0x1,"Must have a Fishing Pole equipped"
 ```
 
-The user's test logs showed Epoch's combat log captures both lines reliably. Site parses for `SPELL_CAST_FAILED ... "Hearthstone" ... "Interrupted"` within the 1:30 log window — exactly one such line from the player = addon-validated parse. Zero or two+ = not validated.
+Site parses for that line within the 1:30 log window. Exactly one such line from the player, timestamped ≥1:18 after the first event, = addon-validated parse. The site brief is in `memory/handoff_epoglogs_dummy_validation.md`.
 
-**Why two spell IDs appear in Epoch's Hearthstone logs** (8690 + 84313): clicking the Hearthstone item triggers spell 8690, which begins channeling spell 84313 (the 10s cast). Either ID may appear in the SPELL_CAST_FAILED line. Site matches on the spell name "Hearthstone" rather than the ID.
+**Why a secure user click, not addon-script?** We tested `CastSpellByName("Fishing")` from a slash command and confirmed it produces no CLEU entry at all on Epoch — only hardware-event-triggered secure casts make it into the combat log file. So the marker has to be authored by a user click on a secure button, which also conveniently makes the file impossible to forge from addon code on a different client.
+
+**Why Fishing?** Every character can attempt it (no spellbook gating), it always fails without a fishing pole (deterministic SPELL_CAST_FAILED), the failure reason string is stable across the locales we ship to, and it doesn't conflict with any combat-state ability. The red `UIErrorsFrame` flash that normally accompanies the failure is suppressed for ~0.8s around the click so the mechanism stays opaque to users.
 
 **Lifecycle**
 
 ```
-[IDLE] —(click Ready)→ [ARMED] —(combat start with dummy in city)→ [LOGGING]
-                                                                     │
-                                                            T+1:20: if validThroughout: emit marker
-                                                                     │
-                                                            T+1:30: LoggingCombat(false) + print verdict
-                                                                     │
-                                                                     ▼
-                                                                  [COMPLETE]
+[IDLE] —(combat starts with dummy in city)→ [LOGGING]
+                                                │
+                                       T+1:20: validate button fades in
+                                       (user click) → marker line in log
+                                                │
+                                       T+1:30: LoggingCombat(false) → [STOPPED]
+                                       or earlier via Reset / 3s idle in tail
+                                                │
+                                                ▼
+                                             chat verdict + filename
 ```
 
 - **Continuous aura validation** throughout the fight (UNIT_AURA events + 0.25s timer-driven fallback). Any disallowed buff/debuff flips `validThroughout` permanently false — no recovery within the same fight.
-- **Marker only fires if `validThroughout` is still true at T+1:20.** Fights that started clean but degraded mid-fight get no marker.
-- **Combat ends before T+1:20**: log auto-stops early, parse marked invalid ("fight ended before 1:20"), no marker.
-- **Combat ends between T+1:20 and T+1:30**: timer continues, log stops normally at T+1:30 (marker already emitted).
+- **Validate button only appears (`SetAlpha 1`) after T+1:20 and only if `validThroughout` is still true.** Fights that degraded mid-fight never get the option to stamp.
+- **Validate button is visible during combat.** Players often get stuck in combat after a dummy burn; the button has to be clickable then. `SetAlpha`-based visibility is used because `Show`/`Hide` on frames containing a secure child is blocked by combat lockdown — but alpha changes aren't.
+- **Combat-log filename is captured** at `LoggingCombat(true)` time via `date("Logs/%Y-%m-%d-%H.%M.%S WoWCombatLog.txt")` and surfaced in the verdict line so the user knows exactly which file to upload.
+- **Auto-stop triggers**: Reset click (cancels without validation), Validate click (after CLEU confirms the marker landed), 3-second idle gap during the 1:20→1:30 tail, hard timeout at T+1:30, or 120s post-combat safety stop.
 
 **Allowed aura sources** (`ALLOWED_CASTERS`):
 - `"player"` — self-casts
 - `"pet"` — all class summons use this unit token (Hunter pet, Warlock demons, Mage Water Elemental, Priest Shadowfiend, Shaman Greater Elementals, DK Ghouls, Druid Treants)
 - `"vehicle"` — vehicles you control
-- Substring `"Mana Potion"` in the aura name — allowed even when caster is nil (potion cooldown debuffs)
+- Substring `"Mana Potion"` in the aura name — allowed even when caster is nil
 
-Anything else (party members, raid members, other players' pets, trinket guardians applying auras under their own GUID) invalidates the fight.
+Anything else (party/raid members, other players' pets, trinket guardians applying auras under their own GUID, flask buffs, foreign drums, weapon oils, Well Fed) invalidates the fight.
 
-**UI frame** (`/epogarmory dummy` or auto-opens when targeting `"Training Dummy"` substring in a `IsResting()` zone):
+**UI frame** (`/epogdummy` or auto-opens when targeting `"Training Dummy"` in a city):
 
-- Big state badge: IDLE / ARMED / LOGGING / CLEAN ✓ / INVALID ✗
-- Live timer "0:43 / 1:30" with progress bar; tick mark at 1:20 shows where the marker fires
-- Player Auras list with per-row ✓/✗ + source
-- Target Debuffs list (same)
-- Auto-start checkbox (`config.dummyAutoLog`, defaults off) — when checked, addon arms + starts logging automatically the instant combat begins with a dummy targeted
-- Single action button (label changes with state): Ready → Cancel → Stop → Reset
-- Stays open until closed manually (re-opens on next dummy target if state is idle)
+- Title: "EpogLogs - Dummy Parse"
+- State badge: IDLE / ARMED / LOGGING / STOPPING / STOPPED
+- **Big DPS readout** (`GameFontNormalHuge`) as the focal element — live during the fight, calculated from our own CLEU damage tracking (no Recount/Skada dependency). Total damage subtitle beneath it.
+- Progress bar (12px tall) with marker tick at the 1:20 position
+- Timer "0:18 / 1:30" beneath the bar
+- Player Auras list with per-row ✓/✗ + caster
+- Target Debuffs list (same format)
+- Auto-start checkbox (`config.dummyAutoLog`, defaults on) — addon starts logging automatically the instant combat begins with a dummy targeted
+- Secure Validate button (appears T+1:20, in-combat-safe) + Stop / Reset button below
 
 **Chat verdict at fight end**:
 
 ```
-EpogArmory: ✓ CLEAN dummy parse — Hearthstone stamp at 1:20, log saved.
+EpogArmory: ✓ CLEAN dummy parse — log is valid for upload.
+  - upload this file: Logs/2026-05-19-22.40.27 WoWCombatLog.txt
 
 (or if invalid:)
-EpogArmory: ✗ INVALID dummy parse — no stamp emitted.
-  • player buff: Flask of Endless Rage (from player)
-  • target debuff: Earth Shock (from Thrall)
-  • fight ended before 1:20 — log truncated
+EpogArmory: ✗ INVALID dummy parse — log not stamped.
+  - player buff: Flask of Endless Rage (from player)
+  - target debuff: Earth Shock (from Thrall)
 ```
 
 **Persistence**
 
-`EpogArmoryDB.dummyFights[]` keeps the last 50 fight records (endTime, durationSec, dummyName/GUID, valid bool, invalidReasons list, markerEmitted bool, addonVersion). Used for the UI history view (future) and as a sidecar backup if a user uploads SavedVariables alongside the log.
+`EpogArmoryDB.dummyFights[]` keeps the last 50 fight records (endTime, durationSec, dummyName/GUID, valid bool, invalidReasons list, markerEmitted bool, markerVerified bool, addonVersion). Sidecar backup if a user uploads SavedVariables alongside the log.
 
 **Backward compatibility**
 
@@ -96,7 +102,7 @@ EpogArmory: ✗ INVALID dummy parse — no stamp emitted.
 - Wire format unchanged — no mesh impact.
 - Older clients in the mesh see no behavior change.
 
-**Internal release (monorepo only, v1.6.1 patch level).** Public release deferred until tested in real conditions. Promotion path: bump to v1.7.0 in TOC + run the full release flow (sync to standalone repo, build zip, GitHub Release post) when dummy validation has been verified.
+Minor bump (1.6.0 → 1.7.0). v1.6.1 was an internal test version; this is the first public release of dummy parse validation.
 
 ---
 
