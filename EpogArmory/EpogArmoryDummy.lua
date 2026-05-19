@@ -27,6 +27,11 @@ local LOG_DURATION_SEC   = 90
 local MARKER_TIME_SEC    = 80
 local TICK_INTERVAL      = 0.25 -- 4Hz aura recheck + timer update
 
+-- During the 1:20-1:30 "stopping" window, if the player hasn't damaged
+-- the dummy for this many seconds, end the parse early and stop logging.
+-- Lets the user disengage cleanly without sitting through the full 10s.
+local IDLE_STOP_THRESHOLD = 3
+
 -- Substring match on UnitName("target"). Catches all standard variants
 -- ("Training Dummy", "Combat Training Dummy", "Expert's Training Dummy",
 -- "Heroic Training Dummy") with one rule.
@@ -81,13 +86,14 @@ local MAX_FIGHT_HISTORY = 50
 -- ============================================================================
 
 local frame              = nil          -- the UI frame, lazily built
-local state              = "idle"       -- "idle" | "armed" | "logging" | "complete"
+local state              = "idle"       -- "idle" | "armed" | "logging" | "stopping" | "stopped"
 local fightStartTime     = nil          -- GetTime() when combat started
 local validThroughout    = true         -- sticky false on any violation
 local invalidReasons     = {}           -- set of reason strings
 local markerEmitted      = false        -- true once we've attempted the cast
 local lastDummyName      = nil
 local savedDummyGUID     = nil          -- saved at combat start
+local lastDummyHitTime   = 0            -- GetTime() of last player/pet damage on dummy
 
 -- Live aura listings for the UI. Recomputed each tick.
 local currentPlayerAuras   = {}         -- list of { name, source, allowed }
@@ -361,6 +367,7 @@ local function DoStartLogging()
     markerEmitted     = false
     lastDummyName     = UnitName("target")
     savedDummyGUID    = UnitGUID("target")
+    lastDummyHitTime  = GetTime() -- count the start of combat as "just hit"
 
     -- Initial aura check (T+0). If we start with junk auras already on,
     -- validThroughout flips false immediately and the marker won't emit.
@@ -370,14 +377,18 @@ local function DoStartLogging()
     return true
 end
 
+-- Stop the log and finalize the parse. Called from both the natural T+1:30
+-- timer expiry AND the idle-detection early-exit in the stopping window.
+-- 'reason' is added to invalidReasons (and flips validThroughout false)
+-- only when non-nil — natural end passes nil to preserve the verdict.
 local function FinishFight(reason)
-    if state ~= "logging" then return end
+    if state ~= "logging" and state ~= "stopping" then return end
     if LoggingCombat then LoggingCombat(false) end
     if reason and not invalidReasons[reason] then
         invalidReasons[reason] = true
         validThroughout = false
     end
-    SetState("complete")
+    SetState("stopped")
     PrintVerdict()
     SaveFightRecord()
 end
@@ -403,14 +414,14 @@ local function OnEnterCombat()
 end
 
 local function OnLeaveCombat()
-    if state ~= "logging" then return end
+    if state ~= "logging" and state ~= "stopping" then return end
     local elapsed = GetTime() - (fightStartTime or GetTime())
     if elapsed < MARKER_TIME_SEC then
         -- Fight ended before the marker would have fired. Treat as failed.
         FinishFight("fight ended before 1:20 — log truncated")
     end
-    -- Between 1:20 and 1:30: let the timer run out (marker is already
-    -- in the log file).
+    -- Between 1:20 and 1:30 (in "stopping" state): let the timer / idle
+    -- detector finish naturally. The marker is already in the log file.
 end
 
 local function OnTick()
@@ -421,7 +432,7 @@ local function OnTick()
         if frame and frame:IsShown() then frame.UpdateUI() end
         return
     end
-    if state ~= "logging" then return end
+    if state ~= "logging" and state ~= "stopping" then return end
 
     local elapsed = GetTime() - (fightStartTime or GetTime())
 
@@ -430,14 +441,28 @@ local function OnTick()
     ValidateNow()
 
     -- Marker emission at 1:20 (only if the fight stayed clean).
-    if elapsed >= MARKER_TIME_SEC and not markerEmitted then
+    -- Also transitions logging -> stopping.
+    if state == "logging" and elapsed >= MARKER_TIME_SEC and not markerEmitted then
         if validThroughout then
             EmitMarker()
         end
         markerEmitted = true -- "attempted", don't retry even if conditions degrade
+        SetState("stopping")
     end
 
-    -- Auto-stop logging at 1:30.
+    -- Idle-detection early exit during the stopping window. If the player
+    -- hasn't damaged the dummy for IDLE_STOP_THRESHOLD seconds AND we've
+    -- passed the marker emission point, stop the log early. Lets the user
+    -- disengage cleanly without sitting through the full 10s tail.
+    if state == "stopping" then
+        local idleFor = GetTime() - lastDummyHitTime
+        if idleFor >= IDLE_STOP_THRESHOLD then
+            FinishFight(nil)
+            return
+        end
+    end
+
+    -- Hard auto-stop at 1:30 regardless.
     if elapsed >= LOG_DURATION_SEC then
         FinishFight(nil)
         return
@@ -494,6 +519,14 @@ local function BuildFrame()
     f.timerLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.timerLabel:SetPoint("TOP", 0, -72)
     f.timerLabel:SetText("0:00 / 1:30")
+
+    -- Verdict text. Hidden until state transitions to "stopped". Shows
+    -- "Log: CLEAN" (green) or "Log: INVALID" (red) so the user sees
+    -- the final result in a dedicated line rather than buried in the
+    -- state badge.
+    f.verdictLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    f.verdictLabel:SetPoint("TOP", 0, -104)
+    f.verdictLabel:Hide()
 
     -- Progress bar
     f.progressBg = f:CreateTexture(nil, "BACKGROUND")
@@ -557,11 +590,12 @@ local function BuildFrame()
             SetState("armed")
         elseif state == "armed" then
             SetState("idle")
-        elseif state == "logging" then
-            -- Manual stop. No marker, no verdict print (user knows they cancelled).
+        elseif state == "logging" or state == "stopping" then
+            -- Manual stop. No marker (if not already emitted), no verdict
+            -- print — the user knows they cancelled intentionally.
             if LoggingCombat then LoggingCombat(false) end
             SetState("idle")
-        elseif state == "complete" then
+        elseif state == "stopped" then
             SetState("idle")
         end
     end)
@@ -575,7 +609,9 @@ local function BuildFrame()
             f.targetLabel:SetText("Target: |cff888888(none)|r")
         end
 
-        -- State badge + button label
+        -- State badge + button label + verdict line.
+        -- Verdict shows only in "stopped" state (Log: CLEAN/INVALID).
+        f.verdictLabel:Hide()
         if state == "idle" then
             f.stateBadge:SetText("IDLE")
             f.stateBadge:SetTextColor(0.7, 0.7, 0.7)
@@ -588,40 +624,46 @@ local function BuildFrame()
             f.stateBadge:SetText("LOGGING")
             f.stateBadge:SetTextColor(0.2, 0.9, 0.2)
             f.actionBtn:SetText("Stop")
-        elseif state == "complete" then
-            -- Plain ASCII text. The default WoW fonts in 3.3.5 don't
-            -- include the Unicode check/cross glyphs (they rendered as
-            -- "?" before this change).
-            if validThroughout and markerEmitted then
-                f.stateBadge:SetText("CLEAN")
-                f.stateBadge:SetTextColor(0.4, 1, 0.4)
-            else
-                f.stateBadge:SetText("INVALID")
-                f.stateBadge:SetTextColor(1, 0.4, 0.4)
-            end
+        elseif state == "stopping" then
+            -- T+1:20 to T+1:30 (or until idle 3s). Marker has been emitted
+            -- (or skipped). Tail period before LoggingCombat(false).
+            f.stateBadge:SetText("STOPPING...")
+            f.stateBadge:SetTextColor(1, 0.7, 0.2)
+            f.actionBtn:SetText("Stop")
+        elseif state == "stopped" then
+            f.stateBadge:SetText("STOPPED")
+            f.stateBadge:SetTextColor(0.6, 0.6, 0.6)
             f.actionBtn:SetText("Reset")
+            -- Show the separate verdict line.
+            if validThroughout and markerEmitted then
+                f.verdictLabel:SetText("Log: |cff66ff66CLEAN|r - valid for upload")
+            else
+                f.verdictLabel:SetText("Log: |cffff6666INVALID|r - rejected on upload")
+            end
+            f.verdictLabel:Show()
         end
 
         -- Timer + progress bar
         local progressFraction = 0
-        if state == "logging" and fightStartTime then
+        if (state == "logging" or state == "stopping") and fightStartTime then
             local elapsed = GetTime() - fightStartTime
             local capped = math.min(elapsed, LOG_DURATION_SEC)
             progressFraction = capped / LOG_DURATION_SEC
             f.timerLabel:SetText(string.format("%d:%02d / 1:30",
                 floor(capped / 60), floor(capped % 60)))
-            if elapsed >= MARKER_TIME_SEC then
+            if state == "stopping" then
+                -- Gold color during the tail. Doesn't reveal verdict yet.
                 f.progressFg:SetVertexColor(1, 0.78, 0.18, 1)
             else
                 f.progressFg:SetVertexColor(0.2, 0.7, 0.2, 1)
             end
-        elseif state == "complete" then
+        elseif state == "stopped" then
             progressFraction = 1
             f.timerLabel:SetText("1:30 / 1:30")
             if validThroughout and markerEmitted then
-                f.progressFg:SetVertexColor(1, 0.85, 0.2, 1)
+                f.progressFg:SetVertexColor(0.4, 1, 0.4, 1) -- green for clean
             else
-                f.progressFg:SetVertexColor(0.9, 0.3, 0.3, 1)
+                f.progressFg:SetVertexColor(1, 0.4, 0.4, 1) -- red for invalid
             end
         else
             f.timerLabel:SetText("0:00 / 1:30")
@@ -706,10 +748,10 @@ _G.EpogArmoryDummy_Toggle = function()
     if frame:IsShown() then
         frame:Hide()
     else
-        -- Reset from "complete" state so the new view starts fresh.
-        -- "armed" and "logging" states are preserved (parse may still be
-        -- ongoing in the background).
-        if state == "complete" then SetState("idle") end
+        -- Reset from "stopped" state so the new view starts fresh.
+        -- "armed", "logging", "stopping" states are preserved (parse
+        -- may still be ongoing in the background).
+        if state == "stopped" then SetState("idle") end
         AnchorTopLeft(frame)
         ValidateNow()
         frame:Show()
@@ -727,6 +769,14 @@ eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("UNIT_AURA")
+-- Claude (v1.6.1): hit detection for idle-stop during the 1:20-1:30
+-- stopping window. Need to know when the player or pet last damaged
+-- the dummy so we can early-out the parse if they disengage.
+eventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+
+-- Sub-flag bit COMBATLOG_OBJECT_AFFILIATION_MINE = 0x1.
+-- Set on combat log events sourced from the player or their pet/totem.
+local AFFILIATION_MINE_BIT = 0x1
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
@@ -738,15 +788,15 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         EpogArmoryDB.dummyFights = EpogArmoryDB.dummyFights or {}
     elseif event == "PLAYER_TARGET_CHANGED" then
         -- Auto-open the frame when the user targets a dummy in a rested
-        -- area. Fires when state is "idle" OR "complete" (re-target
+        -- area. Fires when state is "idle" OR "stopped" (re-target
         -- after a finished parse should re-open for a fresh run).
-        -- Skipped during "armed" or "logging" so we don't disturb an
-        -- in-progress parse if the user briefly retargets something else
-        -- and back.
+        -- Skipped during "armed", "logging", or "stopping" so we don't
+        -- disturb an in-progress parse if the user briefly retargets
+        -- something else and back.
         if IsDummyTargeted() and IsCity()
-           and (state == "idle" or state == "complete")
+           and (state == "idle" or state == "stopped")
         then
-            if state == "complete" then SetState("idle") end
+            if state == "stopped" then SetState("idle") end
             if not frame then frame = BuildFrame() end
             if not frame:IsShown() then
                 AnchorTopLeft(frame)
@@ -769,12 +819,32 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         if unit == "player"
            or (savedDummyGUID and unit and UnitGUID(unit) == savedDummyGUID)
         then
-            -- Inside logging, this re-evaluates and may flip validThroughout.
-            -- Inside armed, it's a preview update.
-            if state == "logging" or state == "armed" then
+            -- Inside logging/stopping, this re-evaluates and may flip
+            -- validThroughout. Inside armed, it's a preview update.
+            if state == "logging" or state == "stopping" or state == "armed" then
                 ValidateNow()
                 if frame and frame:IsShown() then frame.UpdateUI() end
             end
+        end
+    elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        -- Hot path — fires many times per second in combat. Bail early.
+        if state ~= "logging" and state ~= "stopping" then return end
+        if not savedDummyGUID then return end
+        -- 3.3.5 signature: timestamp, subevent, sourceGUID, sourceName,
+        -- sourceFlags, destGUID, destName, destFlags, [spell info]...
+        local _, subevent, _, _, sourceFlags, destGUID = ...
+        if destGUID ~= savedDummyGUID then return end
+        -- Damage / miss events from us or our pet count as "still
+        -- attacking". The MINE affiliation bit (0x1) covers player +
+        -- pet + totem without needing to track GUIDs separately.
+        if not sourceFlags or bit.band(sourceFlags, AFFILIATION_MINE_BIT) == 0 then
+            return
+        end
+        if subevent == "SWING_DAMAGE"  or subevent == "SWING_MISSED"
+        or subevent == "SPELL_DAMAGE"  or subevent == "SPELL_MISSED"
+        or subevent == "RANGE_DAMAGE"  or subevent == "RANGE_MISSED"
+        or subevent == "SPELL_PERIODIC_DAMAGE" then
+            lastDummyHitTime = GetTime()
         end
     end
 end)
