@@ -857,6 +857,90 @@ local function AnchorTopLeft(f)
     f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -20)
 end
 
+-- ============================================================================
+-- Diagnostic: test-cast slash command
+-- ============================================================================
+-- Lets the user verify whether CastSpellByName from addon code actually
+-- produces a combat log entry on Epoch. Bypasses the dummy-parse
+-- lifecycle entirely. Usage:
+--   /epogtest Hearthstone         (default — 150ms then SpellStopCasting)
+--   /epogtest Fishing             (instant fail, no stop needed)
+--   /epogtest "Some Spell"        (any spell name)
+--   /epogtest                     (defaults to Hearthstone)
+-- Prints what was called, then waits up to 3s for a CLEU event with the
+-- spell name and reports whether it landed.
+
+local _testStopFrame = CreateFrame("Frame")
+_testStopFrame:Hide()
+local _testStopElapsed = 0
+_testStopFrame:SetScript("OnUpdate", function(self, e)
+    _testStopElapsed = _testStopElapsed + e
+    if _testStopElapsed >= 0.15 then
+        self:Hide()
+        _testStopElapsed = 0
+        if SpellStopCasting then
+            SpellStopCasting()
+            print("|cffffaa44EpogArmory|r [testcast] SpellStopCasting() called")
+        end
+    end
+end)
+
+local _testWatchFrame = CreateFrame("Frame")
+_testWatchFrame:Hide()
+local _testWatchStart = 0
+local _testWatchSpellName = ""
+local _testWatchSeen = false
+_testWatchFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+_testWatchFrame:SetScript("OnEvent", function(self, event, ...)
+    if event ~= "COMBAT_LOG_EVENT_UNFILTERED" then return end
+    local _, subevent, _, _, sourceFlags, _, _, _, spellID, spellName = ...
+    if not sourceFlags or bit.band(sourceFlags, 0x1) == 0 then return end
+    if spellName == _testWatchSpellName then
+        if not _testWatchSeen then
+            print(string.format("|cffffaa44EpogArmory|r [testcast] |cff66ff66LANDED|r in CLEU after %.2fs: %s spellID=%s",
+                GetTime() - _testWatchStart, subevent, tostring(spellID)))
+            _testWatchSeen = true
+        end
+    end
+end)
+_testWatchFrame:SetScript("OnUpdate", function(self, e)
+    local waited = GetTime() - _testWatchStart
+    if waited >= 3.0 then
+        self:Hide()
+        if not _testWatchSeen then
+            print(string.format("|cffffaa44EpogArmory|r [testcast] |cffff6666DID NOT LAND|r — no CLEU event for '%s' in 3s",
+                _testWatchSpellName))
+        end
+    end
+end)
+
+_G.EpogArmoryDummy_TestCast = function(spellName, stopAfter)
+    spellName = (spellName and spellName ~= "") and spellName or "Hearthstone"
+    print(string.format("|cffffaa44EpogArmory|r [testcast] starting test for '%s'", spellName))
+    print(string.format("|cffffaa44EpogArmory|r [testcast]   InCombatLockdown=%s, GetSpellInfo='%s'",
+        tostring(InCombatLockdown and InCombatLockdown() or "?"),
+        tostring(GetSpellInfo and GetSpellInfo(spellName) or "nil")))
+
+    -- Start CLEU watcher
+    _testWatchSpellName = spellName
+    _testWatchSeen = false
+    _testWatchStart = GetTime()
+    _testWatchFrame:Show()
+
+    if not CastSpellByName then
+        print("|cffffaa44EpogArmory|r [testcast] |cffff6666CastSpellByName is nil!|r")
+        return
+    end
+    CastSpellByName(spellName)
+    print(string.format("|cffffaa44EpogArmory|r [testcast]   CastSpellByName('%s') returned, no error",
+        spellName))
+
+    if stopAfter then
+        _testStopElapsed = 0
+        _testStopFrame:Show()
+    end
+end
+
 _G.EpogArmoryDummy_Toggle = function()
     if not frame then frame = BuildFrame() end
     if frame:IsShown() then
@@ -986,3 +1070,44 @@ eventFrame:SetScript("OnUpdate", function(self, elapsed)
     tickAcc = 0
     OnTick()
 end)
+
+-- ============================================================================
+-- Slash command for isolation-testing the marker cast.
+-- ============================================================================
+-- Usage:
+--   /epogtest                  (defaults to "Hearthstone" with auto-stop)
+--   /epogtest hearth           (Hearthstone + 150ms SpellStopCasting)
+--   /epogtest fish             (Fishing — no stop needed, fails instantly)
+--   /epogtest mount            (Summon mount via name)
+--   /epogtest "Some Spell"     (any spell name verbatim)
+--   /epogtest +nostop fish     (Fishing without auto-stop)
+SLASH_EPOGTEST1 = "/epogtest"
+SlashCmdList["EPOGTEST"] = function(msg)
+    msg = msg or ""
+    local nostop = msg:find("+nostop", 1, true) ~= nil
+    if nostop then msg = msg:gsub("%+nostop", "") end
+    local arg = msg:match("^%s*(.-)%s*$") or ""
+
+    local spellName
+    local stopAfter
+    if arg == "" or arg:lower() == "hearth" or arg:lower() == "hearthstone" then
+        spellName = "Hearthstone"
+        stopAfter = not nostop
+    elseif arg:lower() == "fish" or arg:lower() == "fishing" then
+        spellName = "Fishing"
+        stopAfter = false -- Fishing fails instantly, no need to stop
+    elseif arg:lower() == "mount" then
+        -- Try to use the player's currently-equipped mount if API exists
+        spellName = arg
+        stopAfter = not nostop
+    else
+        spellName = arg
+        stopAfter = not nostop
+    end
+
+    if _G.EpogArmoryDummy_TestCast then
+        _G.EpogArmoryDummy_TestCast(spellName, stopAfter)
+    else
+        print("|cffffaa44EpogArmory|r [testcast] module not loaded")
+    end
+end
