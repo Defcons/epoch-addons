@@ -37,22 +37,22 @@ local IDLE_STOP_THRESHOLD = 3
 -- "Heroic Training Dummy") with one rule.
 local DUMMY_NAME_PATTERN = "Training Dummy"
 
--- Marker: Hearthstone (spell name "Hearthstone", spell IDs 8690 or 84313
--- on Epoch — match on name). Why Hearthstone:
---   - Truly universal (every character has the item from level 1)
---   - Fishing isn't universal — players have to learn it from a trainer
---   - CastSpellByName + SpellStopCasting reliably produces SPELL_CAST_FAILED
---     "Interrupted" line in the log (verified in user's 14:42 test logs)
--- CRITICAL: the cast must happen OUT OF COMBAT. CastSpellByName is
--- protected during combat lockdown in WoW 3.3.5 — addon scripts cannot
--- start spell casts from OnUpdate while in combat. So we emit the marker
--- on PLAYER_REGEN_ENABLED, after the user disengages from the dummy
--- but before LoggingCombat(false) closes the log file. The marker lands
--- in the same /combatlog window as the combat events.
-local MARKER_SPELL_NAME  = "Hearthstone"
-local MARKER_CAST_TO_STOP_DELAY = 0.15 -- seconds between CastSpellByName and SpellStopCasting
-local MARKER_VERIFY_TIMEOUT     = 3.0  -- seconds to wait for CLEU to confirm marker after stop
-local POST_COMBAT_HARD_TIMEOUT  = 60   -- max seconds to wait for combat to end before force-stopping
+-- Marker: Fishing (user confirmed `/cast Fishing` in chat produces
+-- SPELL_CAST_FAILED "Must have a Fishing Pole equipped" in the log).
+-- Fails INSTANTLY — single log line, no SpellStopCasting timing required.
+--
+-- The marker fires via a SecureActionButtonTemplate that the user clicks.
+-- Addon-script CastSpellByName silently fails on Epoch (proven by the
+-- 21:00 /epogtest run: GetSpellInfo='Fishing' resolved but no CLEU
+-- event after CastSpellByName call). The protection model requires a
+-- hardware event (button click / keypress on secure button) to elevate
+-- the call to a secure execution context. So the addon UI prompts the
+-- user to click a button at the end of the parse — that single click
+-- is the only manual step.
+local MARKER_SPELL_NAME         = "Fishing"
+local MARKER_MACROTEXT          = "/cast Fishing"
+local MARKER_VERIFY_TIMEOUT     = 3.0  -- seconds to wait for CLEU after click
+local POST_COMBAT_HARD_TIMEOUT  = 120  -- max seconds in stopping state before giving up
 
 -- Allowed aura sources: self + own pets/summons + vehicle.
 -- Class summons (Hunter pet, Warlock demon, Mage Water Elemental, Priest
@@ -265,48 +265,15 @@ end
 -- Marker emission
 -- ============================================================================
 
--- Emit the validation marker into the combat log. The exact mechanism is
--- deliberately not surfaced to the user (we don't want people knowing
--- how to fake validation).
+-- Marker emission now happens via the user clicking a SecureActionButton
+-- created in BuildFrame. The button's macrotext is "/cast Fishing", which
+-- when triggered by hardware-event click executes in a secure context and
+-- produces a SPELL_CAST_FAILED line in the combat log file. The CLEU
+-- handler listens for that line and sets markerVerified=true.
 --
--- CRITICAL: this MUST run out of combat. CastSpellByName / SpellStopCasting
--- are protected during combat lockdown in WoW 3.3.5 — calling them from
--- an addon's OnUpdate while in combat silently fails (no SPELL_CAST_START
--- event, nothing in the combat log file). Verified empirically against
--- the user's 20:21 test log: zero Fishing/Hearthstone lines despite the
--- addon running EmitMarker at T+1:20.
---
--- Hearthstone is the universal marker. Every character has the item from
--- level 1. CastSpellByName begins the 10s channel, SpellStopCasting
--- interrupts 150ms later, the combat log gets:
---   SPELL_CAST_START  ... "Hearthstone"
---   SPELL_CAST_FAILED ... "Hearthstone" ... "Interrupted"
--- The verifier listens for either line from the player and flips
--- markerVerified true.
-
-local _restoreUIErrors = CreateFrame("Frame")
-_restoreUIErrors:Hide()
-local _restoreElapsed = 0
-_restoreUIErrors:SetScript("OnUpdate", function(self, e)
-    _restoreElapsed = _restoreElapsed + e
-    if _restoreElapsed >= 0.6 then
-        self:Hide()
-        _restoreElapsed = 0
-        if UIErrorsFrame then UIErrorsFrame:Show() end
-    end
-end)
-
-local _stopCastFrame = CreateFrame("Frame")
-_stopCastFrame:Hide()
-local _stopElapsed = 0
-_stopCastFrame:SetScript("OnUpdate", function(self, e)
-    _stopElapsed = _stopElapsed + e
-    if _stopElapsed >= MARKER_CAST_TO_STOP_DELAY then
-        self:Hide()
-        _stopElapsed = 0
-        if SpellStopCasting then SpellStopCasting() end
-    end
-end)
+-- See `EpogArmoryValidateButton` creation in BuildFrame for the actual
+-- secure-button wiring. We keep EmitMarker as a no-op-for-symmetry hook
+-- + debug helper so future code paths can still call it cleanly.
 
 local function _DebugPrint(msg)
     if EpogArmoryDebug then
@@ -314,27 +281,10 @@ local function _DebugPrint(msg)
     end
 end
 
+-- Kept for diagnostic / debug print path. The actual cast happens via
+-- the secure button's macrotext attribute when the user clicks it.
 local function EmitMarker()
-    -- This is called from PLAYER_REGEN_ENABLED handler — out of combat,
-    -- no lockdown. CastSpellByName works freely here.
-    _DebugPrint(string.format("EmitMarker fired. InCombatLockdown=%s, GetSpellInfo=%s",
-        tostring(InCombatLockdown and InCombatLockdown() or "?"),
-        tostring(GetSpellInfo and GetSpellInfo(MARKER_SPELL_NAME) or "?")))
-    if UIErrorsFrame then UIErrorsFrame:Hide() end
-    _restoreElapsed = 0
-    _restoreUIErrors:Show()
-
-    if CastSpellByName then
-        CastSpellByName(MARKER_SPELL_NAME)
-        _DebugPrint("CastSpellByName('" .. MARKER_SPELL_NAME .. "') called")
-    else
-        _DebugPrint("CastSpellByName is nil!")
-    end
-    -- Schedule the interrupt 150ms later. The delay gives the START
-    -- packet time to reach the server and echo back into the combat
-    -- log file before the cancel arrives.
-    _stopElapsed = 0
-    _stopCastFrame:Show()
+    _DebugPrint("EmitMarker invoked (note: actual cast comes from secure button click)")
 end
 
 -- ============================================================================
@@ -468,19 +418,19 @@ local function OnEnterCombat()
     end
 end
 
--- Once the marker cast is done, wait briefly for CLEU to confirm it
--- landed, then stop the log. Implemented as a separate OnUpdate frame
--- so we don't block the main thread waiting.
+-- After the secure button click fires the cast, wait briefly for CLEU
+-- to confirm the SPELL_CAST_FAILED line landed in the log file. Then
+-- stop logging.
 local _markerVerifyFrame = CreateFrame("Frame")
 _markerVerifyFrame:Hide()
 local _verifyStartTime = 0
 local function StartMarkerVerifyWait()
     _verifyStartTime = GetTime()
+    markerEmitted = true
     _markerVerifyFrame:Show()
 end
 _markerVerifyFrame:SetScript("OnUpdate", function(self)
     local waited = GetTime() - _verifyStartTime
-    -- Stop waiting as soon as CLEU verifies, OR after the timeout.
     if markerVerified or waited >= MARKER_VERIFY_TIMEOUT then
         _DebugPrint(string.format("marker verify wait ended after %.2fs, markerVerified=%s",
             waited, tostring(markerVerified)))
@@ -490,9 +440,8 @@ _markerVerifyFrame:SetScript("OnUpdate", function(self)
 end)
 
 local function OnLeaveCombat()
-    _DebugPrint(string.format("PLAYER_REGEN_ENABLED fired. state=%s, elapsed=%.1f, pendingMarker=%s",
-        state, fightStartTime and (GetTime() - fightStartTime) or -1,
-        tostring(pendingMarker)))
+    _DebugPrint(string.format("PLAYER_REGEN_ENABLED fired. state=%s, elapsed=%.1f",
+        state, fightStartTime and (GetTime() - fightStartTime) or -1))
     if state ~= "logging" and state ~= "stopping" then return end
     local elapsed = GetTime() - (fightStartTime or GetTime())
 
@@ -503,21 +452,15 @@ local function OnLeaveCombat()
         return
     end
 
-    -- We're past T+1:20 and out of combat. This is where we can safely
-    -- cast the marker — combat lockdown is lifted. If pendingMarker is
-    -- true (validThroughout held through T+1:20), emit the marker now.
-    -- Then wait for CLEU to confirm it landed before stopping the log.
-    if pendingMarker then
-        EmitMarker()
-        markerEmitted = true
-        pendingMarker = false
-        StartMarkerVerifyWait()
-        return -- FinishFight runs from _markerVerifyFrame once verified or timed out
-    end
-
-    -- Fight was past T+1:20 but validThroughout was already false —
-    -- no marker to emit. Just stop.
-    FinishFight(nil)
+    -- We're past T+1:20 and out of combat. The validate button becomes
+    -- clickable now — user must click to emit the marker. We do NOT
+    -- auto-emit because CastSpellByName from addon code doesn't produce
+    -- combat-log entries on Epoch (protection model requires a hardware
+    -- event). The user's click on the secure button is that event.
+    --
+    -- If they don't click within POST_COMBAT_HARD_TIMEOUT seconds of
+    -- entering stopping, OnTick force-finishes with no marker (INVALID).
+    if frame and frame:IsShown() then frame.UpdateUI() end
 end
 
 local function OnTick()
@@ -629,6 +572,39 @@ local function BuildFrame()
     f.verdictLabel:SetJustifyH("CENTER")
     f.verdictLabel:Hide()
 
+    -- Validate button. SecureActionButtonTemplate + macrotext = "/cast Fishing".
+    -- Hardware click puts the cast on the secure execution path, which
+    -- produces a SPELL_CAST_FAILED line in the combat log file. The
+    -- addon's automatic CastSpellByName won't do this on Epoch — the
+    -- protection model requires a hardware event to elevate the call.
+    --
+    -- Only shown when state == "stopping" AND user is out of combat.
+    -- Hidden in all other states; can't be safely clicked during combat
+    -- (Fishing might fail differently or be ignored client-side).
+    f.validateBtn = CreateFrame("Button", "EpogArmoryValidateButton", f,
+        "SecureActionButtonTemplate,UIPanelButtonTemplate")
+    f.validateBtn:SetWidth(180); f.validateBtn:SetHeight(36)
+    f.validateBtn:SetPoint("TOP", 0, -296)
+    f.validateBtn:SetText("VALIDATE PARSE")
+    f.validateBtn:SetAttribute("type", "macro")
+    f.validateBtn:SetAttribute("macrotext", MARKER_MACROTEXT)
+    f.validateBtn:RegisterForClicks("AnyUp")
+    f.validateBtn:SetScript("PostClick", function(self)
+        -- The secure macrotext has just executed (CastSpellByName fired
+        -- in a secure context). The combat log should be capturing the
+        -- SPELL_CAST_FAILED line within ~50ms. Start the verify wait.
+        _DebugPrint("validate button PostClick fired — starting verify wait")
+        StartMarkerVerifyWait()
+    end)
+    f.validateBtn:Hide()
+
+    -- Validate hint label (shown next to the button to explain it)
+    f.validateHint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.validateHint:SetPoint("TOP", f.validateBtn, "BOTTOM", 0, -2)
+    f.validateHint:SetWidth(252)
+    f.validateHint:SetJustifyH("CENTER")
+    f.validateHint:Hide()
+
     -- Progress bar
     f.progressBg = f:CreateTexture(nil, "BACKGROUND")
     f.progressBg:SetTexture("Interface\\Buttons\\WHITE8X8")
@@ -712,7 +688,10 @@ local function BuildFrame()
 
         -- State badge + button label + verdict line.
         -- Verdict shows only in "stopped" state (Log: CLEAN/INVALID).
+        -- Validate button shows only in "stopping" state out of combat.
         f.verdictLabel:Hide()
+        f.validateBtn:Hide()
+        f.validateHint:Hide()
         if state == "idle" then
             f.stateBadge:SetText("IDLE")
             f.stateBadge:SetTextColor(0.7, 0.7, 0.7)
@@ -726,20 +705,36 @@ local function BuildFrame()
             f.stateBadge:SetTextColor(0.2, 0.9, 0.2)
             f.actionBtn:SetText("Stop")
         elseif state == "stopping" then
-            -- Past T+1:20 — waiting for combat to actually end so we can
-            -- safely emit the marker (combat lockdown blocks the cast).
-            -- User just needs to disengage from the dummy.
+            -- Past T+1:20 — user needs to disengage and click VALIDATE
+            -- to stamp the parse. Three sub-states:
+            --   (a) in combat → hide button, show "disengage first" hint
+            --   (b) out of combat + validThroughout false → hide button,
+            --       no need to validate an already-invalid parse
+            --   (c) out of combat + validThroughout true → show button
             f.stateBadge:SetText("STOPPING...")
             f.stateBadge:SetTextColor(1, 0.7, 0.2)
             f.actionBtn:SetText("Stop")
-            -- Show a hint past T+1:30 so user knows to disengage.
-            -- Color comes from inline codes; reset SetTextColor so it
-            -- doesn't tint the embedded |cffXXXXXX| color.
-            local elapsed = fightStartTime and (GetTime() - fightStartTime) or 0
-            if elapsed >= LOG_DURATION_SEC then
+            local inCombat = InCombatLockdown and InCombatLockdown()
+            if markerEmitted then
+                -- User already clicked, waiting for CLEU verify
                 f.verdictLabel:SetTextColor(1, 1, 1)
-                f.verdictLabel:SetText("|cffffaa00disengage from dummy to finalize log|r")
+                f.verdictLabel:SetText("|cff66ff66verifying marker...|r")
                 f.verdictLabel:Show()
+            elseif inCombat then
+                -- Combat still active — they need to disengage first
+                f.verdictLabel:SetTextColor(1, 1, 1)
+                f.verdictLabel:SetText("|cffffaa00disengage from dummy to validate|r")
+                f.verdictLabel:Show()
+            elseif not validThroughout then
+                -- Parse is already invalid (foreign aura / consumable)
+                f.verdictLabel:SetTextColor(1, 1, 1)
+                f.verdictLabel:SetText("|cffff6666parse invalidated - click Stop|r")
+                f.verdictLabel:Show()
+            else
+                -- Out of combat + still valid → show the VALIDATE button
+                f.validateBtn:Show()
+                f.validateHint:SetText("|cff888888click to stamp the log|r")
+                f.validateHint:Show()
             end
         elseif state == "stopped" then
             f.stateBadge:SetText("STOPPED")
@@ -940,6 +935,12 @@ _G.EpogArmoryDummy_TestCast = function(spellName, stopAfter)
         _testStopFrame:Show()
     end
 end
+
+-- Keybind support: register a binding header + a named binding for the
+-- secure validate button. Users go to Keybindings UI -> EpogArmory
+-- Dummy Parse -> Validate Parse to assign a hotkey.
+_G["BINDING_HEADER_EPOGARMORY_DUMMY"] = "EpogArmory Dummy Parse"
+_G["BINDING_NAME_CLICK EpogArmoryValidateButton:LeftButton"] = "Validate Parse"
 
 _G.EpogArmoryDummy_Toggle = function()
     if not frame then frame = BuildFrame() end
