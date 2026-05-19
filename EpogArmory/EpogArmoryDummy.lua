@@ -560,10 +560,12 @@ end
 
 local function BuildFrame()
     local f = CreateFrame("Frame", "EpogArmoryDummyFrame", UIParent)
-    -- Compact frame: 280 wide x 420 tall. Initial position is top-left of
-    -- the screen; users can drag from there. Re-anchored to top-left on
+    -- Frame: 280 wide x 460 tall. Initial position is top-left of the
+    -- screen; users can drag from there. Re-anchored to top-left on
     -- every Show (see EpogArmoryDummy_Toggle / OnEvent open paths).
-    f:SetWidth(280); f:SetHeight(420)
+    -- Height bumped from 420 to 460 to give the focal DPS display
+    -- proper breathing room above the auras section.
+    f:SetWidth(280); f:SetHeight(460)
     f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -20)
     -- Bump strata above CombatLogQuickButtonFrame_Custom so its quick-
     -- control buttons (Stop/Pause/Reset/Hide) don't render over our
@@ -594,21 +596,27 @@ local function BuildFrame()
     f.targetLabel:SetWidth(240)
     f.targetLabel:SetJustifyH("CENTER")
 
-    -- State badge (use Large instead of Huge to compact)
+    -- State badge
     f.stateBadge = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     f.stateBadge:SetPoint("TOP", 0, -48)
 
-    -- Timer line
-    f.timerLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.timerLabel:SetPoint("TOP", 0, -72)
-    f.timerLabel:SetText("0:00 / 1:30")
-
-    -- DPS label, just below the timer. Computed from our own CLEU
-    -- damage tracking (fightTotalDamage / elapsed) — no dependency on
-    -- Recount/Skada being loaded. Updated every tick during the fight.
-    f.dpsLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.dpsLabel:SetPoint("TOP", f.timerLabel, "BOTTOM", 0, -2)
+    -- BIG DPS — focal element. GameFontNormalHuge (~32pt). Shown
+    -- prominently above the progress bar so the user can see the
+    -- live DPS at a glance.
+    f.dpsLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    f.dpsLabel:SetPoint("TOP", 0, -78)
     f.dpsLabel:SetText("")
+
+    -- Total damage subtitle, small text directly under the big DPS.
+    f.totalLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.totalLabel:SetPoint("TOP", f.dpsLabel, "BOTTOM", 0, -2)
+    f.totalLabel:SetText("")
+
+    -- Timer line (smaller, just for reference of where we are in the
+    -- 1:30 window). The progress bar carries most of the visual signal.
+    f.timerLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.timerLabel:SetPoint("TOP", 0, -148)
+    f.timerLabel:SetText("0:00 / 1:30")
 
     -- Verdict text. Hidden until state transitions to "stopped". Shows
     -- "Log: CLEAN" (green) or "Log: INVALID" (red).
@@ -616,7 +624,7 @@ local function BuildFrame()
     -- the Auto-start checkbox so it doesn't overlap the aura lists.
     -- Width-constrained + centered so long strings wrap cleanly.
     f.verdictLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.verdictLabel:SetPoint("TOP", 0, -316)
+    f.verdictLabel:SetPoint("TOP", 0, -360)
     f.verdictLabel:SetWidth(252)
     f.verdictLabel:SetJustifyH("CENTER")
     f.verdictLabel:Hide()
@@ -635,7 +643,7 @@ local function BuildFrame()
     -- is unprotected.
     f.validateContainer = CreateFrame("Frame", nil, f)
     f.validateContainer:SetWidth(180); f.validateContainer:SetHeight(36)
-    f.validateContainer:SetPoint("TOP", 0, -296)
+    f.validateContainer:SetPoint("TOP", 0, -340)
     f.validateContainer:Show() -- always shown; alpha controls visibility
     f.validateContainer:SetAlpha(0) -- start invisible
 
@@ -678,42 +686,46 @@ local function BuildFrame()
     f.validateHint:SetJustifyH("CENTER")
     f.validateHint:Hide()
 
-    -- Progress bar
+    -- Progress bar. Bumped from height 6 to 12 so it's a more prominent
+    -- visual signal alongside the big DPS number above it.
+    local PROGRESS_BAR_Y = -128
+    local PROGRESS_BAR_HEIGHT = 12
     f.progressBg = f:CreateTexture(nil, "BACKGROUND")
     f.progressBg:SetTexture("Interface\\Buttons\\WHITE8X8")
     f.progressBg:SetVertexColor(0.12, 0.12, 0.12, 0.85)
-    f.progressBg:SetPoint("TOPLEFT", 16, -94)
-    f.progressBg:SetPoint("TOPRIGHT", -16, -94)
-    f.progressBg:SetHeight(6)
+    f.progressBg:SetPoint("TOPLEFT", 16, PROGRESS_BAR_Y)
+    f.progressBg:SetPoint("TOPRIGHT", -16, PROGRESS_BAR_Y)
+    f.progressBg:SetHeight(PROGRESS_BAR_HEIGHT)
 
     f.progressFg = f:CreateTexture(nil, "ARTWORK")
     f.progressFg:SetTexture("Interface\\Buttons\\WHITE8X8")
     f.progressFg:SetVertexColor(0.2, 0.7, 0.2, 1)
-    f.progressFg:SetPoint("TOPLEFT", 16, -94)
-    f.progressFg:SetHeight(6)
+    f.progressFg:SetPoint("TOPLEFT", 16, PROGRESS_BAR_Y)
+    f.progressFg:SetHeight(PROGRESS_BAR_HEIGHT)
     f.progressFg:SetWidth(1)
 
     -- Marker tick at the "validation point" on the progress bar
     f.progressMark = f:CreateTexture(nil, "OVERLAY")
     f.progressMark:SetTexture("Interface\\Buttons\\WHITE8X8")
     f.progressMark:SetVertexColor(1, 0.85, 0.2, 1)
-    f.progressMark:SetWidth(2); f.progressMark:SetHeight(10)
+    f.progressMark:SetWidth(2); f.progressMark:SetHeight(PROGRESS_BAR_HEIGHT + 6)
     f.progressMark:SetPoint("TOP", f.progressBg, "TOPLEFT",
-        (280 - 32) * (MARKER_TIME_SEC / LOG_DURATION_SEC), 2)
+        (280 - 32) * (MARKER_TIME_SEC / LOG_DURATION_SEC), 3)
 
-    -- Player auras header
+    -- Player auras header. Shifted down 50px to make room for the
+    -- new prominent DPS/progress section at the top.
     f.playerAurasLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.playerAurasLabel:SetPoint("TOPLEFT", 14, -110)
+    f.playerAurasLabel:SetPoint("TOPLEFT", 14, -164)
 
-    local PA_TOP = -124
+    local PA_TOP = -178
     f.playerAurasTop = PA_TOP
     f.playerAuraTexts = {}
 
     -- Target debuffs header
     f.targetDebuffsLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.targetDebuffsLabel:SetPoint("TOPLEFT", 14, -236)
+    f.targetDebuffsLabel:SetPoint("TOPLEFT", 14, -286)
 
-    local TD_TOP = -250
+    local TD_TOP = -300
     f.targetDebuffsTop = TD_TOP
     f.targetDebuffTexts = {}
 
@@ -831,7 +843,7 @@ local function BuildFrame()
             f.verdictLabel:Show()
         end
 
-        -- Timer + progress bar + DPS
+        -- Big DPS focal + total damage subtitle + progress bar + timer
         local progressFraction = 0
         if (state == "logging" or state == "stopping") and fightStartTime then
             local elapsed = GetTime() - fightStartTime
@@ -840,17 +852,15 @@ local function BuildFrame()
             f.timerLabel:SetText(string.format("%d:%02d / 1:30",
                 floor(capped / 60), floor(capped % 60)))
             if state == "stopping" then
-                -- Gold color during the tail. Doesn't reveal verdict yet.
                 f.progressFg:SetVertexColor(1, 0.78, 0.18, 1)
             else
                 f.progressFg:SetVertexColor(0.2, 0.7, 0.2, 1)
             end
-            -- Live DPS during the fight. Use math.max(elapsed, 1) so we
-            -- don't divide by ~0 in the first second.
+            -- Live DPS — keep it readable in the first second by clamping
             local secs = math.max(elapsed, 1)
             local dps = fightTotalDamage / secs
-            f.dpsLabel:SetText(string.format("|cffaaaaff%s DPS|r  |cff888888(%s total)|r",
-                FmtNum(dps), FmtNum(fightTotalDamage)))
+            f.dpsLabel:SetText(string.format("|cffaaccff%s|r |cffffffffDPS|r", FmtNum(dps)))
+            f.totalLabel:SetText(string.format("|cff888888%s damage|r", FmtNum(fightTotalDamage)))
         elseif state == "stopped" then
             progressFraction = 1
             f.timerLabel:SetText("1:30 / 1:30")
@@ -859,18 +869,16 @@ local function BuildFrame()
             else
                 f.progressFg:SetVertexColor(1, 0.4, 0.4, 1) -- red for invalid
             end
-            -- Final DPS — calculated over the parse duration, capped at
-            -- LOG_DURATION_SEC since we want "DPS per parse" not
-            -- "DPS including post-1:30 dragging-on time".
             local secs = math.min(fightStartTime and (GetTime() - fightStartTime) or LOG_DURATION_SEC,
                 LOG_DURATION_SEC)
             local dps = secs > 0 and (fightTotalDamage / secs) or 0
-            f.dpsLabel:SetText(string.format("|cffaaaaff%s DPS|r  |cff888888(%s total)|r",
-                FmtNum(dps), FmtNum(fightTotalDamage)))
+            f.dpsLabel:SetText(string.format("|cffaaccff%s|r |cffffffffDPS|r", FmtNum(dps)))
+            f.totalLabel:SetText(string.format("|cff888888%s damage|r", FmtNum(fightTotalDamage)))
         else
             f.timerLabel:SetText("0:00 / 1:30")
             f.progressFg:SetVertexColor(0.4, 0.4, 0.4, 1)
             f.dpsLabel:SetText("")
+            f.totalLabel:SetText("")
         end
         local barFull = f:GetWidth() - 40
         f.progressFg:SetWidth(math.max(1, barFull * progressFraction))
