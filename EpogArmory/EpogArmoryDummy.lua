@@ -112,6 +112,7 @@ local savedDummyGUID     = nil          -- saved at combat start
 local lastDummyHitTime   = 0            -- GetTime() of last player/pet damage on dummy
 local stoppingStartTime  = nil          -- GetTime() when state entered "stopping" (for hard timeout)
 local fightTotalDamage   = 0            -- sum of damage from player+pet to dummy this fight
+local logFilename        = nil          -- expected combat-log filename, computed when LoggingCombat(true) fires
 
 -- Live aura listings for the UI. Recomputed each tick.
 local currentPlayerAuras   = {}         -- list of { name, source, allowed }
@@ -339,6 +340,9 @@ local function PrintVerdict()
     -- Generic verdict text — doesn't reveal the marker mechanism.
     if IsCleanVerdict() then
         print("|cffffaa44EpogArmory|r: |cff66ff66CLEAN dummy parse|r - log is valid for upload.")
+        if logFilename then
+            print("  |cffaaaaaa-|r upload this file: |cffffd200" .. logFilename .. "|r")
+        end
         return
     end
     print("|cffffaa44EpogArmory|r: |cffff6666INVALID dummy parse|r - log will be rejected. Reasons:")
@@ -381,6 +385,7 @@ local function SaveFightRecord()
         markerVerified = markerVerified,
         totalDamage    = floor(fightTotalDamage),
         dps            = floor(recordedDps + 0.5),
+        logFilename    = logFilename,
         addonVersion   = GetAddOnMetadata and GetAddOnMetadata("EpogArmory", "Version") or "?",
     })
 
@@ -408,6 +413,12 @@ local function DoStartLogging()
     -- Initial aura check (T+0). If we start with junk auras already on,
     -- validThroughout flips false immediately and the marker won't emit.
     if LoggingCombat then LoggingCombat(true) end
+    -- Capture the expected combat-log filename. WoW's client opens the
+    -- log file with a timestamp matching the moment /combatlog fires,
+    -- formatted as "YYYY-MM-DD-HH.MM.SS WoWCombatLog.txt" on Epoch.
+    -- Captured immediately after LoggingCombat(true) so our timestamp
+    -- is within ~1s of the actual file's timestamp.
+    logFilename = date("Logs/%Y-%m-%d-%H.%M.%S WoWCombatLog.txt")
     SetState("logging")
     ValidateNow()
     return true
