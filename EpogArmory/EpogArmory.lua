@@ -3355,6 +3355,7 @@ local function ShowHelp()
     print("  /epogarmory merge <newname> <alias1> [alias2] ... — locally re-attribute scans from peer aliases to one canonical name")
     print("  /epogarmory refreshpeers  — ping guildmates for fresh identity + DB-size info (Scanners-view leaderboard)")
     print("  /epogarmory autosync [on|off|status] — background catch-up sync from reachable peers (default: on, 24h per-peer cooldown)")
+    print("  /epogarmory dummy         — toggle the Training Dummy parse-validator frame (auto-opens when targeting a dummy in a city)")
     print("  /epogarmory aura          — check if Reality Recalibrators aura is active (gates auto-inspect of groupmates)")
     print("  /epogarmory dump <name>   — diagnostic dump of every layer (itemstring, GetItemInfo, GetItemStats, cache) for each slot of a stored player")
     print("|cff888888  Source + releases: github.com/Defcons/epogarmory-addon|r")
@@ -3615,6 +3616,15 @@ SlashCmdList["EPOGARMORY"] = function(msg)
             print(string.format("|cffffaa44EpogArmory|r: |cffff9966%s|r aura |cffff6666NOT ACTIVE|r — |cffffaa00TEST MODE|r: scanning anyway.",
                 REALITY_AURA_NAME))
             print("|cff888888  v1.4.1 test build: validating whether the 400ms settle + 1.5s verify pass is enough on its own to filter out transmog visual reads. Self-scans always work.|r")
+        end
+    elseif msg == "dummy" then
+        -- Claude (v1.7.0): toggle the dummy-parse frame. Frame also auto-opens
+        -- when targeting a Training Dummy in a rested area; this is the
+        -- manual fallback if the user closed it.
+        if _G.EpogArmoryDummy_Toggle then
+            _G.EpogArmoryDummy_Toggle()
+        else
+            print("|cffffaa44EpogArmory|r: dummy module not loaded")
         end
     elseif msg == "autosync" or msg:sub(1, 9) == "autosync " then
         -- Claude (v1.5.1): toggle background auto-sync. Same wire path as

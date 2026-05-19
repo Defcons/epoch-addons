@@ -20,6 +20,84 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.0 — Dummy parse validation *(2026-05-19)*
+
+Pivot: addon is no longer armory-only. New module `EpogArmoryDummy.lua` validates target-dummy combat logs against a clean-self-only rule and emits an in-log marker so epoglogs.com can gate dummy parses without requiring users to bundle SavedVariables uploads.
+
+**The marker scheme** (verified empirically against Epoch's combat log writer):
+
+```
+T+1:20  CastSpellByName("Hearthstone")   → SPELL_CAST_START line
+T+1:20  SpellStopCasting()               → SPELL_CAST_FAILED, "Hearthstone", "Interrupted"
+```
+
+The user's test logs showed Epoch's combat log captures both lines reliably. Site parses for `SPELL_CAST_FAILED ... "Hearthstone" ... "Interrupted"` within the 1:30 log window — exactly one such line from the player = addon-validated parse. Zero or two+ = not validated.
+
+**Why two spell IDs appear in Epoch's Hearthstone logs** (8690 + 84313): clicking the Hearthstone item triggers spell 8690, which begins channeling spell 84313 (the 10s cast). Either ID may appear in the SPELL_CAST_FAILED line. Site matches on the spell name "Hearthstone" rather than the ID.
+
+**Lifecycle**
+
+```
+[IDLE] —(click Ready)→ [ARMED] —(combat start with dummy in city)→ [LOGGING]
+                                                                     │
+                                                            T+1:20: if validThroughout: emit marker
+                                                                     │
+                                                            T+1:30: LoggingCombat(false) + print verdict
+                                                                     │
+                                                                     ▼
+                                                                  [COMPLETE]
+```
+
+- **Continuous aura validation** throughout the fight (UNIT_AURA events + 0.25s timer-driven fallback). Any disallowed buff/debuff flips `validThroughout` permanently false — no recovery within the same fight.
+- **Marker only fires if `validThroughout` is still true at T+1:20.** Fights that started clean but degraded mid-fight get no marker.
+- **Combat ends before T+1:20**: log auto-stops early, parse marked invalid ("fight ended before 1:20"), no marker.
+- **Combat ends between T+1:20 and T+1:30**: timer continues, log stops normally at T+1:30 (marker already emitted).
+
+**Allowed aura sources** (`ALLOWED_CASTERS`):
+- `"player"` — self-casts
+- `"pet"` — all class summons use this unit token (Hunter pet, Warlock demons, Mage Water Elemental, Priest Shadowfiend, Shaman Greater Elementals, DK Ghouls, Druid Treants)
+- `"vehicle"` — vehicles you control
+- Substring `"Mana Potion"` in the aura name — allowed even when caster is nil (potion cooldown debuffs)
+
+Anything else (party members, raid members, other players' pets, trinket guardians applying auras under their own GUID) invalidates the fight.
+
+**UI frame** (`/epogarmory dummy` or auto-opens when targeting `"Training Dummy"` substring in a `IsResting()` zone):
+
+- Big state badge: IDLE / ARMED / LOGGING / CLEAN ✓ / INVALID ✗
+- Live timer "0:43 / 1:30" with progress bar; tick mark at 1:20 shows where the marker fires
+- Player Auras list with per-row ✓/✗ + source
+- Target Debuffs list (same)
+- Auto-start checkbox (`config.dummyAutoLog`, defaults off) — when checked, addon arms + starts logging automatically the instant combat begins with a dummy targeted
+- Single action button (label changes with state): Ready → Cancel → Stop → Reset
+- Stays open until closed manually (re-opens on next dummy target if state is idle)
+
+**Chat verdict at fight end**:
+
+```
+EpogArmory: ✓ CLEAN dummy parse — Hearthstone stamp at 1:20, log saved.
+
+(or if invalid:)
+EpogArmory: ✗ INVALID dummy parse — no stamp emitted.
+  • player buff: Flask of Endless Rage (from player)
+  • target debuff: Earth Shock (from Thrall)
+  • fight ended before 1:20 — log truncated
+```
+
+**Persistence**
+
+`EpogArmoryDB.dummyFights[]` keeps the last 50 fight records (endTime, durationSec, dummyName/GUID, valid bool, invalidReasons list, markerEmitted bool, addonVersion). Used for the UI history view (future) and as a sidecar backup if a user uploads SavedVariables alongside the log.
+
+**Backward compatibility**
+
+- New file, new module, doesn't touch any existing code paths.
+- New SavedVariables fields (`dummyFights[]`, `config.dummyAutoLog`) are additive; defaults applied on first PLAYER_LOGIN after upgrade.
+- Wire format unchanged — no mesh impact.
+- Older clients in the mesh see no behavior change.
+
+**Internal release (monorepo only).** Public release deferred until tested in real conditions — promote to v1.7.0 in the standalone repo via the full release flow when ready.
+
+---
+
 ## EpogArmory v1.6.0 — Auto-sync + quality controls *(2026-05-06)*
 
 Consolidated release covering the v1.5.1–v1.5.3 iteration cycle. Headline feature: background auto-sync. Supporting changes: tighter quality gates on what enters the mesh, and a long-standing PvP-routing gap closed.
