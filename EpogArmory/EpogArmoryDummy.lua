@@ -37,19 +37,22 @@ local IDLE_STOP_THRESHOLD = 3
 -- "Heroic Training Dummy") with one rule.
 local DUMMY_NAME_PATTERN = "Training Dummy"
 
--- Marker: Fishing (spell ID 7620). Picked because:
---   - Universal (every character has it from level 1)
---   - Fails INSTANTLY with "Must have a Fishing Pole equipped" when no
---     pole is equipped (always true during a dummy parse — player has
---     their real weapon out)
---   - Single SPELL_CAST_FAILED log line, no SPELL_CAST_START / cast
---     bar / SpellStopCasting timing required
---   - No GCD, no resource cost, no visible cast bar
---   - Distinctive failure reason that won't be confused with anything else
--- Verified against user's empirical log:
---   SPELL_CAST_FAILED ... 7620,"Fishing","Must have a Fishing Pole equipped"
-local MARKER_SPELL_ID    = 7620
-local MARKER_SPELL_NAME  = "Fishing"
+-- Marker: Hearthstone (spell name "Hearthstone", spell IDs 8690 or 84313
+-- on Epoch — match on name). Why Hearthstone:
+--   - Truly universal (every character has the item from level 1)
+--   - Fishing isn't universal — players have to learn it from a trainer
+--   - CastSpellByName + SpellStopCasting reliably produces SPELL_CAST_FAILED
+--     "Interrupted" line in the log (verified in user's 14:42 test logs)
+-- CRITICAL: the cast must happen OUT OF COMBAT. CastSpellByName is
+-- protected during combat lockdown in WoW 3.3.5 — addon scripts cannot
+-- start spell casts from OnUpdate while in combat. So we emit the marker
+-- on PLAYER_REGEN_ENABLED, after the user disengages from the dummy
+-- but before LoggingCombat(false) closes the log file. The marker lands
+-- in the same /combatlog window as the combat events.
+local MARKER_SPELL_NAME  = "Hearthstone"
+local MARKER_CAST_TO_STOP_DELAY = 0.15 -- seconds between CastSpellByName and SpellStopCasting
+local MARKER_VERIFY_TIMEOUT     = 1.0  -- seconds to wait for CLEU to confirm marker after stop
+local POST_COMBAT_HARD_TIMEOUT  = 60   -- max seconds to wait for combat to end before force-stopping
 
 -- Allowed aura sources: self + own pets/summons + vehicle.
 -- Class summons (Hunter pet, Warlock demon, Mage Water Elemental, Priest
@@ -102,10 +105,12 @@ local fightStartTime     = nil          -- GetTime() when combat started
 local validThroughout    = true         -- sticky false on any violation
 local invalidReasons     = {}           -- set of reason strings
 local markerEmitted      = false        -- true once EmitMarker() ran
-local markerVerified     = false        -- true once SPELL_CAST_FAILED for our marker was seen in CLEU
+local markerVerified     = false        -- true once SPELL_CAST_FAILED/START for our marker was seen in CLEU
+local pendingMarker      = false        -- true after T+1:20 if validThroughout — emit on combat end
 local lastDummyName      = nil
 local savedDummyGUID     = nil          -- saved at combat start
 local lastDummyHitTime   = 0            -- GetTime() of last player/pet damage on dummy
+local stoppingStartTime  = nil          -- GetTime() when state entered "stopping" (for hard timeout)
 
 -- Live aura listings for the UI. Recomputed each tick.
 local currentPlayerAuras   = {}         -- list of { name, source, allowed }
@@ -264,34 +269,58 @@ end
 -- deliberately not surfaced to the user (we don't want people knowing
 -- how to fake validation).
 --
--- Fishing fails INSTANTLY with "Must have a Fishing Pole equipped" when
--- the player's main hand isn't a fishing pole (always true during dummy
--- parses — the player has their real weapon out). The fail produces a
--- single SPELL_CAST_FAILED log line, no SPELL_CAST_START, no cast bar,
--- no GCD, no SpellStopCasting timing dance. After the cast attempt,
--- the addon listens for the SPELL_CAST_FAILED line in CLEU and sets
--- markerVerified=true. CLEAN verdict requires markerVerified.
+-- CRITICAL: this MUST run out of combat. CastSpellByName / SpellStopCasting
+-- are protected during combat lockdown in WoW 3.3.5 — calling them from
+-- an addon's OnUpdate while in combat silently fails (no SPELL_CAST_START
+-- event, nothing in the combat log file). Verified empirically against
+-- the user's 20:21 test log: zero Fishing/Hearthstone lines despite the
+-- addon running EmitMarker at T+1:20.
+--
+-- Hearthstone is the universal marker. Every character has the item from
+-- level 1. CastSpellByName begins the 10s channel, SpellStopCasting
+-- interrupts 150ms later, the combat log gets:
+--   SPELL_CAST_START  ... "Hearthstone"
+--   SPELL_CAST_FAILED ... "Hearthstone" ... "Interrupted"
+-- The verifier listens for either line from the player and flips
+-- markerVerified true.
 
 local _restoreUIErrors = CreateFrame("Frame")
 _restoreUIErrors:Hide()
 local _restoreElapsed = 0
 _restoreUIErrors:SetScript("OnUpdate", function(self, e)
     _restoreElapsed = _restoreElapsed + e
-    if _restoreElapsed >= 0.4 then
+    if _restoreElapsed >= 0.6 then
         self:Hide()
         _restoreElapsed = 0
         if UIErrorsFrame then UIErrorsFrame:Show() end
     end
 end)
 
+local _stopCastFrame = CreateFrame("Frame")
+_stopCastFrame:Hide()
+local _stopElapsed = 0
+_stopCastFrame:SetScript("OnUpdate", function(self, e)
+    _stopElapsed = _stopElapsed + e
+    if _stopElapsed >= MARKER_CAST_TO_STOP_DELAY then
+        self:Hide()
+        _stopElapsed = 0
+        if SpellStopCasting then SpellStopCasting() end
+    end
+end)
+
 local function EmitMarker()
-    -- Suppress the red "Must have a Fishing Pole equipped" flash. The
-    -- failure happens within ~50ms; 0.4s suppression covers it.
+    -- This is called from PLAYER_REGEN_ENABLED handler — out of combat,
+    -- no lockdown. CastSpellByName works freely here.
     if UIErrorsFrame then UIErrorsFrame:Hide() end
     _restoreElapsed = 0
     _restoreUIErrors:Show()
 
     if CastSpellByName then CastSpellByName(MARKER_SPELL_NAME) end
+    -- Schedule the interrupt 150ms later. The delay gives the START
+    -- packet time to reach the server and echo back into the combat
+    -- log file before the cancel arrives.
+    _stopElapsed = 0
+    _stopCastFrame:Show()
 end
 
 -- ============================================================================
@@ -375,6 +404,8 @@ local function DoStartLogging()
     invalidReasons    = {}
     markerEmitted     = false
     markerVerified    = false
+    pendingMarker     = false
+    stoppingStartTime = nil
     lastDummyName     = UnitName("target")
     savedDummyGUID    = UnitGUID("target")
     lastDummyHitTime  = GetTime() -- count the start of combat as "just hit"
@@ -423,15 +454,51 @@ local function OnEnterCombat()
     end
 end
 
+-- Once the marker cast is done, wait briefly for CLEU to confirm it
+-- landed, then stop the log. Implemented as a separate OnUpdate frame
+-- so we don't block the main thread waiting.
+local _markerVerifyFrame = CreateFrame("Frame")
+_markerVerifyFrame:Hide()
+local _verifyStartTime = 0
+local function StartMarkerVerifyWait()
+    _verifyStartTime = GetTime()
+    _markerVerifyFrame:Show()
+end
+_markerVerifyFrame:SetScript("OnUpdate", function(self)
+    local waited = GetTime() - _verifyStartTime
+    -- Stop waiting as soon as CLEU verifies, OR after the timeout.
+    if markerVerified or waited >= MARKER_VERIFY_TIMEOUT then
+        self:Hide()
+        FinishFight(nil)
+    end
+end)
+
 local function OnLeaveCombat()
     if state ~= "logging" and state ~= "stopping" then return end
     local elapsed = GetTime() - (fightStartTime or GetTime())
+
     if elapsed < MARKER_TIME_SEC then
-        -- Fight ended before the marker would have fired. Treat as failed.
+        -- Fight ended before T+1:20 — too short for a valid parse.
+        -- No marker, no chance to verify. Stop the log immediately.
         FinishFight("fight ended before 1:20 — log truncated")
+        return
     end
-    -- Between 1:20 and 1:30 (in "stopping" state): let the timer / idle
-    -- detector finish naturally. The marker is already in the log file.
+
+    -- We're past T+1:20 and out of combat. This is where we can safely
+    -- cast the marker — combat lockdown is lifted. If pendingMarker is
+    -- true (validThroughout held through T+1:20), emit the marker now.
+    -- Then wait for CLEU to confirm it landed before stopping the log.
+    if pendingMarker then
+        EmitMarker()
+        markerEmitted = true
+        pendingMarker = false
+        StartMarkerVerifyWait()
+        return -- FinishFight runs from _markerVerifyFrame once verified or timed out
+    end
+
+    -- Fight was past T+1:20 but validThroughout was already false —
+    -- no marker to emit. Just stop.
+    FinishFight(nil)
 end
 
 local function OnTick()
@@ -450,34 +517,34 @@ local function OnTick()
     -- this is the redundant timer-based check.
     ValidateNow()
 
-    -- T+1:20 transition: logging -> stopping. If the fight stayed clean
-    -- up to this point, also cast the marker. The CLEU handler will
-    -- confirm it landed in the log via markerVerified. State check
-    -- prevents re-entry on subsequent ticks.
+    -- T+1:20 transition: logging -> stopping. We DON'T emit the marker
+    -- here — combat lockdown blocks CastSpellByName from addon scripts.
+    -- Instead, set pendingMarker so OnLeaveCombat (out of combat, no
+    -- lockdown) can emit it. The site only needs the marker to be
+    -- somewhere in the /combatlog window, not at a specific timestamp.
     if state == "logging" and elapsed >= MARKER_TIME_SEC then
         if validThroughout then
-            EmitMarker()
-            markerEmitted = true
+            pendingMarker = true
         end
+        stoppingStartTime = GetTime()
         SetState("stopping")
     end
 
-    -- Idle-detection early exit during the stopping window. If the player
-    -- hasn't damaged the dummy for IDLE_STOP_THRESHOLD seconds AND we've
-    -- passed the marker emission point, stop the log early. Lets the user
-    -- disengage cleanly without sitting through the full 10s tail.
+    -- Stopping window: wait for combat to actually end so we can emit
+    -- the marker out of lockdown. The user disengages naturally after
+    -- they're done with the parse; PLAYER_REGEN_ENABLED triggers the
+    -- marker emission + log stop.
     if state == "stopping" then
-        local idleFor = GetTime() - lastDummyHitTime
-        if idleFor >= IDLE_STOP_THRESHOLD then
-            FinishFight(nil)
+        -- Hard timeout: if the user keeps fighting forever, eventually
+        -- force-stop the log without a marker. Counted from when
+        -- "stopping" began, not from combat start, so it always
+        -- gives the user POST_COMBAT_HARD_TIMEOUT extra seconds to
+        -- disengage after T+1:20.
+        local stoppingFor = GetTime() - (stoppingStartTime or GetTime())
+        if stoppingFor >= POST_COMBAT_HARD_TIMEOUT then
+            FinishFight("user did not disengage from dummy in time (marker not emitted)")
             return
         end
-    end
-
-    -- Hard auto-stop at 1:30 regardless.
-    if elapsed >= LOG_DURATION_SEC then
-        FinishFight(nil)
-        return
     end
 
     if frame and frame:IsShown() then frame.UpdateUI() end
@@ -637,11 +704,19 @@ local function BuildFrame()
             f.stateBadge:SetTextColor(0.2, 0.9, 0.2)
             f.actionBtn:SetText("Stop")
         elseif state == "stopping" then
-            -- T+1:20 to T+1:30 (or until idle 3s). Marker has been emitted
-            -- (or skipped). Tail period before LoggingCombat(false).
+            -- Past T+1:20 — waiting for combat to actually end so we can
+            -- safely emit the marker (combat lockdown blocks the cast).
+            -- User just needs to disengage from the dummy.
             f.stateBadge:SetText("STOPPING...")
             f.stateBadge:SetTextColor(1, 0.7, 0.2)
             f.actionBtn:SetText("Stop")
+            -- Show a hint past T+1:30 so user knows to disengage
+            local elapsed = fightStartTime and (GetTime() - fightStartTime) or 0
+            if elapsed >= LOG_DURATION_SEC then
+                f.verdictLabel:SetText("|cffffaa00disengage from dummy to finalize log|r")
+                f.verdictLabel:SetTextColor(1, 0.85, 0.2)
+                f.verdictLabel:Show()
+            end
         elseif state == "stopped" then
             f.stateBadge:SetText("STOPPED")
             f.stateBadge:SetTextColor(0.6, 0.6, 0.6)
@@ -846,23 +921,24 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- 3.3.5 signature: timestamp, subevent, sourceGUID, sourceName,
         -- sourceFlags, destGUID, destName, destFlags, spellID, spellName,
         -- spellSchool, [event-specific args]...
-        local _, subevent, _, _, sourceFlags, destGUID, _, _, spellID, spellName = ...
+        local _, subevent, _, _, sourceFlags, destGUID, _, _, _, spellName = ...
         if not sourceFlags or bit.band(sourceFlags, AFFILIATION_MINE_BIT) == 0 then
             return
         end
 
-        -- Marker verification: SPELL_CAST_FAILED for our marker spell from
-        -- us means the cast attempt actually landed in the combat log.
-        -- Match on spell ID (locale-independent) primarily, with name as
-        -- a fallback in case Epoch reassigned the ID.
-        if subevent == "SPELL_CAST_FAILED"
-           and (spellID == MARKER_SPELL_ID or spellName == MARKER_SPELL_NAME)
+        -- Marker verification: SPELL_CAST_START or SPELL_CAST_FAILED
+        -- for our marker spell from us means the cast attempt actually
+        -- landed in the combat log. Match on spell NAME (Hearthstone)
+        -- to be tolerant of Epoch's two spell IDs (8690 and 84313 both
+        -- carry the name "Hearthstone").
+        if spellName == MARKER_SPELL_NAME
+           and (subevent == "SPELL_CAST_START" or subevent == "SPELL_CAST_FAILED")
         then
             markerVerified = true
             return -- not a hit on the dummy
         end
 
-        -- Hit detection on the dummy (idle-stop trigger). Damage / miss
+        -- Hit detection on the dummy (idle-stop UI signal). Damage / miss
         -- events from us or our pet count as "still attacking".
         if not savedDummyGUID or destGUID ~= savedDummyGUID then return end
         if subevent == "SWING_DAMAGE"  or subevent == "SWING_MISSED"
