@@ -3618,7 +3618,7 @@ SlashCmdList["EPOGARMORY"] = function(msg)
             print("|cff888888  v1.4.1 test build: validating whether the 400ms settle + 1.5s verify pass is enough on its own to filter out transmog visual reads. Self-scans always work.|r")
         end
     elseif msg == "dummy" then
-        -- Claude (v1.7.0): toggle the dummy-parse frame. Frame also auto-opens
+        -- Claude (v1.6.1 internal, future v1.7.0 release): toggle the dummy-parse frame. Frame also auto-opens
         -- when targeting a Training Dummy in a rested area; this is the
         -- manual fallback if the user closed it.
         if _G.EpogArmoryDummy_Toggle then

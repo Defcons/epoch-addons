@@ -20,7 +20,9 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
-## EpogArmory v1.7.0 — Dummy parse validation *(2026-05-19)*
+## EpogArmory v1.6.1 — Dummy parse validation (internal) *(2026-05-19)*
+
+**Patch-level bump (1.6.0 → 1.6.1) — mesh auto-update notification stays silent.** This is a substantial new feature that warrants a minor bump (v1.7.0) eventually, but we hold the version at patch level while testing so v1.6.0 peers in groups don't get notification chat-lines pointing at a public release that doesn't exist yet. Promote to v1.7.0 via the full release flow once dummy validation has been verified in real conditions.
 
 Pivot: addon is no longer armory-only. New module `EpogArmoryDummy.lua` validates target-dummy combat logs against a clean-self-only rule and emits an in-log marker so epoglogs.com can gate dummy parses without requiring users to bundle SavedVariables uploads.
 
@@ -94,7 +96,7 @@ EpogArmory: ✗ INVALID dummy parse — no stamp emitted.
 - Wire format unchanged — no mesh impact.
 - Older clients in the mesh see no behavior change.
 
-**Internal release (monorepo only).** Public release deferred until tested in real conditions — promote to v1.7.0 in the standalone repo via the full release flow when ready.
+**Internal release (monorepo only, v1.6.1 patch level).** Public release deferred until tested in real conditions. Promotion path: bump to v1.7.0 in TOC + run the full release flow (sync to standalone repo, build zip, GitHub Release post) when dummy validation has been verified.
 
 ---
 
