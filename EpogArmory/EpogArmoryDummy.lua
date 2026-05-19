@@ -51,7 +51,7 @@ local DUMMY_NAME_PATTERN = "Training Dummy"
 -- in the same /combatlog window as the combat events.
 local MARKER_SPELL_NAME  = "Hearthstone"
 local MARKER_CAST_TO_STOP_DELAY = 0.15 -- seconds between CastSpellByName and SpellStopCasting
-local MARKER_VERIFY_TIMEOUT     = 1.0  -- seconds to wait for CLEU to confirm marker after stop
+local MARKER_VERIFY_TIMEOUT     = 3.0  -- seconds to wait for CLEU to confirm marker after stop
 local POST_COMBAT_HARD_TIMEOUT  = 60   -- max seconds to wait for combat to end before force-stopping
 
 -- Allowed aura sources: self + own pets/summons + vehicle.
@@ -308,14 +308,28 @@ _stopCastFrame:SetScript("OnUpdate", function(self, e)
     end
 end)
 
+local function _DebugPrint(msg)
+    if EpogArmoryDebug then
+        print("|cffffaa44EpogArmory|r |cff888888[dummy-debug]|r " .. msg)
+    end
+end
+
 local function EmitMarker()
     -- This is called from PLAYER_REGEN_ENABLED handler — out of combat,
     -- no lockdown. CastSpellByName works freely here.
+    _DebugPrint(string.format("EmitMarker fired. InCombatLockdown=%s, GetSpellInfo=%s",
+        tostring(InCombatLockdown and InCombatLockdown() or "?"),
+        tostring(GetSpellInfo and GetSpellInfo(MARKER_SPELL_NAME) or "?")))
     if UIErrorsFrame then UIErrorsFrame:Hide() end
     _restoreElapsed = 0
     _restoreUIErrors:Show()
 
-    if CastSpellByName then CastSpellByName(MARKER_SPELL_NAME) end
+    if CastSpellByName then
+        CastSpellByName(MARKER_SPELL_NAME)
+        _DebugPrint("CastSpellByName('" .. MARKER_SPELL_NAME .. "') called")
+    else
+        _DebugPrint("CastSpellByName is nil!")
+    end
     -- Schedule the interrupt 150ms later. The delay gives the START
     -- packet time to reach the server and echo back into the combat
     -- log file before the cancel arrives.
@@ -468,12 +482,17 @@ _markerVerifyFrame:SetScript("OnUpdate", function(self)
     local waited = GetTime() - _verifyStartTime
     -- Stop waiting as soon as CLEU verifies, OR after the timeout.
     if markerVerified or waited >= MARKER_VERIFY_TIMEOUT then
+        _DebugPrint(string.format("marker verify wait ended after %.2fs, markerVerified=%s",
+            waited, tostring(markerVerified)))
         self:Hide()
         FinishFight(nil)
     end
 end)
 
 local function OnLeaveCombat()
+    _DebugPrint(string.format("PLAYER_REGEN_ENABLED fired. state=%s, elapsed=%.1f, pendingMarker=%s",
+        state, fightStartTime and (GetTime() - fightStartTime) or -1,
+        tostring(pendingMarker)))
     if state ~= "logging" and state ~= "stopping" then return end
     local elapsed = GetTime() - (fightStartTime or GetTime())
 
@@ -922,8 +941,6 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             end
         end
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        -- Hot path — fires many times per second in combat. Bail early.
-        if state ~= "logging" and state ~= "stopping" then return end
         -- 3.3.5 signature: timestamp, subevent, sourceGUID, sourceName,
         -- sourceFlags, destGUID, destName, destFlags, spellID, spellName,
         -- spellSchool, [event-specific args]...
@@ -932,17 +949,23 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             return
         end
 
-        -- Marker verification: SPELL_CAST_START or SPELL_CAST_FAILED
-        -- for our marker spell from us means the cast attempt actually
-        -- landed in the combat log. Match on spell NAME (Hearthstone)
-        -- to be tolerant of Epoch's two spell IDs (8690 and 84313 both
-        -- carry the name "Hearthstone").
+        -- Marker verification accepted in ANY state — the marker might
+        -- arrive late, after we've already transitioned to "stopped".
+        -- We still want to confirm it landed in the log file. State
+        -- gate removed for this check.
         if spellName == MARKER_SPELL_NAME
            and (subevent == "SPELL_CAST_START" or subevent == "SPELL_CAST_FAILED")
         then
-            markerVerified = true
-            return -- not a hit on the dummy
+            if not markerVerified then
+                _DebugPrint(string.format("marker observed in CLEU: %s '%s' (state=%s)",
+                    subevent, spellName, state))
+                markerVerified = true
+            end
+            return
         end
+
+        -- Hit detection only matters during logging/stopping.
+        if state ~= "logging" and state ~= "stopping" then return end
 
         -- Hit detection on the dummy (idle-stop UI signal). Damage / miss
         -- events from us or our pet count as "still attacking".
