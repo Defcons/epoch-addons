@@ -594,15 +594,17 @@ local function BuildFrame()
     -- addon's automatic CastSpellByName won't do this on Epoch — the
     -- protection model requires a hardware event to elevate the call.
     --
-    -- IMPORTANT: SecureActionButton Show/Hide can be blocked during
-    -- combat lockdown. So we wrap it in a non-secure container frame
-    -- and show/hide the container instead. The secure button stays
-    -- always-shown within the container; the container's visibility
-    -- (which is non-protected) controls whether the user sees it.
+    -- IMPORTANT: Show/Hide on frames containing secure children is
+    -- protected during combat lockdown. Empirically verified in user's
+    -- 21:40 debug log: container.IsShown=nil after Show() in combat.
+    -- Workaround: container is shown ONCE at creation (out of combat)
+    -- and stays shown forever. Visibility is toggled via SetAlpha which
+    -- is unprotected.
     f.validateContainer = CreateFrame("Frame", nil, f)
     f.validateContainer:SetWidth(180); f.validateContainer:SetHeight(36)
     f.validateContainer:SetPoint("TOP", 0, -296)
-    f.validateContainer:Hide()
+    f.validateContainer:Show() -- always shown; alpha controls visibility
+    f.validateContainer:SetAlpha(0) -- start invisible
 
     f.validateBtn = CreateFrame("Button", "EpogArmoryValidateButton",
         f.validateContainer, "SecureActionButtonTemplate,UIPanelButtonTemplate")
@@ -726,12 +728,12 @@ local function BuildFrame()
 
         -- State badge + button label + verdict line.
         -- Verdict shows only in "stopped" state (Log: CLEAN/INVALID).
-        -- Validate container shown in "stopping" state when valid.
-        -- We toggle the CONTAINER (non-secure) instead of the secure
-        -- button itself — Show/Hide on SecureActionButtonTemplate can
-        -- be blocked during combat lockdown.
+        -- Validate container is always shown (set up at creation); we
+        -- toggle SetAlpha to control visibility. Show/Hide on frames
+        -- with secure children is protected during combat lockdown,
+        -- but SetAlpha is not.
         f.verdictLabel:Hide()
-        f.validateContainer:Hide()
+        f.validateContainer:SetAlpha(0)
         f.validateHint:Hide()
         if state ~= "stopping" then f._lastStoppingSubState = nil end
         if state == "idle" then
@@ -768,16 +770,16 @@ local function BuildFrame()
                 f.verdictLabel:Show()
             else
                 subState = "show-button"
-                f.validateContainer:Show()
+                f.validateContainer:SetAlpha(1) -- visible
                 f.validateHint:SetText("|cff888888click to stamp the log and stop logging|r")
                 f.validateHint:Show()
             end
             -- Debug: only print when sub-state transitions (not every tick)
             if subState ~= f._lastStoppingSubState then
                 f._lastStoppingSubState = subState
-                _DebugPrint(string.format("stopping sub-state -> %s (markerEmitted=%s, validThroughout=%s, container.IsShown=%s, InCombat=%s)",
+                _DebugPrint(string.format("stopping sub-state -> %s (markerEmitted=%s, validThroughout=%s, container.alpha=%s, InCombat=%s)",
                     subState, tostring(markerEmitted), tostring(validThroughout),
-                    tostring(f.validateContainer and f.validateContainer:IsShown()),
+                    tostring(f.validateContainer and f.validateContainer:GetAlpha()),
                     tostring(InCombatLockdown and InCombatLockdown())))
             end
         elseif state == "stopped" then
