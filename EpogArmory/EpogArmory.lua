@@ -3358,6 +3358,7 @@ local function ShowHelp()
     print("  /epogarmory dummy         — toggle the Training Dummy parse-validator frame (auto-opens when targeting a dummy in a city)")
     print("  /epogarmory testvalidate  — jump straight to the Validate button to test the marker mechanism (no full 1:30 fight needed)")
     print("  /epogarmory dungeon       — toggle the Dungeon speedrun status frame (auto-opens when entering a tracked dungeon)")
+    print("  /epogarmory raidlog [on|off|status] — auto-start /combatlog on raid entry (default: on; raids tracked: Onyxia's Lair)")
     print("  /epogarmory aura          — check if Reality Recalibrators aura is active (gates auto-inspect of groupmates)")
     print("  /epogarmory dump <name>   — diagnostic dump of every layer (itemstring, GetItemInfo, GetItemStats, cache) for each slot of a stored player")
     print("|cff888888  Source + releases: github.com/Defcons/epogarmory-addon|r")
@@ -3654,6 +3655,28 @@ SlashCmdList["EPOGARMORY"] = function(msg)
             _G.EpogArmoryDungeon_Debug()
         else
             print("|cffffaa44EpogArmory|r: dungeon module not loaded")
+        end
+    elseif msg == "raidlog" or msg:sub(1, 8) == "raidlog " then
+        -- Claude (v1.7.7): toggle raid auto-log (start /combatlog
+        -- automatically on entering a raid instance, e.g. Onyxia's
+        -- Lair). 5-man dungeons keep their Yes/No prompt behavior.
+        EpogArmoryDB = EpogArmoryDB or {}
+        EpogArmoryDB.config = EpogArmoryDB.config or {}
+        local arg = msg:sub(9):lower():match("^%s*(%S*)%s*$") or ""
+        if arg == "" or arg == "status" then
+            local enabled = EpogArmoryDB.config.raidAutoLog
+            print(string.format("|cffffaa44EpogArmory|r raidlog: %s",
+                enabled and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+            print("  When ON, /combatlog starts automatically the moment you enter a raid instance (currently: Onyxia's Lair).")
+            print("  Toggle: /epogarmory raidlog on  |  /epogarmory raidlog off")
+        elseif arg == "on" or arg == "true" or arg == "1" then
+            EpogArmoryDB.config.raidAutoLog = true
+            print("|cffffaa44EpogArmory|r raidlog: |cff00ff00ON|r - /combatlog will auto-start on raid entry.")
+        elseif arg == "off" or arg == "false" or arg == "0" then
+            EpogArmoryDB.config.raidAutoLog = false
+            print("|cffffaa44EpogArmory|r raidlog: |cffff0000OFF|r - raid entry will prompt Yes/No like dungeons.")
+        else
+            print("|cffffaa44EpogArmory|r raidlog: unknown arg '" .. arg .. "'. Use on / off / status.")
         end
     elseif msg == "autosync" or msg:sub(1, 9) == "autosync " then
         -- Claude (v1.5.1): toggle background auto-sync. Same wire path as

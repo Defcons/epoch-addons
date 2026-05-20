@@ -179,6 +179,16 @@ local DUNGEONS = {
             },
         },
     },
+    ["Onyxia's Lair"] = {
+        -- v1.7.7: first raid in the supported set. Single boss, no trash
+        -- buckets (Onyxia's whelps come in scripted waves rather than as
+        -- countable adds). Auto-logs on entry via the raid-auto-log
+        -- behavior wired in OnEnterDungeon.
+        displayName = "Onyxia's Lair",
+        bosses = {
+            "Onyxia",
+        },
+    },
     ["Baradin Hold"] = {
         displayName = "Baradin Hold",
         bosses = {
@@ -482,6 +492,29 @@ local function OnEnterDungeon(dungeonKey)
     ResetRun()
     currentDungeon   = dungeonKey
     dungeonStartTime = GetTime()
+
+    -- v1.7.7: raid auto-log. On entering a "raid" instance type, skip
+    -- the Yes/No prompt and start /combatlog immediately, provided the
+    -- user hasn't disabled raidAutoLog in config. Rationale: raids are
+    -- the long, fight-heavy content that benefits most from automatic
+    -- logging; the Yes/No prompt is friction.
+    -- (5-mans / "party" instances still show the prompt as before.)
+    local instanceType
+    if IsInInstance then
+        local _, t = IsInInstance()
+        instanceType = t
+    end
+    if instanceType == "raid"
+       and EpogArmoryDB and EpogArmoryDB.config
+       and EpogArmoryDB.config.raidAutoLog
+       and not loggingActive
+    then
+        StartLogging()
+        promptShown = true -- suppress the Yes/No prompt
+        print(string.format("|cffffaa44EpogArmory|r: raid detected (|cffffd200%s|r) - auto-started /combatlog. Toggle via /epogarmory raidlog.",
+            dungeonKey))
+    end
+
     -- Auto-open the frame so the user sees the prompt + roster. Build
     -- it lazily on first entry — BuildFrame defined further down so we
     -- assume it's available by the time OnEnterDungeon ever fires
@@ -986,6 +1019,17 @@ eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 eventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
+    if event == "PLAYER_LOGIN" then
+        -- v1.7.7: default raid auto-log to ON for new users. Existing
+        -- users who explicitly disabled it (set to false) keep their
+        -- preference. Only inits when the key is nil.
+        EpogArmoryDB = EpogArmoryDB or {}
+        EpogArmoryDB.config = EpogArmoryDB.config or {}
+        if EpogArmoryDB.config.raidAutoLog == nil then
+            EpogArmoryDB.config.raidAutoLog = true
+        end
+    end
+
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD"
        or event == "ZONE_CHANGED_NEW_AREA"
     then

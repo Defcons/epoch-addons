@@ -20,6 +20,49 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.7 — Raid auto-log + Onyxia's Lair support (internal) *(2026-05-20)*
+
+Adds Onyxia's Lair to the dungeon-frame's tracked instances and introduces raid-specific auto-start behavior for `/combatlog`.
+
+**Onyxia's Lair entry.** Single boss roster, no trash bucket tracking (whelps come in scripted waves rather than as countable adds). `GetInstanceInfo()` is expected to return `"Onyxia's Lair"` — if Epoch returns a different name we'll patch the key with `/epogarmory dungeondebug` in-instance.
+
+```lua
+["Onyxia's Lair"] = {
+    displayName = "Onyxia's Lair",
+    bosses = { "Onyxia" },
+},
+```
+
+**Raid auto-log.** When entering a `"raid"` instance type (per `IsInInstance()`), the dungeon module now skips the Yes/No prompt and calls `StartLogging()` immediately. Rationale: raids are the long, fight-heavy content that benefits most from automatic logging; the prompt adds friction. 5-man dungeons (`"party"` instance type) keep their Yes/No prompt behavior unchanged.
+
+Detection logic in `OnEnterDungeon`:
+- Calls `IsInInstance()` to get the current instance type
+- If type is `"raid"` AND `EpogArmoryDB.config.raidAutoLog == true` AND not already logging
+- → call `StartLogging()`, set `promptShown = true` to suppress the Yes/No prompt
+- → chat message: "raid detected ([name]) - auto-started /combatlog. Toggle via /epogarmory raidlog."
+
+**Config.** New SavedVariable: `EpogArmoryDB.config.raidAutoLog` (boolean, default `true`). Initialized at `PLAYER_LOGIN` only if absent — existing users who explicitly set it to `false` keep their preference.
+
+**Slash command.** `/epogarmory raidlog [on|off|status]` — toggle or inspect the raid auto-log preference. Status output explains current behavior; on/off persists immediately to SavedVariables.
+
+```
+/epogarmory raidlog status
+> EpogArmory raidlog: ON
+>   When ON, /combatlog starts automatically the moment you enter a raid instance (currently: Onyxia's Lair).
+>   Toggle: /epogarmory raidlog on  |  /epogarmory raidlog off
+```
+
+**Edge cases handled:**
+- Already logging on entry (e.g. user manually started /combatlog): auto-start skipped (idempotency)
+- Multiple raid entries in one session: each entry resets `logStartTime`/`logEndTime` via `StartLogging()`, producing a fresh log file each time
+- `/reload` while in a raid: auto-start fires again on `PLAYER_ENTERING_WORLD` — `LoggingCombat(true)` is idempotent on the WoW side so the existing log file isn't disrupted, but the addon's internal `logStartTime` resets to "now" (cosmetic only; the actual log file content is unaffected)
+
+**Multi-raid forward-compat.** The auto-log branch keys off the instance type, not the dungeon name. When more raids get added (Molten Core, BWL, etc.), they'll inherit auto-log behavior automatically as long as they're listed in `DUNGEONS`.
+
+Patch-level. Rolls into v1.8.0 with v1.7.1–v1.7.6.
+
+---
+
 ## EpogArmory v1.7.6 — Auto-truncated trash bucket names (internal) *(2026-05-20)*
 
 Per user request: when a trash bucket's mob list is a "big OR formula with all same first name", derive the display name from the common word-prefix instead of hand-curating it.
