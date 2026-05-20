@@ -20,6 +20,48 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.8 — Raid silent mode (background logging, no UI) (internal) *(2026-05-20)*
+
+Per user feedback on v1.7.7: raid entry should run `/combatlog` invisibly. The dungeon frame should NOT auto-open, and the visible timer should NOT start. The chat confirmation is the only sign anything happened.
+
+**Branch split in `OnEnterDungeon`:**
+
+| Instance type | Behavior on entry |
+|---|---|
+| `"raid"` + `raidAutoLog == true` | `LoggingCombat(true)` + chat message + frame stays hidden. No timer. |
+| `"raid"` + `raidAutoLog == false` | Falls through to 5-man path (frame opens, Yes/No prompt). |
+| `"party"` | Original behavior — frame opens, Yes/No prompt. |
+
+**State set in raid silent mode:**
+- `currentDungeon = "Onyxia's Lair"` (so re-entries on /reload don't double-trigger the chat message via the `currentDungeon == dungeonKey` guard)
+- `dungeonStartTime = GetTime()` (boss kill CLEU still records "+ Onyxia (M:SS)" relative to entry — useful if user later opens the frame manually)
+- `loggingActive = true` (so the StopLogging button in a manually-opened frame works correctly)
+- `promptShown = true` (suppresses the Yes/No prompt if the frame is opened manually)
+- **NOT set:** `logStartTime` — this is what the frame timer watches. Stays `nil` so the timer reads `--:--`.
+
+**Frame behavior:**
+- Auto-open: suppressed for raids.
+- `/epogarmory dungeon` toggle: still works, opens frame on demand.
+- Frame contents when manually opened during raid:
+  - Dungeon name: "Onyxia's Lair"
+  - Timer: `--:--` (grey, as designed)
+  - Status: `IN PROGRESS (0 / 1 bosses)` then `COMPLETE` after kill
+  - Logging row: `Logging: ACTIVE` (green)
+  - Boss list: `- Onyxia` then `+ Onyxia (M:SS)` after kill
+  - Bottom button: `Stop logging` (functional)
+
+**Edge cases:**
+- User comes from a 5-man (frame visible) → zones to Onyxia: frame is **hidden** on entry (via `frame:Hide()`), 5-man state is reset by `ResetRun()`.
+- User /reloads inside Onyxia: `currentDungeon` is `nil` after reload → `OnEnterDungeon` runs → raid path → chat message + log restart (idempotent on WoW side).
+- User wipes + runs back without zoning out: `currentDungeon == dungeonKey` guard prevents re-trigger.
+- User wipes + zones out + back in: counts as fresh entry. Auto-starts a new log file.
+
+**`raidAutoLog` config toggle unchanged.** `/epogarmory raidlog [on|off|status]` still controls the behavior. When off, raid entry falls through to the 5-man Yes/No prompt path.
+
+Patch-level. Rolls into v1.8.0 with v1.7.1–v1.7.7.
+
+---
+
 ## EpogArmory v1.7.7 — Raid auto-log + Onyxia's Lair support (internal) *(2026-05-20)*
 
 Adds Onyxia's Lair to the dungeon-frame's tracked instances and introduces raid-specific auto-start behavior for `/combatlog`.

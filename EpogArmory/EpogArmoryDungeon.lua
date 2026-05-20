@@ -489,32 +489,48 @@ end
 
 local function OnEnterDungeon(dungeonKey)
     if currentDungeon == dungeonKey then return end -- already in this one
-    ResetRun()
-    currentDungeon   = dungeonKey
-    dungeonStartTime = GetTime()
 
-    -- v1.7.7: raid auto-log. On entering a "raid" instance type, skip
-    -- the Yes/No prompt and start /combatlog immediately, provided the
-    -- user hasn't disabled raidAutoLog in config. Rationale: raids are
-    -- the long, fight-heavy content that benefits most from automatic
-    -- logging; the Yes/No prompt is friction.
-    -- (5-mans / "party" instances still show the prompt as before.)
     local instanceType
     if IsInInstance then
         local _, t = IsInInstance()
         instanceType = t
     end
+
+    -- v1.7.8: raid silent mode. Per user request: auto-start /combatlog
+    -- in the background but DO NOT auto-open the frame and DO NOT start
+    -- the visible timer. Rationale: raids are long, the frame doesn't
+    -- need to be in the way for normal play. /combatlog runs invisibly;
+    -- user can /epogarmory dungeon manually to see boss/logging status.
+    --
+    -- We DO still set currentDungeon + dungeonStartTime so:
+    --   - boss kill CLEU tracking still works (Onyxia's death timestamp)
+    --   - manual frame open shows useful info
+    --   - re-entry guard (currentDungeon == dungeonKey) suppresses
+    --     duplicate chat messages on /reload or run-back wipes
+    -- We DON'T set logStartTime — that's the variable the frame timer
+    -- watches, so the timer stays "--:--" in the raid case.
     if instanceType == "raid"
        and EpogArmoryDB and EpogArmoryDB.config
        and EpogArmoryDB.config.raidAutoLog
-       and not loggingActive
     then
-        StartLogging()
-        promptShown = true -- suppress the Yes/No prompt
-        print(string.format("|cffffaa44EpogArmory|r: raid detected (|cffffd200%s|r) - auto-started /combatlog. Toggle via /epogarmory raidlog.",
+        ResetRun()
+        currentDungeon   = dungeonKey
+        dungeonStartTime = GetTime() -- for boss kill timestamps only, not the visible timer
+        if LoggingCombat then LoggingCombat(true) end
+        loggingActive = true -- so StopLogging works correctly if user opens the frame later
+        promptShown = true   -- suppress the Yes/No prompt if frame is opened manually
+        -- Hide frame if it was open from a previous 5-man run
+        if frame and frame:IsShown() then frame:Hide() end
+        print(string.format("|cffffaa44EpogArmory|r: raid (|cffffd200%s|r) - /combatlog auto-started in background. /epogarmory raidlog to toggle.",
             dungeonKey))
+        return
     end
 
+    -- 5-man / party instance path: original behavior. Frame opens
+    -- automatically, Yes/No prompt asks about logging.
+    ResetRun()
+    currentDungeon   = dungeonKey
+    dungeonStartTime = GetTime()
     -- Auto-open the frame so the user sees the prompt + roster. Build
     -- it lazily on first entry — BuildFrame defined further down so we
     -- assume it's available by the time OnEnterDungeon ever fires
