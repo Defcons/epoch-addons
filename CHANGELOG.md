@@ -20,6 +20,34 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.6 — Auto-truncated trash bucket names (internal) *(2026-05-20)*
+
+Per user request: when a trash bucket's mob list is a "big OR formula with all same first name", derive the display name from the common word-prefix instead of hand-curating it.
+
+**Implementation: `ComputeBucketName(bucket)`.** Splits each mob name into words, walks word-by-word across all mobs in the bucket finding the longest common prefix. If the prefix is non-empty, that's the display name. If no common prefix exists (e.g. Strat's `{"Wailing Banshee","Shrieking Banshee"}` shares "Banshee" as a suffix but not prefix), falls back to the manual `name` field, or finally `mobs[1] .. " ..."`.
+
+Examples:
+
+| Bucket mobs | Auto display name |
+|---|---|
+| `{"Scarshield Legionnaire","Scarshield Acolyte","Scarshield Spellbinder","Scarshield Raider","Scarshield Warlock"}` | `Scarshield` |
+| `{"Anvilrage Footman","Anvilrage Guardsman"}` | `Anvilrage` |
+| `{"Rage Talon Dragon Guard","Rage Talon Fire Tongue","Rage Talon Captain"}` | `Rage Talon` |
+| `{"Fireguard"}` (single mob) | `Fireguard` |
+| `{"Wailing Banshee","Shrieking Banshee"}` (no common prefix) | falls back to manual `"Banshees"` |
+
+**Collision auto-disambiguation.** After computing names, scans each trash list for duplicates. Same-named buckets get suffixed `" (1)"` / `" (2)"`. Example: LBRS's two Smolderthorn buckets both auto-compute to `"Smolderthorn"`; load-time post-processing makes them `"Smolderthorn (1)"` / `"Smolderthorn (2)"`.
+
+**Data cleanup.** Dropped the manual `name` field from buckets where auto would give the same result (BRD all 4, LBRS 5 of 7, UBRS 2 of 4, Scholo 1 of 4, Strat Live 2 of 5, Strat Undead 3 of 6, Baradin Hold 3 of 6). Manual `name` retained where:
+- Mobs share no common word-prefix and the manual label provides a semantic group name (e.g. Strat `"Skeletons/Cadavers"`, Scholo `"Spectral / Acolyte"`)
+- Two buckets would otherwise collide AND the semantic split is more useful than the numeric `(1)/(2)` suffix (e.g. Strat Live `"Crimson melee"` / `"Crimson caster"`, Baradin Hold `"Blackstone melee/crew/elite"`)
+
+**No site-side change.** The bucket names are purely an in-game display label — the leaderboard parser only cares about the underlying mob names + kill counts, which are unchanged.
+
+Patch-level. Rolls into v1.8.0 with v1.7.1–v1.7.5.
+
+---
+
 ## EpogArmory v1.7.5 — Dungeon: trash buckets + log-tied timer + compact + kill timestamps (internal) *(2026-05-20)*
 
 Four interlocking improvements to the dungeon frame from in-game feedback.

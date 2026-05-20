@@ -53,11 +53,15 @@ local DUNGEONS = {
             "Emperor Dagran Thaurissan",
             "Princess Moira Bronzebeard",
         },
+        -- v1.7.6: most buckets get their display name auto-derived from
+        -- the common word-prefix of their mobs. Manual `name` only set
+        -- where the auto wouldn't disambiguate (e.g. two buckets in the
+        -- same trash list with the same first word).
         trash = {
-            { name = "Fireguard",            mobs = {"Fireguard"},                                            required = 1 },
-            { name = "Anvilrage",            mobs = {"Anvilrage Footman", "Anvilrage Guardsman"},             required = 6 },
-            { name = "Blazing Fireguard",    mobs = {"Blazing Fireguard"},                                    required = 2 },
-            { name = "Fireguard Destroyer",  mobs = {"Fireguard Destroyer"},                                  required = 3 },
+            { mobs = {"Fireguard"},                                            required = 1 },
+            { mobs = {"Anvilrage Footman", "Anvilrage Guardsman"},             required = 6 },
+            { mobs = {"Blazing Fireguard"},                                    required = 2 },
+            { mobs = {"Fireguard Destroyer"},                                  required = 3 },
         },
     },
     ["Blackrock Spire"] = {
@@ -75,13 +79,15 @@ local DUNGEONS = {
                     "Overlord Wyrmthalak",
                 },
                 trash = {
-                    { name = "Scarshield",     mobs = {"Scarshield Legionnaire","Scarshield Acolyte","Scarshield Spellbinder","Scarshield Raider","Scarshield Warlock"}, required = 16 },
-                    { name = "Spirestone",     mobs = {"Spirestone Enforcer","Spirestone Ogre Magus","Spirestone Battle Mage","Spirestone Warlord"},                     required = 6 },
-                    { name = "Smolderthorn A", mobs = {"Smolderthorn Shadow Priest","Smolderthorn Mystic","Smolderthorn Axe Thrower","Smolderthorn Shadow Hunter"},      required = 10 },
-                    { name = "Smolderthorn B", mobs = {"Smolderthorn Berserker","Smolderthorn Seer","Smolderthorn Witch Doctor","Smolderthorn Headhunter"},              required = 9 },
-                    { name = "Firebrand",      mobs = {"Firebrand Legionnaire","Firebrand Grunt","Firebrand Invoker","Firebrand Darkweaver","Firebrand Pyromancer","Firebrand Dreadweaver"}, required = 22 },
-                    { name = "Spire Spider",   mobs = {"Spire Spider"},                                                                                                  required = 5 },
-                    { name = "Bloodaxe",       mobs = {"Bloodaxe Veteran","Bloodaxe Warmonger","Bloodaxe Evoker","Bloodaxe Raider","Bloodaxe Summoner"},                 required = 14 },
+                    { mobs = {"Scarshield Legionnaire","Scarshield Acolyte","Scarshield Spellbinder","Scarshield Raider","Scarshield Warlock"}, required = 16 },
+                    { mobs = {"Spirestone Enforcer","Spirestone Ogre Magus","Spirestone Battle Mage","Spirestone Warlord"},                     required = 6 },
+                    -- Smolderthorn A/B both auto-compute to "Smolderthorn"; load-time
+                    -- collision suffix turns them into "Smolderthorn (1)" / "(2)".
+                    { mobs = {"Smolderthorn Shadow Priest","Smolderthorn Mystic","Smolderthorn Axe Thrower","Smolderthorn Shadow Hunter"},      required = 10 },
+                    { mobs = {"Smolderthorn Berserker","Smolderthorn Seer","Smolderthorn Witch Doctor","Smolderthorn Headhunter"},              required = 9 },
+                    { mobs = {"Firebrand Legionnaire","Firebrand Grunt","Firebrand Invoker","Firebrand Darkweaver","Firebrand Pyromancer","Firebrand Dreadweaver"}, required = 22 },
+                    { mobs = {"Spire Spider"},                                                                                                  required = 5 },
+                    { mobs = {"Bloodaxe Veteran","Bloodaxe Warmonger","Bloodaxe Evoker","Bloodaxe Raider","Bloodaxe Summoner"},                 required = 14 },
                 },
             },
             ubrs = {
@@ -94,10 +100,11 @@ local DUNGEONS = {
                     "General Drakkisath",
                 },
                 trash = {
-                    { name = "Ragetalon",          mobs = {"Ragetalon Dragonspawn","Ragetalon Flamescale"},                       required = 10 },
-                    { name = "Blackhand caster",   mobs = {"Blackhand Dreadweaver","Blackhand Elite","Blackhand Veteran"},        required = 14 },
-                    { name = "Rage Talon",         mobs = {"Rage Talon Dragon Guard","Rage Talon Fire Tongue","Rage Talon Captain"}, required = 6 },
-                    { name = "Blackhand assassin", mobs = {"Blackhand Thug","Blackhand Iron Guard","Blackhand Assassin"},         required = 6 },
+                    { mobs = {"Ragetalon Dragonspawn","Ragetalon Flamescale"},                       required = 10 },
+                    -- Blackhand (1) and (2) collide on auto; load-time suffix handles it.
+                    { mobs = {"Blackhand Dreadweaver","Blackhand Elite","Blackhand Veteran"},        required = 14 },
+                    { mobs = {"Rage Talon Dragon Guard","Rage Talon Fire Tongue","Rage Talon Captain"}, required = 6 },
+                    { mobs = {"Blackhand Thug","Blackhand Iron Guard","Blackhand Assassin"},         required = 6 },
                 },
             },
         },
@@ -115,7 +122,9 @@ local DUNGEONS = {
             "Darkmaster Gandling",
         },
         trash = {
-            { name = "Risen Guard",           mobs = {"Risen Guard"},                                                          required = 5 },
+            { mobs = {"Risen Guard"},                                                          required = 5 },
+            -- Scholo lower-case "Researcher/Acolyte/Neophyte" share no first word
+            -- ("Spectral" vs "Scholomance"); manual name retained for clarity.
             { name = "Spectral / Acolyte",    mobs = {"Spectral Researcher","Scholomance Acolyte","Scholomance Neophyte"},     required = 4 },
             { name = "Dark Summoner / Necro", mobs = {"Scholomance Dark Summoner","Scholomance Necrolyte"},                    required = 6 },
             -- Note: keeping the typo "Scolomance Adept" verbatim from the
@@ -136,9 +145,12 @@ local DUNGEONS = {
                     "The Unforgiven",
                 },
                 trash = {
+                    -- No common first word — manual name retained.
                     { name = "Skeletons/Cadavers", mobs = {"Skeletal Berserker","Mangled Cadaver","Skeletal Guardian","Ravaged Cadaver"}, required = 25 },
-                    { name = "Plague Ghoul",       mobs = {"Plague Ghoul"},                                                                required = 6 },
-                    { name = "Patchwerk Horror",   mobs = {"Patchwerk Horror"},                                                            required = 1 },
+                    { mobs = {"Plague Ghoul"},                                                                required = 6 },
+                    { mobs = {"Patchwerk Horror"},                                                            required = 1 },
+                    -- Crimson melee/caster collide on auto; manual disambiguation kept
+                    -- (semantic split is more useful than a "(1)/(2)" numeric suffix).
                     { name = "Crimson melee",      mobs = {"Crimson Gallant","Crimson Guardsman","Crimson Initiate","Crimson Conjurer"},  required = 14 },
                     { name = "Crimson caster",     mobs = {"Crimson Sorcerer","Crimson Battle Mage","Crimson Monk"},                      required = 6 },
                 },
@@ -158,10 +170,11 @@ local DUNGEONS = {
                     { name = "Skeletons/Cadavers", mobs = {"Skeletal Berserker","Mangled Cadaver","Skeletal Guardian","Ravaged Cadaver"}, required = 8 },
                     { name = "Banshees",           mobs = {"Wailing Banshee","Shrieking Banshee"},                                         required = 6 },
                     -- Typo "Ghould Ravener" kept verbatim from epoglogs rules (Blizzard mob name).
+                    -- No common first word -> manual "Ghouls" retained.
                     { name = "Ghouls",             mobs = {"Plague Ghoul","Ghould Ravener","Fleshflayer Ghoul"},                          required = 10 },
-                    { name = "Crypt",              mobs = {"Crypt Beast","Crypt Crawler"},                                                 required = 6 },
-                    { name = "Rockwing",           mobs = {"Rockwing Screecher","Rockwing Gargoyle"},                                      required = 6 },
-                    { name = "Thuzadin",           mobs = {"Thuzadin Necromancer","Thuzadin Shadowcaster"},                                required = 6 },
+                    { mobs = {"Crypt Beast","Crypt Crawler"},                                                 required = 6 },
+                    { mobs = {"Rockwing Screecher","Rockwing Gargoyle"},                                      required = 6 },
+                    { mobs = {"Thuzadin Necromancer","Thuzadin Shadowcaster"},                                required = 6 },
                 },
             },
         },
@@ -175,9 +188,11 @@ local DUNGEONS = {
             "Pirate Lord Blackstone",
         },
         trash = {
-            { name = "Baradin guards",   mobs = {"Baradin Sentry","Baradin Guard","Baradin Warden"},                  required = 8 },
-            { name = "Manifested",       mobs = {"Manifested Imp","Manifested Felhound","Manifested Infernal"},       required = 10 },
-            { name = "Improvised Cannon",mobs = {"Improvised Cannon"},                                                 required = 2 },
+            { mobs = {"Baradin Sentry","Baradin Guard","Baradin Warden"},                  required = 8 },
+            { mobs = {"Manifested Imp","Manifested Felhound","Manifested Infernal"},       required = 10 },
+            { mobs = {"Improvised Cannon"},                                                 required = 2 },
+            -- Three Blackstone buckets collide on auto; semantic disambiguation kept
+            -- (more useful than numeric "(1)/(2)/(3)").
             { name = "Blackstone melee", mobs = {"Blackstone Pirate","Blackstone Gunner","Blackstone Reaver"},        required = 12 },
             { name = "Blackstone crew",  mobs = {"Blackstone Cook","Blackstone Cabin Boy"},                            required = 8 },
             { name = "Blackstone elite", mobs = {"Blackstone Sea Dog","Blackstone Bosun","Blackstone Surgeon"},        required = 14 },
@@ -199,6 +214,44 @@ for dungeonKey, def in pairs(DUNGEONS) do
             end
         end
     end
+end
+
+-- v1.7.6: auto-truncated bucket display name. For a bucket like
+-- {mobs = {"Scarshield Legionnaire","Scarshield Acolyte",...}} the
+-- common word-prefix across all mob names is "Scarshield" — that's
+-- what we show in the UI. Single-mob buckets get the full name.
+-- The bucket's optional manual `name` field still wins as an explicit
+-- override (used for disambiguation when two buckets in the same
+-- dungeon would auto-compute to the same prefix, e.g. Smolderthorn A
+-- vs B in LBRS).
+local function ComputeBucketName(bucket)
+    if bucket.name then return bucket.name end
+    local mobs = bucket.mobs
+    if not mobs or #mobs == 0 then return "(unknown)" end
+    if #mobs == 1 then return mobs[1] end
+
+    -- Word-by-word longest common prefix across all mob names.
+    -- Reset to first mob's words, then trim against each subsequent mob.
+    local prefixWords = {}
+    for w in mobs[1]:gmatch("%S+") do prefixWords[#prefixWords+1] = w end
+    for i = 2, #mobs do
+        local mobWords = {}
+        for w in mobs[i]:gmatch("%S+") do mobWords[#mobWords+1] = w end
+        local keep = 0
+        for j = 1, math.min(#prefixWords, #mobWords) do
+            if prefixWords[j] == mobWords[j] then keep = j else break end
+        end
+        -- Truncate prefixWords to `keep` entries
+        for j = #prefixWords, keep + 1, -1 do prefixWords[j] = nil end
+        if #prefixWords == 0 then break end
+    end
+    if #prefixWords == 0 then
+        -- No common prefix at all (rare on these rosters) — fall back
+        -- to first mob's name + "..." so the user has something to
+        -- match against.
+        return mobs[1] .. " ..."
+    end
+    return table.concat(prefixWords, " ")
 end
 
 -- Trash lookup: mob name → bucket index, per dungeon (and per variant
@@ -227,6 +280,38 @@ for dKey, dDef in pairs(DUNGEONS) do
                 TRASH_LOOKUP[dKey]["_"][mob] = bIdx
             end
         end
+    end
+end
+
+-- v1.7.6: compute bucket.displayName for every trash bucket. Auto-derived
+-- from the common word-prefix unless a manual bucket.name is set. After
+-- the first pass, if two buckets in the same trash list ended up with
+-- the same name (e.g. LBRS Smolderthorn A/B both auto-compute to
+-- "Smolderthorn"), suffix them with " (1)" / " (2)" for disambiguation.
+local function processTrashList(trashList)
+    for _, bucket in ipairs(trashList) do
+        bucket.displayName = ComputeBucketName(bucket)
+    end
+    -- Collision detection within this trash list
+    local counts = {}
+    for _, bucket in ipairs(trashList) do
+        counts[bucket.displayName] = (counts[bucket.displayName] or 0) + 1
+    end
+    local seen = {}
+    for _, bucket in ipairs(trashList) do
+        if counts[bucket.displayName] > 1 then
+            seen[bucket.displayName] = (seen[bucket.displayName] or 0) + 1
+            bucket.displayName = bucket.displayName .. " (" .. seen[bucket.displayName] .. ")"
+        end
+    end
+end
+for _, dDef in pairs(DUNGEONS) do
+    if dDef.variants then
+        for _, vDef in pairs(dDef.variants) do
+            if vDef.trash then processTrashList(vDef.trash) end
+        end
+    elseif dDef.trash then
+        processTrashList(dDef.trash)
     end
 end
 
@@ -800,7 +885,7 @@ BuildFrame = function()
                         color = "|cffff6666" -- red
                     end
                     row:SetText(string.format("%s%d/%d|r |cffcccccc%s|r",
-                        color, count, bucket.required, bucket.name))
+                        color, count, bucket.required, bucket.displayName))
                     row:Show()
                 else
                     row:Hide()
