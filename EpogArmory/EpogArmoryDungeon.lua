@@ -21,6 +21,15 @@
 local floor = math.floor
 local time, GetTime = time, GetTime
 
+-- Claude v1.7.4: load-time debug prints. If you do not see
+-- "[EpogArmoryDungeon] file load START" in chat after a /reload,
+-- the file is not being read by WoW at all (TOC cache issue —
+-- requires a full client exit-and-restart to re-parse the TOC).
+-- If you see START but NOT END, there's a parse or runtime error
+-- somewhere between them; the Lua error popup should appear with
+-- /console scriptErrors 1 enabled.
+print("|cffffaa44EpogArmory|r [EpogArmoryDungeon] file load START")
+
 -- ============================================================================
 -- Dungeon roster — keyed by GetInstanceInfo() name
 -- ============================================================================
@@ -682,6 +691,8 @@ eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 eventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+
+print("|cffffaa44EpogArmory|r [EpogArmoryDungeon] file load END (globals set)")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD"
