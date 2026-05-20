@@ -132,6 +132,7 @@ local lastDummyHitTime   = 0            -- GetTime() of last player/pet damage o
 local stoppingStartTime  = nil          -- GetTime() when state entered "stopping" (for hard timeout)
 local fightTotalDamage   = 0            -- sum of damage from player+pet to dummy this fight
 local logFilename        = nil          -- expected combat-log filename, computed when LoggingCombat(true) fires
+local testMode           = false        -- Claude v1.7.1: /epogarmory testvalidate — short-circuit straight to "stopping" so user can click Validate without doing a full parse
 
 -- Live aura listings for the UI. Recomputed each tick.
 local currentPlayerAuras   = {}         -- list of { name, source, allowed }
@@ -455,6 +456,24 @@ local function FinishFight(reason)
         validThroughout = false
     end
     SetState("stopped")
+    -- Claude v1.7.1: testMode prints its own verdict (focused on whether
+    -- the marker round-trip worked, not the parse verdict) and does NOT
+    -- save to history. Clear the flag at the end so future real parses
+    -- run normally.
+    if testMode then
+        if markerVerified then
+            print("|cffffaa44EpogArmory|r [testvalidate]: |cff66ff66MARKER VERIFIED|r — the secure-button mechanism works on this client.")
+            if logFilename then
+                print("  |cffaaaaaa-|r marker line is in: |cffffd200" .. logFilename .. "|r")
+            end
+        else
+            print("|cffffaa44EpogArmory|r [testvalidate]: |cffff6666MARKER NOT VERIFIED|r — Validate was not clicked, or the cast produced no CLEU event.")
+            print("  |cffaaaaaa-|r if you didn't click Validate, run /epogarmory testvalidate again and click the green button before it times out.")
+            print("  |cffaaaaaa-|r if you DID click and still see this, the marker mechanism is broken on this client — report it.")
+        end
+        testMode = false
+        return
+    end
     PrintVerdict()
     SaveFightRecord()
 end
@@ -535,6 +554,18 @@ local function OnTick()
     if state ~= "logging" and state ~= "stopping" then return end
 
     local elapsed = GetTime() - (fightStartTime or GetTime())
+
+    -- Claude v1.7.1: testMode short-circuits both aura validation and
+    -- the post-combat timeout. The test is purely about exercising
+    -- the marker round-trip (click -> /cast Fishing -> CLEU FAILED ->
+    -- markerVerified), not about validating a real parse. Skip the
+    -- normal tick logic entirely; the user clicks Validate at their
+    -- leisure and the existing PostClick + StartMarkerVerifyWait
+    -- handles the rest.
+    if testMode then
+        if frame and frame:IsShown() then frame.UpdateUI() end
+        return
+    end
 
     -- Belt-and-suspenders aura recheck. UNIT_AURA also drives validation,
     -- this is the redundant timer-based check.
@@ -1077,6 +1108,55 @@ _G.EpogArmoryDummy_Toggle = function()
         frame:Show()
         frame.UpdateUI()
     end
+end
+
+-- Claude v1.7.1: /epogarmory testvalidate — exercise the marker click
+-- round-trip without doing a full 1:30 dummy parse. Sets state to
+-- "stopping" with the validate button visible immediately. User clicks
+-- it; CLEU listens for SPELL_CAST_FAILED on Fishing/Basic Campfire; the
+-- existing PostClick + StartMarkerVerifyWait + FinishFight handles the
+-- rest. Skips aura validation and the post-combat hard timeout via the
+-- testMode flag in OnTick. Combat log IS started so the user can also
+-- verify by hand that the marker line lands in the .txt file.
+_G.EpogArmoryDummy_TestValidate = function()
+    if state == "logging" or state == "stopping" then
+        print("|cffffaa44EpogArmory|r [testvalidate]: a real parse is in progress — refusing to start test mode. Click Reset/Stop first.")
+        return
+    end
+    if not frame then frame = BuildFrame() end
+
+    -- Set up the same module state DoStartLogging would, minus the
+    -- city/dummy gates and minus capturing a real dummy GUID.
+    testMode          = true
+    validThroughout   = true
+    invalidReasons    = {}
+    markerEmitted     = false
+    markerVerified    = false
+    pendingMarker     = false
+    fightTotalDamage  = 0
+    lastDummyName     = "(test mode)"
+    savedDummyGUID    = nil
+    fightStartTime    = GetTime() - MARKER_TIME_SEC  -- pretend it's already past 1:20
+    stoppingStartTime = GetTime()
+    lastDummyHitTime  = GetTime()
+
+    -- Start /combatlog so the marker line actually lands in a file
+    -- the user can inspect. Capture the filename the same way
+    -- DoStartLogging does.
+    if LoggingCombat then LoggingCombat(true) end
+    logFilename = date("Logs/%Y-%m-%d-%H.%M.%S WoWCombatLog.txt")
+
+    -- Open the frame and jump straight to "stopping" — that's the
+    -- only state where the validate button is shown at alpha 1.
+    AnchorTopLeft(frame)
+    frame:Show()
+    SetState("stopping")
+    frame.UpdateUI()
+
+    print("|cffffaa44EpogArmory|r [testvalidate]: |cffffd200test mode active.|r")
+    print("  |cffaaaaaa-|r combat log started: |cffffd200" .. logFilename .. "|r")
+    print("  |cffaaaaaa-|r click the green |cff66ff66Validate|r button in the dummy frame to fire the marker.")
+    print("  |cffaaaaaa-|r a CLEAN result means the secure-button + /cast Fishing mechanism produced a SPELL_CAST_FAILED CLEU line.")
 end
 
 -- ============================================================================

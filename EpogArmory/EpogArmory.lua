@@ -3356,6 +3356,7 @@ local function ShowHelp()
     print("  /epogarmory refreshpeers  — ping guildmates for fresh identity + DB-size info (Scanners-view leaderboard)")
     print("  /epogarmory autosync [on|off|status] — background catch-up sync from reachable peers (default: on, 24h per-peer cooldown)")
     print("  /epogarmory dummy         — toggle the Training Dummy parse-validator frame (auto-opens when targeting a dummy in a city)")
+    print("  /epogarmory testvalidate  — jump straight to the Validate button to test the marker mechanism (no full 1:30 fight needed)")
     print("  /epogarmory aura          — check if Reality Recalibrators aura is active (gates auto-inspect of groupmates)")
     print("  /epogarmory dump <name>   — diagnostic dump of every layer (itemstring, GetItemInfo, GetItemStats, cache) for each slot of a stored player")
     print("|cff888888  Source + releases: github.com/Defcons/epogarmory-addon|r")
@@ -3623,6 +3624,16 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         -- manual fallback if the user closed it.
         if _G.EpogArmoryDummy_Toggle then
             _G.EpogArmoryDummy_Toggle()
+        else
+            print("|cffffaa44EpogArmory|r: dummy module not loaded")
+        end
+    elseif msg == "testvalidate" then
+        -- Claude (v1.7.1): jump straight into the validate-button state
+        -- so the user can test the marker mechanism without a full
+        -- 1:30 dummy parse. Skips aura validation + post-combat
+        -- timeout; just exercises the click-to-CLEU round-trip.
+        if _G.EpogArmoryDummy_TestValidate then
+            _G.EpogArmoryDummy_TestValidate()
         else
             print("|cffffaa44EpogArmory|r: dummy module not loaded")
         end
