@@ -20,6 +20,65 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.3 — Dungeon speedrun status frame (internal) *(2026-05-20)*
+
+New module `EpogArmoryDungeon.lua` — companion to the existing dummy-parse frame, but for dungeon speedrun runs that feed the epoglogs.com leaderboard. Auto-opens when the player enters a tracked dungeon; shows live boss-kill progress + run timer + `/combatlog` status; prompts once on entry to start the log.
+
+**Passive validation model.** Unlike the dummy frame's secure-button marker, dungeon runs don't need a marker — the combination of zone match + boss `UNIT_DIED` events in the log IS the validation. The site parses the file for the expected boss kill sequence. No Validate button, no Fishing/Basic Campfire macro, just passive observation. Matches how Warcraftlogs treats raid logs.
+
+**Tracked dungeons** (7) — sourced from the epoglogs.com leaderboard parsing rules pasted 2026-05-20:
+
+| Dungeon | Boss count | Notes |
+|---|---|---|
+| Blackrock Depths | 4 | Lord Incendius, Magmus, Emperor Dagran Thaurissan, Princess Moira Bronzebeard |
+| Lower Blackrock Spire | 6 | Highlord Omokk → Overlord Wyrmthalak |
+| Upper Blackrock Spire | 4 | Warchief Rend Blackhand → General Drakkisath |
+| Scholomance | 8 | Rattlegore → Darkmaster Gandling |
+| Stratholme (Live) | 4 | Archivist Galford, Balnazzar, Timmy the Cruel, The Unforgiven |
+| Stratholme (Undead) | 6 | Magistrate Barthilas → Lord Aurius Rivendare |
+| Baradin Hold | 4 | Glagut, Nazrasash, Calypso, Pirate Lord Blackstone |
+
+**Stratholme side detection.** `GetInstanceInfo()` returns "Stratholme" for both sides — the addon can't tell them apart from the API alone. On entry, the frame shows ALL 10 bosses tagged "(live)" / "(undead)" with everything greyed out. The first boss kill resolves the side, prints `Stratholme side detected: Live/Undead` to chat, and the frame redraws showing only that side's roster.
+
+**Frame layout** (`/epogarmory dungeon` or auto-opens on entry):
+
+- Title: "EpogLogs - Dungeon Run"
+- Dungeon name with side suffix when relevant
+- Big timer (M:SS or H:MM:SS for long runs) — focal element
+- Status badge: `IDLE` / `IN PROGRESS (n/N bosses)` / `COMPLETE` (green when all bosses down)
+- Logging status row: `Logging: ACTIVE` (green) / `Logging: OFF` (red)
+- One-time prompt on entry: "Start /combatlog for this run? [Yes] [No]" — non-secure (LoggingCombat isn't protected)
+- Boss list with ✓/- markers, killed bosses highlighted, unkilled greyed
+- Bottom toggle button: "Start logging" / "Stop logging" — manual control after the prompt is dismissed
+
+**Auto-start logic.** No — per user preference, the addon does NOT auto-start `/combatlog`. The on-entry prompt asks once and respects "No" for the remainder of the run. If the user declines, they can still manually start logging via the bottom toggle button. This contrasts with the dummy frame's auto-start (which defaults on).
+
+**State tracking.**
+
+- `currentDungeon` — key into `DUNGEONS` table, set by `DetectDungeon()` on zone change
+- `stratSide` — `"live"` / `"undead"` / nil, resolved on first boss kill in Stratholme
+- `dungeonStartTime` — `GetTime()` when entered, used for the live timer
+- `bossKills` — set, `bossName → true` on each `UNIT_DIED` CLEU event
+- `loggingActive` — mirror of `LoggingCombat()` state (the API has no getter, so we shadow it)
+- `promptShown`, `userDeclinedLog` — per-run flags so the prompt fires at most once
+
+**Detection.** `IsInInstance()` + `GetInstanceInfo()` on `ZONE_CHANGED_NEW_AREA` and `PLAYER_ENTERING_WORLD`. Instance type must be `"party"` or `"raid"` (Baradin Hold is technically a raid). Lookup is by instance name against the hardcoded `DUNGEONS` table. Unknown instances → frame stays idle, doesn't interfere.
+
+**Boss kill detection.** `COMBAT_LOG_EVENT_UNFILTERED` filtered for `UNIT_DIED` events with `destName` matching a boss in the current dungeon's roster. No source-flag check (someone else in the group might land the killing blow). De-dupe via the `bossKills` set so multi-phase boss "deaths" don't double-count.
+
+**Files added**: `EpogArmoryDungeon.lua` (~400 lines). Added to TOC after `EpogArmoryDummy.lua`.
+
+**Slash**: `/epogarmory dungeon` — toggle the frame manually. Help text updated.
+
+**Not in this cut (deferred to v1.7.4 if user asks):**
+- Trash bucket tracking. Each dungeon's epoglogs rules also specify "kill at least N of [boss-category] mobs" as a leaderboard requirement (e.g. Stratholme Live needs 25 of various Skeletal/Cadaver types + 14 Crimson Gallant/Guardsman/etc.). Implementing OR-group tracking would add ~200 lines and need its own UI section. Bosses-only covers the user's stated need ("which bosses was killed, which is missing").
+- History panel. The dummy module persists `dummyFights[]` for past runs; the dungeon module currently doesn't save run records anywhere. Easy to add via `EpogArmoryDB.dungeonRuns[]` once we know what the leaderboard intake wants.
+- Verdict-style upload guidance. Currently no chat-line at run end pointing the user at the log filename. Should match the dummy module's pattern once we have the file open.
+
+Patch-level — no public release, no standalone repo sync, mesh auto-update notification stays silent. Will roll v1.7.1 + v1.7.2 + v1.7.3 together into v1.8.0 once user-tested.
+
+---
+
 ## EpogArmory v1.7.2 — Strict 10s validate window + countdown (internal) *(2026-05-20)*
 
 Patch-level bump (1.7.1 → 1.7.2). Tightens the validate-click window from a 120s open-ended timeout to a strict 10-second window with a visible countdown. Driven by the epoglogs.com team's request after they shipped server-side 90s truncation (v0.83.20) — the leaderboard is now fair regardless of click timing, so the addon's job is purely UX: make it obvious when the click window opens and closes.
