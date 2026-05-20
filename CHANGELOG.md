@@ -20,6 +20,27 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.1 — Marker fallback + stricter matcher (internal) *(2026-05-19)*
+
+Patch-level bump (1.7.0 → 1.7.1). Two related changes to the dummy-parse marker.
+
+**Basic Campfire fallback.** The Validate button's macro now runs two `/cast` lines:
+
+```
+/cast Fishing
+/cast Basic Campfire
+```
+
+This covers a corner case where a player has a Fishing Pole equipped during the parse — `/cast Fishing` then succeeds and produces a `SPELL_CAST_START` instead of the `SPELL_CAST_FAILED` line we want. If that player also has Cooking learned, `/cast Basic Campfire` provides a fallback marker (fails with "Try this outside" or similar in a city). The accepted-marker table `MARKER_SPELL_NAMES` is keyed by spell name for O(1) CLEU lookup.
+
+**Stricter CLEU matcher.** The marker check used to accept either `SPELL_CAST_START` or `SPELL_CAST_FAILED`. It now accepts only `SPELL_CAST_FAILED`. The reason: the site contract for upload acceptance only matches FAILED. If the addon accepted START locally but the site didn't, a pole-equipped player would see CLEAN in-game but get their upload rejected — bad UX. Tightening the addon side keeps the in-game verdict honest about what the site will actually accept.
+
+**Site impact:** the handoff brief in `memory/handoff_epoglogs_dummy_validation.md` needs an update — the site should now accept either `"Fishing"` OR `"Basic Campfire"` as the marker spell name in the SPELL_CAST_FAILED line. Spell IDs to allow: 7620 (Fishing), 818 (Basic Campfire). All other timing + GUID + dummy-presence constraints unchanged.
+
+Patch-level — no public release, no standalone repo sync, mesh auto-update notification stays silent.
+
+---
+
 ## EpogArmory v1.7.0 — Dummy parse validation *(2026-05-19)*
 
 New module `EpogArmoryDummy.lua` validates target-dummy combat logs against a clean-self-only rule and stamps an in-log marker so epoglogs.com can gate dummy parses without requiring users to bundle SavedVariables uploads. Addon is no longer armory-only — the dummy parse window is its second top-level surface.

@@ -37,9 +37,25 @@ local IDLE_STOP_THRESHOLD = 3
 -- "Heroic Training Dummy") with one rule.
 local DUMMY_NAME_PATTERN = "Training Dummy"
 
--- Marker: Fishing (user confirmed `/cast Fishing` in chat produces
--- SPELL_CAST_FAILED "Must have a Fishing Pole equipped" in the log).
--- Fails INSTANTLY — single log line, no SpellStopCasting timing required.
+-- Marker: Fishing primary, Basic Campfire fallback.
+--
+-- Primary: `/cast Fishing` produces SPELL_CAST_FAILED with reason
+-- "Must have a Fishing Pole equipped" — verified empirically. Fails
+-- INSTANTLY — single log line, no SpellStopCasting timing required.
+-- Universal: every character can attempt `/cast Fishing` (spell id 7620
+-- is hardcoded in the client, not gated by learning the profession).
+--
+-- Edge case: if the player has a Fishing Pole equipped, /cast Fishing
+-- SUCCEEDS instead of failing — producing SPELL_CAST_START not FAILED.
+-- That breaks our marker. Real-world likelihood is tiny (no DPS spec
+-- equips a pole), but the fallback covers it for players who also
+-- have Cooking learned: `/cast Basic Campfire` will fail with its own
+-- SPELL_CAST_FAILED ("You can't do that here" / "Try this outside")
+-- in a city near a dummy.
+--
+-- The macro chains both lines. Both /cast lines execute in sequence;
+-- whichever produces a SPELL_CAST_FAILED is accepted as the marker.
+-- The MARKER_SPELL_NAMES table is keyed by name for O(1) lookup in CLEU.
 --
 -- The marker fires via a SecureActionButtonTemplate that the user clicks.
 -- Addon-script CastSpellByName silently fails on Epoch (proven by the
@@ -49,8 +65,11 @@ local DUMMY_NAME_PATTERN = "Training Dummy"
 -- the call to a secure execution context. So the addon UI prompts the
 -- user to click a button at the end of the parse — that single click
 -- is the only manual step.
-local MARKER_SPELL_NAME         = "Fishing"
-local MARKER_MACROTEXT          = "/cast Fishing"
+local MARKER_SPELL_NAMES        = {
+    ["Fishing"]        = true,  -- Claude v1.7.1: primary marker, fails on no pole
+    ["Basic Campfire"] = true,  -- Claude v1.7.1: fallback for pole-equipped + Cooking-learned players
+}
+local MARKER_MACROTEXT          = "/cast Fishing\n/cast Basic Campfire"  -- Claude v1.7.1: chain both attempts; either FAILED line is a valid marker
 local MARKER_VERIFY_TIMEOUT     = 3.0  -- seconds to wait for CLEU after click
 local POST_COMBAT_HARD_TIMEOUT  = 120  -- max seconds in stopping state before giving up
 
@@ -1145,9 +1164,16 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- arrive late, after we've already transitioned to "stopped".
         -- We still want to confirm it landed in the log file. State
         -- gate removed for this check.
-        if spellName == MARKER_SPELL_NAME
-           and (subevent == "SPELL_CAST_START" or subevent == "SPELL_CAST_FAILED")
-        then
+        --
+        -- Claude v1.7.1: FAILED-only (was START-or-FAILED). The site
+        -- contract only accepts SPELL_CAST_FAILED, so the addon's
+        -- in-game verdict needs to match — a SPELL_CAST_START from a
+        -- pole-equipped Fishing channel is NOT a valid marker even
+        -- though the log line exists, because the site won't accept it.
+        --
+        -- Claude v1.7.1: also accept any spell name in MARKER_SPELL_NAMES
+        -- to cover the Basic Campfire fallback for pole-equipped players.
+        if subevent == "SPELL_CAST_FAILED" and MARKER_SPELL_NAMES[spellName] then
             if not markerVerified then
                 _DebugPrint(string.format("marker observed in CLEU: %s '%s' (state=%s)",
                     subevent, spellName, state))
