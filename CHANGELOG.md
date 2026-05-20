@@ -20,6 +20,39 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.2 — Strict 10s validate window + countdown (internal) *(2026-05-20)*
+
+Patch-level bump (1.7.1 → 1.7.2). Tightens the validate-click window from a 120s open-ended timeout to a strict 10-second window with a visible countdown. Driven by the epoglogs.com team's request after they shipped server-side 90s truncation (v0.83.20) — the leaderboard is now fair regardless of click timing, so the addon's job is purely UX: make it obvious when the click window opens and closes.
+
+**The change in numbers:**
+
+| Before (v1.7.1) | After (v1.7.2) |
+|---|---|
+| Button shows at T+1:20 | Button shows at T+1:20 *(unchanged)* |
+| Label: `VALIDATE PARSE` (static) | Label: `VALIDATE (10)` → `VALIDATE (9)` → ... → `VALIDATE (1)` *(live countdown)* |
+| Timeout: 120s (`POST_COMBAT_HARD_TIMEOUT`) | Timeout: 10s (`VALIDATE_WINDOW_SEC`) |
+| On timeout: generic `Log: INVALID - rejected on upload` | On timeout: `LOG FAILED - click Reset to try again` *(specific, actionable)* |
+
+**Why 10s?** Matches `LOG_DURATION_SEC - MARKER_TIME_SEC` (90 − 80). The addon's `LoggingCombat(false)` is called by `FinishFight`, which fires either when the user clicks Validate (any time during the 10s) or when the window expires. Either way the combat log file closes at or before T+1:30, which keeps the marker line within ~0-1s of the last event in the file — comfortably inside the site's `MAX_MARKER_TO_END_S = 30` acceptance window.
+
+**Why a countdown?** The earlier flow was "Validate button appears at T+1:20, nothing visibly changes, somewhere around T+1:30 the addon stops on its own." Multiple users reported "did it work? am I done?" confusion. The countdown removes that — the user sees exactly how much time they have to click, and exactly what happened if they missed.
+
+**Implementation details:**
+
+- New constant `VALIDATE_WINDOW_SEC = LOG_DURATION_SEC - MARKER_TIME_SEC` (10s). Removed the old `POST_COMBAT_HARD_TIMEOUT = 120` constant; it was the only timeout in the stopping branch and is now obsolete.
+- `OnTick` stopping-state branch: hard-fail with reason `"validate window expired (10s)"` once `stoppingFor >= VALIDATE_WINDOW_SEC` and no marker has been emitted. Gated on `not markerEmitted` so a click in the final 100ms still wins the race.
+- `UpdateUI` stopping-state `show-button` sub-state: computes `remaining = math.ceil(VALIDATE_WINDOW_SEC - stoppingFor)` each tick and sets the button label via `f.validateBtn:SetText(...)`. Clamped to `math.max(1, ...)` so we never render "0" or negative.
+- `UpdateUI` stopped-state: detects `invalidReasons["validate window expired (10s)"]` and renders the dedicated `LOG FAILED - click Reset to try again` message instead of the generic INVALID line.
+- `OnLeaveCombat` comment updated to reference `VALIDATE_WINDOW_SEC` instead of the removed constant.
+
+**Test command unaffected.** `/epogarmory testvalidate` still works — it sets `testMode = true` which short-circuits `OnTick` entirely, bypassing both the validation gate and the new 10s timeout. The validate button stays clickable indefinitely in test mode, which is the intended behavior for marker round-trip testing.
+
+**Site-side coordination.** None needed — the site validator (`lib/dummy-marker-validator.js`) is already permissive enough to accept whatever this version produces. Per the epoglogs handoff doc, the site is at v0.83.21 and accepts both Fishing (all 5 ranks: 7620/7731/7732/18248/33095) and Basic Campfire (818) markers. The new strict window only ever produces markers earlier in the log (T+1:20 to T+1:30 instead of up to T+3:20), so all timing constraints are easier to satisfy, not harder.
+
+Patch-level — no public release, no standalone repo sync, mesh auto-update notification stays silent. Will roll v1.7.1 + v1.7.2 together into v1.8.0 once tested.
+
+---
+
 ## EpogArmory v1.7.1 — Marker fallback + stricter matcher + testvalidate (internal) *(2026-05-19)*
 
 Patch-level bump (1.7.0 → 1.7.1). Three related changes to the dummy-parse marker.

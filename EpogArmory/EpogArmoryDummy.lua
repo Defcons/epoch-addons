@@ -71,7 +71,16 @@ local MARKER_SPELL_NAMES        = {
 }
 local MARKER_MACROTEXT          = "/cast Fishing\n/cast Basic Campfire"  -- Claude v1.7.1: chain both attempts; either FAILED line is a valid marker
 local MARKER_VERIFY_TIMEOUT     = 3.0  -- seconds to wait for CLEU after click
-local POST_COMBAT_HARD_TIMEOUT  = 120  -- max seconds in stopping state before giving up
+-- Claude v1.7.2: strict 10s validate window. Was POST_COMBAT_HARD_TIMEOUT=120
+-- which gave the user effectively unlimited time to click; in practice the
+-- 90s log file would close cleanly but the marker could land ~100s+ in
+-- (epoglogs report: marker at T+103s). The site now caps every parse at
+-- a canonical 90s for leaderboard fairness, so the addon's job is purely
+-- UX: make it OBVIOUS when the click window opens and closes.
+--
+-- Window matches LOG_DURATION_SEC - MARKER_TIME_SEC (90 - 80 = 10).
+-- Hard-fail at end of window with "LOG FAILED - click Reset to try again".
+local VALIDATE_WINDOW_SEC       = LOG_DURATION_SEC - MARKER_TIME_SEC
 
 -- Allowed aura sources: self + own pets/summons + vehicle.
 -- Class summons (Hunter pet, Warlock demon, Mage Water Elemental, Priest
@@ -538,8 +547,9 @@ local function OnLeaveCombat()
     -- combat-log entries on Epoch (protection model requires a hardware
     -- event). The user's click on the secure button is that event.
     --
-    -- If they don't click within POST_COMBAT_HARD_TIMEOUT seconds of
-    -- entering stopping, OnTick force-finishes with no marker (INVALID).
+    -- If they don't click within VALIDATE_WINDOW_SEC seconds of
+    -- entering stopping, OnTick force-finishes with no marker and
+    -- shows "LOG FAILED - click Reset to try again".
     if frame and frame:IsShown() then frame.UpdateUI() end
 end
 
@@ -584,19 +594,18 @@ local function OnTick()
         SetState("stopping")
     end
 
-    -- Stopping window: wait for combat to actually end so we can emit
-    -- the marker out of lockdown. The user disengages naturally after
-    -- they're done with the parse; PLAYER_REGEN_ENABLED triggers the
-    -- marker emission + log stop.
-    if state == "stopping" then
-        -- Hard timeout: if the user keeps fighting forever, eventually
-        -- force-stop the log without a marker. Counted from when
-        -- "stopping" began, not from combat start, so it always
-        -- gives the user POST_COMBAT_HARD_TIMEOUT extra seconds to
-        -- disengage after T+1:20.
+    -- Stopping window: T+1:20 -> T+1:30. The user has VALIDATE_WINDOW_SEC
+    -- (10s) to click the Validate button. If they click, PostClick fires
+    -- the marker and StartMarkerVerifyWait calls FinishFight. If they
+    -- don't click, we hard-fail here at the end of the window — log stops,
+    -- no marker, "LOG FAILED" verdict shown so the user knows to Reset.
+    --
+    -- Claude v1.7.2: tightened from 120s open window to 10s strict.
+    -- See VALIDATE_WINDOW_SEC comment above.
+    if state == "stopping" and not markerEmitted then
         local stoppingFor = GetTime() - (stoppingStartTime or GetTime())
-        if stoppingFor >= POST_COMBAT_HARD_TIMEOUT then
-            FinishFight("user did not disengage from dummy in time (marker not emitted)")
+        if stoppingFor >= VALIDATE_WINDOW_SEC then
+            FinishFight("validate window expired (10s)")
             return
         end
     end
@@ -866,6 +875,16 @@ local function BuildFrame()
             else
                 subState = "show-button"
                 f.validateContainer:SetAlpha(1) -- visible
+                -- Claude v1.7.2: live countdown on the button label so the
+                -- user can see exactly how much time they have to click.
+                -- ceil() so "1" still shows during the final ~1s before
+                -- FinishFight fires at the window boundary. math.max(1, ...)
+                -- so it never reads "0" or negative — at the moment the
+                -- window expires, OnTick triggers FinishFight in the same
+                -- frame and the button disappears.
+                local stoppingFor = GetTime() - (stoppingStartTime or GetTime())
+                local remaining = math.max(1, math.ceil(VALIDATE_WINDOW_SEC - stoppingFor))
+                f.validateBtn:SetText(string.format("VALIDATE (%d)", remaining))
                 f.validateHint:SetText("|cff888888click to stamp the log and stop logging|r")
                 f.validateHint:Show()
             end
@@ -887,6 +906,11 @@ local function BuildFrame()
             f.verdictLabel:SetTextColor(1, 1, 1)
             if IsCleanVerdict() then
                 f.verdictLabel:SetText("Log: |cff66ff66CLEAN|r - valid for upload")
+            elseif invalidReasons["validate window expired (10s)"] then
+                -- Claude v1.7.2: explicit failure mode for the strict
+                -- 10s validate window. User missed the click; prompt
+                -- them clearly to Reset and try again.
+                f.verdictLabel:SetText("|cffff6666LOG FAILED|r - click Reset to try again")
             else
                 f.verdictLabel:SetText("Log: |cffff6666INVALID|r - rejected on upload")
             end
