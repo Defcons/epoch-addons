@@ -20,6 +20,51 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.4 — Dungeon multi-variant fix (BRS/Stratholme) (internal) *(2026-05-20)*
+
+Fixes the v1.7.3 dungeon frame failing to detect when in Blackrock Spire. Root cause: `GetInstanceInfo()` returns **`"Blackrock Spire"`** as the instance name regardless of whether the player is doing LBRS or UBRS (both sides share one instance on 3.3.5). My DUNGEONS table keyed on `"Lower Blackrock Spire"` / `"Upper Blackrock Spire"` which the client never returns — so the lookup silently fell through and the frame never opened.
+
+Same issue would have hit Stratholme on a fresh run (one instance name, two leaderboard variants). It was masked there only because the v1.7.3 code had Stratholme-specific side-detection logic; BRS got nothing.
+
+**Refactor: generic multi-variant support.** The `sides` field on the Stratholme entry is now generalized to `variants` and applied to any multi-variant dungeon. The data shape:
+
+```lua
+["Blackrock Spire"] = {
+    variants = {
+        lbrs = { displayName = "Lower Blackrock Spire", shortName = "LBRS", bosses = {...} },
+        ubrs = { displayName = "Upper Blackrock Spire", shortName = "UBRS", bosses = {...} },
+    },
+},
+["Stratholme"] = {
+    variants = {
+        live   = { displayName = "Stratholme — Live",   shortName = "Live",   bosses = {...} },
+        undead = { displayName = "Stratholme — Undead", shortName = "Undead", bosses = {...} },
+    },
+},
+```
+
+`BOSS_TO_VARIANT[dungeonKey][bossName] = variantKey` is generated once at file load for O(1) auto-resolution on first boss kill.
+
+**Variant selection buttons (per user request).** A new `variantContainer` row in the frame between the dungeon name and the timer, holds 2 buttons side-by-side (`LBRS` / `UBRS` or `Live` / `Undead`). Shown only when the current dungeon has variants AND no variant is yet resolved. Click → variant locks in → frame redraws showing only that variant's roster. Auto-resolution by first boss kill still works as a fallback — useful when the user forgets to click before pulling.
+
+**Layout impact:** frame height bumped 400 → 432, timer/status/prompt/bosses rows all shifted down 32px to make room for the variant button row. Boss row max stays at 12 slots (highest variant has 6 bosses; combined pre-resolution preview = 10).
+
+**Renames** in module state: `stratSide` → `currentVariant` (per-dungeon variant key). No external API change — the slash command surface is the same. The site-side gating contract is also unchanged.
+
+**Verified behavior in v1.7.4:**
+
+| Instance | Frame shows | First boss kill action |
+|---|---|---|
+| Blackrock Depths | "Blackrock Depths" header, 4 bosses | Records kill |
+| Blackrock Spire | "Blackrock Spire (variant: select below)" + [LBRS] [UBRS] buttons + all 10 bosses tagged | Auto-resolves to LBRS or UBRS if user hadn't clicked |
+| Scholomance | "Scholomance" header, 8 bosses | Records kill |
+| Stratholme | "Stratholme (variant: select below)" + [Live] [Undead] buttons + all 10 bosses tagged | Auto-resolves on first side-specific kill |
+| Baradin Hold | "Baradin Hold" header, 4 bosses | Records kill |
+
+Patch-level; rolls into v1.8.0 alongside v1.7.1–v1.7.3.
+
+---
+
 ## EpogArmory v1.7.3 — Dungeon speedrun status frame (internal) *(2026-05-20)*
 
 New module `EpogArmoryDungeon.lua` — companion to the existing dummy-parse frame, but for dungeon speedrun runs that feed the epoglogs.com leaderboard. Auto-opens when the player enters a tracked dungeon; shows live boss-kill progress + run timer + `/combatlog` status; prompts once on entry to start the log.

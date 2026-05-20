@@ -36,6 +36,14 @@ local time, GetTime = time, GetTime
 -- of UI/state. Boss tracking covers the primary user need ("which
 -- bosses did I kill, which am I missing"). Add trash in v1.7.4 if
 -- the user asks.
+-- Multi-variant pattern: some instances share one GetInstanceInfo() name
+-- but map to multiple leaderboard dungeons. The "variants" field signals
+-- DetectDungeon that a side/variant choice is needed:
+--   "Blackrock Spire" → variants { lbrs, ubrs }
+--   "Stratholme"      → variants { live, undead }
+-- For these, the user picks a variant via buttons in the frame (or it
+-- auto-resolves on the first boss kill that uniquely belongs to one side).
+-- Single-variant dungeons just have a top-level `bosses` array.
 local DUNGEONS = {
     ["Blackrock Depths"] = {
         displayName = "Blackrock Depths",
@@ -46,24 +54,31 @@ local DUNGEONS = {
             "Princess Moira Bronzebeard",
         },
     },
-    ["Lower Blackrock Spire"] = {
-        displayName = "Lower Blackrock Spire",
-        bosses = {
-            "Highlord Omokk",
-            "Shadow Hunter Vosh'gajin",
-            "War Master Voone",
-            "Mother Smolderweb",
-            "Halycon",
-            "Overlord Wyrmthalak",
-        },
-    },
-    ["Upper Blackrock Spire"] = {
-        displayName = "Upper Blackrock Spire",
-        bosses = {
-            "Warchief Rend Blackhand",
-            "Gyth",
-            "The Beast",
-            "General Drakkisath",
+    ["Blackrock Spire"] = {
+        displayName = "Blackrock Spire (variant: select below)",
+        variants = {
+            lbrs = {
+                displayName = "Lower Blackrock Spire",
+                shortName   = "LBRS",
+                bosses = {
+                    "Highlord Omokk",
+                    "Shadow Hunter Vosh'gajin",
+                    "War Master Voone",
+                    "Mother Smolderweb",
+                    "Halycon",
+                    "Overlord Wyrmthalak",
+                },
+            },
+            ubrs = {
+                displayName = "Upper Blackrock Spire",
+                shortName   = "UBRS",
+                bosses = {
+                    "Warchief Rend Blackhand",
+                    "Gyth",
+                    "The Beast",
+                    "General Drakkisath",
+                },
+            },
         },
     },
     ["Scholomance"] = {
@@ -79,14 +94,12 @@ local DUNGEONS = {
             "Darkmaster Gandling",
         },
     },
-    -- Stratholme is two dungeons sharing one instance name. The "sides"
-    -- field signals to the rest of the module that DetectDungeon needs
-    -- to defer side resolution until the first boss kill.
     ["Stratholme"] = {
-        displayName = "Stratholme (side: detecting…)",
-        sides = {
+        displayName = "Stratholme (variant: select below)",
+        variants = {
             live = {
                 displayName = "Stratholme — Live",
+                shortName   = "Live",
                 bosses = {
                     "Archivist Galford",
                     "Balnazzar",
@@ -96,6 +109,7 @@ local DUNGEONS = {
             },
             undead = {
                 displayName = "Stratholme — Undead",
+                shortName   = "Undead",
                 bosses = {
                     "Magistrate Barthilas",
                     "Nerub'enkan",
@@ -118,12 +132,19 @@ local DUNGEONS = {
     },
 }
 
--- Reverse lookup: boss name → side key for Stratholme. Built once at file
--- load so the CLEU handler can O(1) detect the side on first boss kill.
-local STRAT_BOSS_TO_SIDE = {}
-for sideKey, sideDef in pairs(DUNGEONS["Stratholme"].sides) do
-    for _, bossName in ipairs(sideDef.bosses) do
-        STRAT_BOSS_TO_SIDE[bossName] = sideKey
+-- Per-dungeon reverse lookup: boss name → variant key. Built once at
+-- file load so OnBossKilled can O(1) auto-resolve the variant for
+-- multi-variant dungeons. Single-variant dungeons get no entry here.
+-- Example: BOSS_TO_VARIANT["Blackrock Spire"]["Highlord Omokk"] = "lbrs"
+local BOSS_TO_VARIANT = {}
+for dungeonKey, def in pairs(DUNGEONS) do
+    if def.variants then
+        BOSS_TO_VARIANT[dungeonKey] = {}
+        for variantKey, variantDef in pairs(def.variants) do
+            for _, bossName in ipairs(variantDef.bosses) do
+                BOSS_TO_VARIANT[dungeonKey][bossName] = variantKey
+            end
+        end
     end
 end
 
@@ -133,7 +154,7 @@ end
 
 local frame              = nil          -- the UI frame, lazily built
 local currentDungeon     = nil          -- key into DUNGEONS, or nil if not in a tracked dungeon
-local stratSide          = nil          -- "live" | "undead" | nil when in Stratholme but unresolved
+local currentVariant          = nil          -- variant key (e.g. "lbrs", "ubrs", "live", "undead") for multi-variant dungeons; nil when not yet resolved
 local dungeonStartTime   = nil          -- GetTime() when entered
 local bossKills          = {}           -- set: bossName → true once UNIT_DIED fires
 local loggingActive      = false        -- mirror of LoggingCombat() state — set by us, never read from API (no getter)
@@ -145,9 +166,10 @@ local userDeclinedLog    = false        -- per-run: user clicked "No" on the pro
 -- ============================================================================
 
 -- Returns the dungeon key (matching DUNGEONS) for the current instance,
--- or nil if the player is not in a tracked dungeon. Stratholme returns
--- "Stratholme" even though we don't yet know the side; the side gets
--- resolved later on first boss kill.
+-- or nil if the player is not in a tracked dungeon. Multi-variant
+-- dungeons (Blackrock Spire, Stratholme) return their shared name
+-- even though we don't yet know the variant; that gets resolved
+-- either by user button click or by first boss kill.
 local function DetectDungeon()
     if not IsInInstance or not GetInstanceInfo then return nil end
     local inInstance, instanceType = IsInInstance()
@@ -159,21 +181,22 @@ local function DetectDungeon()
     return nil
 end
 
--- Returns the list of bosses for the current dungeon. For Stratholme,
--- returns the side's roster once stratSide is resolved, or a synthetic
--- combined "both sides" preview before resolution.
+-- Returns the list of bosses for the current dungeon. For multi-variant
+-- dungeons, returns the resolved variant's roster, or a synthetic
+-- combined "all variants" preview before resolution.
 local function GetCurrentBosses()
     if not currentDungeon then return {} end
     local def = DUNGEONS[currentDungeon]
-    if def.sides then
-        if stratSide then
-            return def.sides[stratSide].bosses
+    if def.variants then
+        if currentVariant then
+            return def.variants[currentVariant].bosses
         else
-            -- Side undetected: return BOTH lists concatenated so the
-            -- UI can show them all greyed out as "side TBD".
+            -- Variant undetected: return ALL variants' bosses concatenated
+            -- so the UI can show them tagged + greyed until the user picks.
             local combined = {}
-            for _, b in ipairs(def.sides.live.bosses) do combined[#combined+1] = b end
-            for _, b in ipairs(def.sides.undead.bosses) do combined[#combined+1] = b end
+            for _, variantDef in pairs(def.variants) do
+                for _, b in ipairs(variantDef.bosses) do combined[#combined+1] = b end
+            end
             return combined
         end
     end
@@ -181,13 +204,13 @@ local function GetCurrentBosses()
 end
 
 -- Returns the human-friendly name for the current dungeon, including
--- the resolved Stratholme side if known.
+-- the resolved variant if known.
 local function GetCurrentDisplayName()
     if not currentDungeon then return "(not in a dungeon)" end
     local def = DUNGEONS[currentDungeon]
-    if def.sides then
-        if stratSide then return def.sides[stratSide].displayName end
-        return def.displayName -- "Stratholme (side: detecting…)"
+    if def.variants then
+        if currentVariant then return def.variants[currentVariant].displayName end
+        return def.displayName -- "<Name> (variant: select below)"
     end
     return def.displayName
 end
@@ -205,10 +228,12 @@ end
 local function IsBossOfCurrent(destName)
     if not currentDungeon or not destName then return false end
     local def = DUNGEONS[currentDungeon]
-    if def.sides then
-        -- For Stratholme, both sides' bosses count as "boss of current"
-        -- whether or not the side is resolved.
-        return STRAT_BOSS_TO_SIDE[destName] ~= nil
+    if def.variants then
+        -- For multi-variant dungeons, ANY variant's boss counts as
+        -- "boss of current" — we use the kill to auto-resolve the
+        -- variant if it wasn't manually selected.
+        local map = BOSS_TO_VARIANT[currentDungeon]
+        return map and map[destName] ~= nil
     end
     for _, b in ipairs(def.bosses) do
         if b == destName then return true end
@@ -228,7 +253,7 @@ local BuildFrame
 
 local function ResetRun()
     currentDungeon    = nil
-    stratSide         = nil
+    currentVariant         = nil
     dungeonStartTime  = nil
     bossKills         = {}
     promptShown       = false
@@ -282,18 +307,19 @@ local function OnBossKilled(bossName)
     if bossKills[bossName] then return end -- already recorded
     bossKills[bossName] = true
 
-    -- Stratholme side resolution: lock in the side based on which
-    -- list this boss belongs to.
+    -- Multi-variant auto-resolution: if the user hasn't picked a variant
+    -- yet, lock it in based on which variant this boss belongs to.
     local def = DUNGEONS[currentDungeon]
-    if def.sides and not stratSide then
-        stratSide = STRAT_BOSS_TO_SIDE[bossName]
-        if stratSide then
-            print(string.format("|cffffaa44EpogArmory|r: Stratholme side detected: |cffffd200%s|r",
-                def.sides[stratSide].displayName))
+    if def.variants and not currentVariant then
+        local map = BOSS_TO_VARIANT[currentDungeon]
+        currentVariant = map and map[bossName]
+        if currentVariant then
+            print(string.format("|cffffaa44EpogArmory|r: variant auto-detected from boss kill: |cffffd200%s|r",
+                def.variants[currentVariant].displayName))
         end
     end
 
-    print(string.format("|cffffaa44EpogArmory|r: |cff66ff66boss down|r — %s", bossName))
+    print(string.format("|cffffaa44EpogArmory|r: |cff66ff66boss down|r - %s", bossName))
 
     if frame and frame.UpdateUI then frame.UpdateUI() end
 end
@@ -317,11 +343,10 @@ end
 BuildFrame = function()
     local f = CreateFrame("Frame", "EpogArmoryDungeonFrame", UIParent)
     -- Width matches the dummy frame (280) for visual consistency.
-    -- Height set so the largest roster (Stratholme combined preview =
-    -- 10 boss rows at 12px pitch) plus the bottom toggle button fit
-    -- without overlap. Computed: header (~200) + 10 rows × 12 (120)
-    -- + bottom button area (~40) + 40 padding = ~400.
-    f:SetWidth(280); f:SetHeight(400)
+    -- Height bumped from 400 -> 432 in v1.7.4 to absorb the new
+    -- variant-selection row inserted between dungeonLabel and the
+    -- timer (Blackrock Spire LBRS/UBRS, Stratholme Live/Undead).
+    f:SetWidth(280); f:SetHeight(432)
     f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -20)
     f:SetFrameStrata("FULLSCREEN_DIALOG")
     f:SetBackdrop({
@@ -343,15 +368,28 @@ BuildFrame = function()
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -2, -2)
 
-    -- Dungeon name (resolved + side)
+    -- Dungeon name (resolved + variant)
     f.dungeonLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     f.dungeonLabel:SetPoint("TOP", 0, -32)
     f.dungeonLabel:SetWidth(252)
     f.dungeonLabel:SetJustifyH("CENTER")
 
-    -- Timer
+    -- Variant selection container (v1.7.4). Shown only when the
+    -- current dungeon has variants AND no variant is yet resolved.
+    -- Holds up to 2 buttons side-by-side (LBRS/UBRS or Live/Undead).
+    -- Buttons get repopulated each time the container is shown to
+    -- match the current dungeon's variants.
+    f.variantContainer = CreateFrame("Frame", nil, f)
+    f.variantContainer:SetPoint("TOP", 0, -52)
+    f.variantContainer:SetWidth(252)
+    f.variantContainer:SetHeight(24)
+    f.variantContainer:Hide()
+    f.variantBtns = {} -- variantKey -> button, populated lazily
+
+    -- Timer (Huge font; shifted from -56 to -88 in v1.7.4 to make
+    -- room for the variant row above).
     f.timerLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-    f.timerLabel:SetPoint("TOP", 0, -56)
+    f.timerLabel:SetPoint("TOP", 0, -88)
 
     -- Run status (IN PROGRESS / COMPLETE / IDLE)
     f.statusBadge = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -363,9 +401,11 @@ BuildFrame = function()
 
     -- Prompt: shown once on dungeon entry. Two buttons (Yes/No), an
     -- explanatory label. Non-secure — LoggingCombat is unprotected.
+    -- Position shifted from -130 to -162 in v1.7.4 to follow the
+    -- timer's new y position.
     f.prompt = CreateFrame("Frame", nil, f)
-    f.prompt:SetPoint("TOPLEFT", 16, -130)
-    f.prompt:SetPoint("TOPRIGHT", -16, -130)
+    f.prompt:SetPoint("TOPLEFT", 16, -162)
+    f.prompt:SetPoint("TOPRIGHT", -16, -162)
     f.prompt:SetHeight(54)
     f.prompt:Hide()
     f.prompt.bg = f.prompt:CreateTexture(nil, "BACKGROUND")
@@ -392,14 +432,15 @@ BuildFrame = function()
         if frame and frame.UpdateUI then frame.UpdateUI() end
     end)
 
-    -- Boss list header
+    -- Boss list header (shifted from -200 to -232 in v1.7.4)
     f.bossesLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.bossesLabel:SetPoint("TOPLEFT", 14, -200)
+    f.bossesLabel:SetPoint("TOPLEFT", 14, -232)
     f.bossesLabel:SetText("|cffffd200Bosses|r")
 
-    -- Pre-create 12 boss text rows (max we'd ever need = Strat both
-    -- sides = 10, leave some headroom). Show/hide on demand.
-    local BOSS_TOP   = -216
+    -- Pre-create 12 boss text rows (max we'd ever need = combined
+    -- multi-variant preview = up to 10, leave some headroom).
+    -- Boss row top shifted from -216 to -248 in v1.7.4.
+    local BOSS_TOP   = -248
     local BOSS_PITCH = 12
     f.bossTexts = {}
     for i = 1, 12 do
@@ -478,24 +519,79 @@ BuildFrame = function()
             f.prompt:Hide()
         end
 
-        -- Boss list. Build the text per-row with ✓/✗ + colored name.
+        -- Variant selection buttons (v1.7.4). Shown only when the
+        -- current dungeon has variants AND the variant isn't yet
+        -- resolved. Lazily creates one button per variant the first
+        -- time we see this dungeon. Buttons are positioned within
+        -- variantContainer (252px wide, 24px tall) — for 2 variants,
+        -- each gets ~120px wide centered side-by-side.
+        do
+            local def = currentDungeon and DUNGEONS[currentDungeon] or nil
+            if def and def.variants and not currentVariant then
+                -- Build button per variant if not yet created. We'd build
+                -- once per dungeon, so we check by key. This is robust
+                -- against the user re-entering a different multi-variant
+                -- dungeon (Strat -> BRS) — different keys, fresh buttons.
+                local variantKeys = {}
+                for vk in pairs(def.variants) do variantKeys[#variantKeys+1] = vk end
+                table.sort(variantKeys) -- deterministic order
+                local n = #variantKeys
+                local btnWidth = math.floor((252 - 8 * (n - 1)) / n) -- 8px gap between buttons
+                for i, vk in ipairs(variantKeys) do
+                    local btn = f.variantBtns[vk]
+                    if not btn then
+                        btn = CreateFrame("Button", nil, f.variantContainer, "UIPanelButtonTemplate")
+                        btn:SetHeight(22)
+                        btn:SetScript("OnClick", function(self)
+                            -- Capture the variant key from the closure
+                            currentVariant = self._variantKey
+                            print(string.format("|cffffaa44EpogArmory|r: variant selected: |cffffd200%s|r",
+                                def.variants[currentVariant].displayName))
+                            if frame and frame.UpdateUI then frame.UpdateUI() end
+                        end)
+                        f.variantBtns[vk] = btn
+                    end
+                    btn._variantKey = vk
+                    btn:SetWidth(btnWidth)
+                    btn:ClearAllPoints()
+                    btn:SetPoint("LEFT", f.variantContainer, "LEFT",
+                        (i - 1) * (btnWidth + 8), 0)
+                    btn:SetText(def.variants[vk].shortName or vk)
+                    btn:Show()
+                end
+                -- Hide any leftover buttons from a previous dungeon's
+                -- variants that aren't in the current set.
+                for vk, btn in pairs(f.variantBtns) do
+                    if not def.variants[vk] then btn:Hide() end
+                end
+                f.variantContainer:Show()
+            else
+                f.variantContainer:Hide()
+            end
+        end
+
+        -- Boss list. Build the text per-row with +/- markers.
         local bosses = GetCurrentBosses()
+        local def = DUNGEONS[currentDungeon] -- may be nil if no dungeon
+        local variantMap = currentDungeon and BOSS_TO_VARIANT[currentDungeon] or nil
         for i = 1, #f.bossTexts do
             local row = f.bossTexts[i]
             local bossName = bosses[i]
             if bossName then
-                local def = DUNGEONS[currentDungeon] -- may be nil if no dungeon
-                local sideTag = ""
-                if def and def.sides and not stratSide then
-                    -- Annotate which side each boss belongs to since
+                local variantTag = ""
+                if def and def.variants and not currentVariant and variantMap then
+                    -- Annotate which variant each boss belongs to since
                     -- both lists are mixed in pre-resolution.
-                    local s = STRAT_BOSS_TO_SIDE[bossName]
-                    if s then sideTag = string.format(" |cff888888(%s)|r", s) end
+                    local v = variantMap[bossName]
+                    if v then
+                        local short = def.variants[v].shortName or v
+                        variantTag = string.format(" |cff888888(%s)|r", short)
+                    end
                 end
                 if bossKills[bossName] then
-                    row:SetText(string.format("|cff66ff66+|r %s%s", bossName, sideTag))
+                    row:SetText(string.format("|cff66ff66+|r %s%s", bossName, variantTag))
                 else
-                    row:SetText(string.format("|cffaaaaaa-|r |cff888888%s%s|r", bossName, sideTag))
+                    row:SetText(string.format("|cffaaaaaa-|r |cff888888%s%s|r", bossName, variantTag))
                 end
                 row:Show()
             else
@@ -566,8 +662,8 @@ _G.EpogArmoryDungeon_Debug = function()
     else
         print("  GetInstanceInfo: API not available")
     end
-    print(string.format("  module state: currentDungeon=%s, stratSide=%s, dungeonStartTime=%s",
-        tostring(currentDungeon), tostring(stratSide), tostring(dungeonStartTime)))
+    print(string.format("  module state: currentDungeon=%s, currentVariant=%s, dungeonStartTime=%s",
+        tostring(currentDungeon), tostring(currentVariant), tostring(dungeonStartTime)))
     print(string.format("  frame: built=%s, shown=%s",
         tostring(frame ~= nil), tostring(frame and frame:IsShown())))
     print(string.format("  logging: active=%s, promptShown=%s, userDeclined=%s",
