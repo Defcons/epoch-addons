@@ -21,15 +21,6 @@
 local floor = math.floor
 local time, GetTime = time, GetTime
 
--- Claude v1.7.4: load-time debug prints. If you do not see
--- "[EpogArmoryDungeon] file load START" in chat after a /reload,
--- the file is not being read by WoW at all (TOC cache issue —
--- requires a full client exit-and-restart to re-parse the TOC).
--- If you see START but NOT END, there's a parse or runtime error
--- somewhere between them; the Lua error popup should appear with
--- /console scriptErrors 1 enabled.
-print("|cffffaa44EpogArmory|r [EpogArmoryDungeon] file load START")
-
 -- ============================================================================
 -- Dungeon roster — keyed by GetInstanceInfo() name
 -- ============================================================================
@@ -254,11 +245,18 @@ end
 -- State transitions
 -- ============================================================================
 
--- Forward declaration so OnEnterDungeon (which lazily builds the frame
--- on first dungeon entry) can refer to BuildFrame defined further down.
--- Without this, BuildFrame is looked up as a global at call time and
--- resolves to nil. Common Lua scoping gotcha.
+-- Forward declarations so functions defined earlier can call functions
+-- defined further down. Without these, the names are looked up as
+-- globals at call time and resolve to nil. Common Lua scoping gotcha.
+--
+-- Required for:
+--   BuildFrame  -- called from OnEnterDungeon (lazy build on entry)
+--                  and from _G.EpogArmoryDungeon_Toggle.
+--   AnchorTopLeft -- called from OnEnterDungeon (re-anchor on entry).
+--                    Bug fix v1.7.4: crashed PLAYER_ENTERING_WORLD
+--                    with "attempt to call global 'AnchorTopLeft'".
 local BuildFrame
+local AnchorTopLeft
 
 local function ResetRun()
     currentDungeon    = nil
@@ -339,8 +337,9 @@ end
 
 -- Anchor helper mirrors the dummy frame's approach: pin to top-left
 -- of UIParent on every Show so a panel rearrange doesn't lose the
--- frame off-screen.
-local function AnchorTopLeft(f)
+-- frame off-screen. Assigned to the forward-declared local (see top
+-- of state-transitions section).
+AnchorTopLeft = function(f)
     f:ClearAllPoints()
     f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -20)
 end
@@ -691,8 +690,6 @@ eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 eventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-
-print("|cffffaa44EpogArmory|r [EpogArmoryDungeon] file load END (globals set)")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD"
