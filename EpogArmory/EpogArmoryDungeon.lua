@@ -53,6 +53,12 @@ local DUNGEONS = {
             "Emperor Dagran Thaurissan",
             "Princess Moira Bronzebeard",
         },
+        trash = {
+            { name = "Fireguard",            mobs = {"Fireguard"},                                            required = 1 },
+            { name = "Anvilrage",            mobs = {"Anvilrage Footman", "Anvilrage Guardsman"},             required = 6 },
+            { name = "Blazing Fireguard",    mobs = {"Blazing Fireguard"},                                    required = 2 },
+            { name = "Fireguard Destroyer",  mobs = {"Fireguard Destroyer"},                                  required = 3 },
+        },
     },
     ["Blackrock Spire"] = {
         displayName = "Blackrock Spire (variant: select below)",
@@ -68,6 +74,15 @@ local DUNGEONS = {
                     "Halycon",
                     "Overlord Wyrmthalak",
                 },
+                trash = {
+                    { name = "Scarshield",     mobs = {"Scarshield Legionnaire","Scarshield Acolyte","Scarshield Spellbinder","Scarshield Raider","Scarshield Warlock"}, required = 16 },
+                    { name = "Spirestone",     mobs = {"Spirestone Enforcer","Spirestone Ogre Magus","Spirestone Battle Mage","Spirestone Warlord"},                     required = 6 },
+                    { name = "Smolderthorn A", mobs = {"Smolderthorn Shadow Priest","Smolderthorn Mystic","Smolderthorn Axe Thrower","Smolderthorn Shadow Hunter"},      required = 10 },
+                    { name = "Smolderthorn B", mobs = {"Smolderthorn Berserker","Smolderthorn Seer","Smolderthorn Witch Doctor","Smolderthorn Headhunter"},              required = 9 },
+                    { name = "Firebrand",      mobs = {"Firebrand Legionnaire","Firebrand Grunt","Firebrand Invoker","Firebrand Darkweaver","Firebrand Pyromancer","Firebrand Dreadweaver"}, required = 22 },
+                    { name = "Spire Spider",   mobs = {"Spire Spider"},                                                                                                  required = 5 },
+                    { name = "Bloodaxe",       mobs = {"Bloodaxe Veteran","Bloodaxe Warmonger","Bloodaxe Evoker","Bloodaxe Raider","Bloodaxe Summoner"},                 required = 14 },
+                },
             },
             ubrs = {
                 displayName = "Upper Blackrock Spire",
@@ -77,6 +92,12 @@ local DUNGEONS = {
                     "Gyth",
                     "The Beast",
                     "General Drakkisath",
+                },
+                trash = {
+                    { name = "Ragetalon",          mobs = {"Ragetalon Dragonspawn","Ragetalon Flamescale"},                       required = 10 },
+                    { name = "Blackhand caster",   mobs = {"Blackhand Dreadweaver","Blackhand Elite","Blackhand Veteran"},        required = 14 },
+                    { name = "Rage Talon",         mobs = {"Rage Talon Dragon Guard","Rage Talon Fire Tongue","Rage Talon Captain"}, required = 6 },
+                    { name = "Blackhand assassin", mobs = {"Blackhand Thug","Blackhand Iron Guard","Blackhand Assassin"},         required = 6 },
                 },
             },
         },
@@ -93,6 +114,14 @@ local DUNGEONS = {
             "Lady Illucia Barov",
             "Darkmaster Gandling",
         },
+        trash = {
+            { name = "Risen Guard",           mobs = {"Risen Guard"},                                                          required = 5 },
+            { name = "Spectral / Acolyte",    mobs = {"Spectral Researcher","Scholomance Acolyte","Scholomance Neophyte"},     required = 4 },
+            { name = "Dark Summoner / Necro", mobs = {"Scholomance Dark Summoner","Scholomance Necrolyte"},                    required = 6 },
+            -- Note: keeping the typo "Scolomance Adept" verbatim from the
+            -- epoglogs rules — Blizzard's mob name is misspelled in-game.
+            { name = "Necromancer / Adept",   mobs = {"Scholomance Necromancer","Spectral Tutor","Scolomance Adept"},          required = 9 },
+        },
     },
     ["Stratholme"] = {
         displayName = "Stratholme (variant: select below)",
@@ -106,6 +135,13 @@ local DUNGEONS = {
                     "Timmy the Cruel",
                     "The Unforgiven",
                 },
+                trash = {
+                    { name = "Skeletons/Cadavers", mobs = {"Skeletal Berserker","Mangled Cadaver","Skeletal Guardian","Ravaged Cadaver"}, required = 25 },
+                    { name = "Plague Ghoul",       mobs = {"Plague Ghoul"},                                                                required = 6 },
+                    { name = "Patchwerk Horror",   mobs = {"Patchwerk Horror"},                                                            required = 1 },
+                    { name = "Crimson melee",      mobs = {"Crimson Gallant","Crimson Guardsman","Crimson Initiate","Crimson Conjurer"},  required = 14 },
+                    { name = "Crimson caster",     mobs = {"Crimson Sorcerer","Crimson Battle Mage","Crimson Monk"},                      required = 6 },
+                },
             },
             undead = {
                 displayName = "Stratholme — Undead",
@@ -118,6 +154,15 @@ local DUNGEONS = {
                     "Ramstein the Gorger",
                     "Lord Aurius Rivendare",
                 },
+                trash = {
+                    { name = "Skeletons/Cadavers", mobs = {"Skeletal Berserker","Mangled Cadaver","Skeletal Guardian","Ravaged Cadaver"}, required = 8 },
+                    { name = "Banshees",           mobs = {"Wailing Banshee","Shrieking Banshee"},                                         required = 6 },
+                    -- Typo "Ghould Ravener" kept verbatim from epoglogs rules (Blizzard mob name).
+                    { name = "Ghouls",             mobs = {"Plague Ghoul","Ghould Ravener","Fleshflayer Ghoul"},                          required = 10 },
+                    { name = "Crypt",              mobs = {"Crypt Beast","Crypt Crawler"},                                                 required = 6 },
+                    { name = "Rockwing",           mobs = {"Rockwing Screecher","Rockwing Gargoyle"},                                      required = 6 },
+                    { name = "Thuzadin",           mobs = {"Thuzadin Necromancer","Thuzadin Shadowcaster"},                                required = 6 },
+                },
             },
         },
     },
@@ -128,6 +173,14 @@ local DUNGEONS = {
             "Nazrasash",
             "Calypso",
             "Pirate Lord Blackstone",
+        },
+        trash = {
+            { name = "Baradin guards",   mobs = {"Baradin Sentry","Baradin Guard","Baradin Warden"},                  required = 8 },
+            { name = "Manifested",       mobs = {"Manifested Imp","Manifested Felhound","Manifested Infernal"},       required = 10 },
+            { name = "Improvised Cannon",mobs = {"Improvised Cannon"},                                                 required = 2 },
+            { name = "Blackstone melee", mobs = {"Blackstone Pirate","Blackstone Gunner","Blackstone Reaver"},        required = 12 },
+            { name = "Blackstone crew",  mobs = {"Blackstone Cook","Blackstone Cabin Boy"},                            required = 8 },
+            { name = "Blackstone elite", mobs = {"Blackstone Sea Dog","Blackstone Bosun","Blackstone Surgeon"},        required = 14 },
         },
     },
 }
@@ -148,16 +201,48 @@ for dungeonKey, def in pairs(DUNGEONS) do
     end
 end
 
+-- Trash lookup: mob name → bucket index, per dungeon (and per variant
+-- for multi-variant dungeons). Built once at load. Layout:
+--   TRASH_LOOKUP[dungeonKey][variantKey or "_"][mobName] = bucketIndex
+-- Where bucketIndex is the position in the trash array. The CLEU
+-- handler uses this to O(1) classify each UNIT_DIED.
+local TRASH_LOOKUP = {}
+for dKey, dDef in pairs(DUNGEONS) do
+    TRASH_LOOKUP[dKey] = {}
+    if dDef.variants then
+        for vKey, vDef in pairs(dDef.variants) do
+            TRASH_LOOKUP[dKey][vKey] = {}
+            if vDef.trash then
+                for bIdx, bucket in ipairs(vDef.trash) do
+                    for _, mob in ipairs(bucket.mobs) do
+                        TRASH_LOOKUP[dKey][vKey][mob] = bIdx
+                    end
+                end
+            end
+        end
+    elseif dDef.trash then
+        TRASH_LOOKUP[dKey]["_"] = {}
+        for bIdx, bucket in ipairs(dDef.trash) do
+            for _, mob in ipairs(bucket.mobs) do
+                TRASH_LOOKUP[dKey]["_"][mob] = bIdx
+            end
+        end
+    end
+end
+
 -- ============================================================================
 -- Module state
 -- ============================================================================
 
 local frame              = nil          -- the UI frame, lazily built
 local currentDungeon     = nil          -- key into DUNGEONS, or nil if not in a tracked dungeon
-local currentVariant          = nil          -- variant key (e.g. "lbrs", "ubrs", "live", "undead") for multi-variant dungeons; nil when not yet resolved
-local dungeonStartTime   = nil          -- GetTime() when entered
-local bossKills          = {}           -- set: bossName → true once UNIT_DIED fires
+local currentVariant     = nil          -- variant key (e.g. "lbrs", "ubrs", "live", "undead") for multi-variant dungeons; nil when not yet resolved
+local dungeonStartTime   = nil          -- GetTime() when entered (used for boss kill timestamps)
+local bossKillTimes      = {}           -- v1.7.5: bossName → elapsed seconds (from dungeon entry) when killed; nil = not killed
+local trashKills         = {}           -- v1.7.5: bucketIdx → count of mobs from that bucket killed
 local loggingActive      = false        -- mirror of LoggingCombat() state — set by us, never read from API (no getter)
+local logStartTime       = nil          -- v1.7.5: GetTime() when StartLogging was called; nil = never started this run
+local logEndTime         = nil          -- v1.7.5: GetTime() when StopLogging was called; used to freeze the timer at the stopped value
 local promptShown        = false        -- per-run flag: have we already shown the Yes/No prompt?
 local userDeclinedLog    = false        -- per-run: user clicked "No" on the prompt — don't re-ask this run
 
@@ -201,6 +286,19 @@ local function GetCurrentBosses()
         end
     end
     return def.bosses
+end
+
+-- Returns the trash bucket list for the current dungeon (resolved
+-- variant if multi-variant). Returns empty list if unresolved or no
+-- trash defined.
+local function GetCurrentTrash()
+    if not currentDungeon then return {} end
+    local def = DUNGEONS[currentDungeon]
+    if def.variants then
+        if not currentVariant then return {} end -- need variant resolved first
+        return def.variants[currentVariant].trash or {}
+    end
+    return def.trash or {}
 end
 
 -- Returns the human-friendly name for the current dungeon, including
@@ -262,7 +360,10 @@ local function ResetRun()
     currentDungeon    = nil
     currentVariant         = nil
     dungeonStartTime  = nil
-    bossKills         = {}
+    bossKillTimes     = {}
+    trashKills        = {}
+    logStartTime      = nil
+    logEndTime        = nil
     promptShown       = false
     userDeclinedLog   = false
     -- Don't touch loggingActive — that mirrors a global setting the
@@ -273,12 +374,21 @@ end
 local function StartLogging()
     if LoggingCombat then LoggingCombat(true) end
     loggingActive = true
+    -- v1.7.5: timer is tied to the log session, not dungeon entry.
+    -- Reset the log start/end timestamps so the visible timer counts
+    -- only logged seconds.
+    logStartTime = GetTime()
+    logEndTime   = nil
     print("|cffffaa44EpogArmory|r: |cff66ff66/combatlog started|r for this dungeon run.")
 end
 
 local function StopLogging()
     if LoggingCombat then LoggingCombat(false) end
     loggingActive = false
+    -- v1.7.5: freeze the timer at the stopped value by capturing the
+    -- end timestamp. UpdateUI shows (logEndTime - logStartTime) while
+    -- not logging, so the timer doesn't keep counting after stop.
+    logEndTime = GetTime()
     print("|cffffaa44EpogArmory|r: /combatlog stopped.")
 end
 
@@ -311,8 +421,10 @@ end
 
 local function OnBossKilled(bossName)
     if not currentDungeon then return end
-    if bossKills[bossName] then return end -- already recorded
-    bossKills[bossName] = true
+    if bossKillTimes[bossName] then return end -- already recorded
+    -- v1.7.5: record kill time as elapsed seconds since dungeon entry.
+    -- Timestamps show next to boss names in the UI (e.g. "+ Lord Incendius (3:42)").
+    bossKillTimes[bossName] = dungeonStartTime and (GetTime() - dungeonStartTime) or 0
 
     -- Multi-variant auto-resolution: if the user hasn't picked a variant
     -- yet, lock it in based on which variant this boss belongs to.
@@ -321,6 +433,10 @@ local function OnBossKilled(bossName)
         local map = BOSS_TO_VARIANT[currentDungeon]
         currentVariant = map and map[bossName]
         if currentVariant then
+            -- v1.7.5: trash buckets are per-variant; reset on auto-resolve
+            -- since any pre-resolution kills were counted against the wrong
+            -- variant's bucket indices anyway.
+            trashKills = {}
             print(string.format("|cffffaa44EpogArmory|r: variant auto-detected from boss kill: |cffffd200%s|r",
                 def.variants[currentVariant].displayName))
         end
@@ -350,11 +466,10 @@ end
 -- WoW 3.3.5 before; explicit assignment removes the doubt.
 BuildFrame = function()
     local f = CreateFrame("Frame", "EpogArmoryDungeonFrame", UIParent)
-    -- Width matches the dummy frame (280) for visual consistency.
-    -- Height bumped from 400 -> 432 in v1.7.4 to absorb the new
-    -- variant-selection row inserted between dungeonLabel and the
-    -- timer (Blackrock Spire LBRS/UBRS, Stratholme Live/Undead).
-    f:SetWidth(280); f:SetHeight(432)
+    -- v1.7.5: compact layout, smaller timer, trash bucket section.
+    -- Total height tuned to fit 10 boss rows + 7 trash rows + headers
+    -- + bottom button without scrolling.
+    f:SetWidth(280); f:SetHeight(430)
     f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -20)
     f:SetFrameStrata("FULLSCREEN_DIALOG")
     f:SetBackdrop({
@@ -378,15 +493,13 @@ BuildFrame = function()
 
     -- Dungeon name (resolved + variant)
     f.dungeonLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    f.dungeonLabel:SetPoint("TOP", 0, -32)
+    f.dungeonLabel:SetPoint("TOP", 0, -30)
     f.dungeonLabel:SetWidth(252)
     f.dungeonLabel:SetJustifyH("CENTER")
 
-    -- Variant selection container (v1.7.4). Shown only when the
-    -- current dungeon has variants AND no variant is yet resolved.
-    -- Holds up to 2 buttons side-by-side (LBRS/UBRS or Live/Undead).
-    -- Buttons get repopulated each time the container is shown to
-    -- match the current dungeon's variants.
+    -- Variant selection container — shown only when the current
+    -- dungeon has variants AND no variant is yet resolved. Holds
+    -- up to 2 buttons side-by-side (LBRS/UBRS or Live/Undead).
     f.variantContainer = CreateFrame("Frame", nil, f)
     f.variantContainer:SetPoint("TOP", 0, -52)
     f.variantContainer:SetWidth(252)
@@ -394,70 +507,88 @@ BuildFrame = function()
     f.variantContainer:Hide()
     f.variantBtns = {} -- variantKey -> button, populated lazily
 
-    -- Timer (Huge font; shifted from -56 to -88 in v1.7.4 to make
-    -- room for the variant row above).
-    f.timerLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-    f.timerLabel:SetPoint("TOP", 0, -88)
+    -- v1.7.5: Timer downsized from Huge (~32pt) to NormalLarge (~16pt)
+    -- per user feedback. Still the visual focal point but doesn't
+    -- dominate the frame any more.
+    f.timerLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    f.timerLabel:SetPoint("TOP", 0, -82)
 
     -- Run status (IN PROGRESS / COMPLETE / IDLE)
-    f.statusBadge = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.statusBadge = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.statusBadge:SetPoint("TOP", f.timerLabel, "BOTTOM", 0, -2)
 
     -- Logging status row
     f.logStatusLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.logStatusLabel:SetPoint("TOP", f.statusBadge, "BOTTOM", 0, -8)
+    f.logStatusLabel:SetPoint("TOP", f.statusBadge, "BOTTOM", 0, -4)
 
-    -- Prompt: shown once on dungeon entry. Two buttons (Yes/No), an
-    -- explanatory label. Non-secure — LoggingCombat is unprotected.
-    -- Position shifted from -130 to -162 in v1.7.4 to follow the
-    -- timer's new y position.
+    -- Prompt: compact version (height 38, was 54). Two buttons (Yes/No),
+    -- a short prompt text. Non-secure — LoggingCombat is unprotected.
     f.prompt = CreateFrame("Frame", nil, f)
-    f.prompt:SetPoint("TOPLEFT", 16, -162)
-    f.prompt:SetPoint("TOPRIGHT", -16, -162)
-    f.prompt:SetHeight(54)
+    f.prompt:SetPoint("TOPLEFT", 16, -148)
+    f.prompt:SetPoint("TOPRIGHT", -16, -148)
+    f.prompt:SetHeight(38)
     f.prompt:Hide()
     f.prompt.bg = f.prompt:CreateTexture(nil, "BACKGROUND")
     f.prompt.bg:SetAllPoints()
     f.prompt.bg:SetTexture("Interface\\Buttons\\WHITE8X8")
     f.prompt.bg:SetVertexColor(0.15, 0.15, 0.18, 0.7)
-    f.prompt.text = f.prompt:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.prompt.text:SetPoint("TOP", 0, -4)
+    f.prompt.text = f.prompt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.prompt.text:SetPoint("TOP", 0, -3)
     f.prompt.text:SetText("Start /combatlog for this run?")
     f.prompt.yes = CreateFrame("Button", nil, f.prompt, "UIPanelButtonTemplate")
-    f.prompt.yes:SetSize(80, 22); f.prompt.yes:SetText("Yes")
-    f.prompt.yes:SetPoint("BOTTOMLEFT", 20, 4)
+    f.prompt.yes:SetSize(70, 18); f.prompt.yes:SetText("Yes")
+    f.prompt.yes:SetPoint("BOTTOMLEFT", 24, 3)
     f.prompt.yes:SetScript("OnClick", function()
         StartLogging()
         f.prompt:Hide()
         if frame and frame.UpdateUI then frame.UpdateUI() end
     end)
     f.prompt.no = CreateFrame("Button", nil, f.prompt, "UIPanelButtonTemplate")
-    f.prompt.no:SetSize(80, 22); f.prompt.no:SetText("No")
-    f.prompt.no:SetPoint("BOTTOMRIGHT", -20, 4)
+    f.prompt.no:SetSize(70, 18); f.prompt.no:SetText("No")
+    f.prompt.no:SetPoint("BOTTOMRIGHT", -24, 3)
     f.prompt.no:SetScript("OnClick", function()
         userDeclinedLog = true
         f.prompt:Hide()
         if frame and frame.UpdateUI then frame.UpdateUI() end
     end)
 
-    -- Boss list header (shifted from -200 to -232 in v1.7.4)
+    -- Boss list header. v1.7.5: row pitch 12 -> 11, slot count 12 -> 10
+    -- (we never have more than 10 bosses combined preview anyway), and
+    -- whole section moved up since the rest got more compact.
     f.bossesLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.bossesLabel:SetPoint("TOPLEFT", 14, -232)
+    f.bossesLabel:SetPoint("TOPLEFT", 14, -192)
     f.bossesLabel:SetText("|cffffd200Bosses|r")
 
-    -- Pre-create 12 boss text rows (max we'd ever need = combined
-    -- multi-variant preview = up to 10, leave some headroom).
-    -- Boss row top shifted from -216 to -248 in v1.7.4.
-    local BOSS_TOP   = -248
-    local BOSS_PITCH = 12
+    local BOSS_TOP   = -204
+    local BOSS_PITCH = 11
     f.bossTexts = {}
-    for i = 1, 12 do
+    for i = 1, 10 do
         local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         fs:SetPoint("TOPLEFT", 18, BOSS_TOP - (i - 1) * BOSS_PITCH)
         fs:SetWidth(244)
         fs:SetJustifyH("LEFT")
         fs:Hide()
         f.bossTexts[i] = fs
+    end
+
+    -- v1.7.5: trash bucket section. Each row shows "<name> X/Y" with
+    -- color cue (red if 0, yellow if partial, green if complete).
+    -- Row max = 7 (LBRS has the most). Hidden if variant unresolved
+    -- (per-variant data) or no trash defined for the dungeon.
+    f.trashLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.trashLabel:SetPoint("TOPLEFT", 14, -310)
+    f.trashLabel:SetText("|cffffd200Trash|r")
+
+    local TRASH_TOP   = -322
+    local TRASH_PITCH = 11
+    f.trashTexts = {}
+    for i = 1, 7 do
+        local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("TOPLEFT", 18, TRASH_TOP - (i - 1) * TRASH_PITCH)
+        fs:SetWidth(244)
+        fs:SetJustifyH("LEFT")
+        fs:Hide()
+        f.trashTexts[i] = fs
     end
 
     -- Bottom action button: toggle log start/stop manually if the
@@ -480,20 +611,31 @@ BuildFrame = function()
     function f.UpdateUI()
         f.dungeonLabel:SetText(GetCurrentDisplayName())
 
-        -- Timer + status
-        if currentDungeon and dungeonStartTime then
-            local elapsed = GetTime() - dungeonStartTime
-            f.timerLabel:SetText(FormatElapsed(elapsed))
+        -- v1.7.5: timer is now driven by log start/end, not dungeon entry.
+        --   logStartTime set + loggingActive: live count from start
+        --   logStartTime set + !loggingActive: frozen at (logEndTime - logStartTime)
+        --   logStartTime nil: show "--:--" (no log session this run)
+        local timerText
+        if logStartTime and loggingActive then
+            timerText = FormatElapsed(GetTime() - logStartTime)
             f.timerLabel:SetTextColor(1, 1, 1)
+        elseif logStartTime and logEndTime then
+            timerText = FormatElapsed(logEndTime - logStartTime)
+            f.timerLabel:SetTextColor(0.8, 0.8, 0.4) -- yellowish: frozen
+        else
+            timerText = "--:--"
+            f.timerLabel:SetTextColor(0.5, 0.5, 0.5)
+        end
+        f.timerLabel:SetText(timerText)
+
+        -- Status badge
+        if currentDungeon then
             local bosses = GetCurrentBosses()
             local killed = 0
             for _, b in ipairs(bosses) do
-                if bossKills[b] then killed = killed + 1 end
+                if bossKillTimes[b] then killed = killed + 1 end
             end
             local total = #bosses
-            -- "Both sides" preview for Stratholme pre-resolution counts
-            -- against the larger combined list, so use the SIDE total
-            -- (whichever side we'll likely lock to) if any kills exist.
             if total > 0 and killed == total then
                 f.statusBadge:SetText("|cff66ff66COMPLETE|r")
             else
@@ -501,8 +643,6 @@ BuildFrame = function()
                     killed, total))
             end
         else
-            f.timerLabel:SetText("--:--")
-            f.timerLabel:SetTextColor(0.5, 0.5, 0.5)
             f.statusBadge:SetText("|cff888888IDLE|r")
         end
 
@@ -551,10 +691,19 @@ BuildFrame = function()
                         btn = CreateFrame("Button", nil, f.variantContainer, "UIPanelButtonTemplate")
                         btn:SetHeight(22)
                         btn:SetScript("OnClick", function(self)
-                            -- Capture the variant key from the closure
                             currentVariant = self._variantKey
+                            -- v1.7.5: trash buckets are per-variant; reset counters
+                            -- on variant pick so leftover counts from one side don't
+                            -- pollute the other.
+                            trashKills = {}
+                            -- Look up def fresh at click time rather than from the
+                            -- captured closure, since the user might re-enter a
+                            -- different multi-variant dungeon between button creation
+                            -- and click.
+                            local dDef = currentDungeon and DUNGEONS[currentDungeon]
+                            local vDef = dDef and dDef.variants and dDef.variants[currentVariant]
                             print(string.format("|cffffaa44EpogArmory|r: variant selected: |cffffd200%s|r",
-                                def.variants[currentVariant].displayName))
+                                vDef and vDef.displayName or currentVariant))
                             if frame and frame.UpdateUI then frame.UpdateUI() end
                         end)
                         f.variantBtns[vk] = btn
@@ -596,14 +745,66 @@ BuildFrame = function()
                         variantTag = string.format(" |cff888888(%s)|r", short)
                     end
                 end
-                if bossKills[bossName] then
-                    row:SetText(string.format("|cff66ff66+|r %s%s", bossName, variantTag))
+                local killT = bossKillTimes[bossName]
+                if killT then
+                    -- v1.7.5: append kill timestamp "(M:SS)" relative to dungeon entry
+                    local m = floor(killT / 60)
+                    local s = floor(killT % 60)
+                    row:SetText(string.format("|cff66ff66+|r %s%s |cff888888(%d:%02d)|r",
+                        bossName, variantTag, m, s))
                 else
                     row:SetText(string.format("|cffaaaaaa-|r |cff888888%s%s|r", bossName, variantTag))
                 end
                 row:Show()
             else
                 row:Hide()
+            end
+        end
+
+        -- v1.7.5: trash bucket rendering. Each row shows
+        -- "<bucket name> X/Y" where X=kills, Y=required. Color cues:
+        --   red    X==0
+        --   yellow 0<X<Y
+        --   green  X>=Y
+        -- Trash header shows aggregate "(N/M)" count of buckets met.
+        do
+            local trash = GetCurrentTrash()
+            local buckets, complete = #trash, 0
+            for i, bucket in ipairs(trash) do
+                if (trashKills[i] or 0) >= bucket.required then
+                    complete = complete + 1
+                end
+            end
+            local pickVariantFirst = currentDungeon
+                and DUNGEONS[currentDungeon].variants
+                and not currentVariant
+            if pickVariantFirst then
+                f.trashLabel:SetText("|cffffd200Trash|r |cff888888(pick variant first)|r")
+            elseif buckets == 0 then
+                f.trashLabel:SetText("|cffffd200Trash|r |cff888888(none)|r")
+            else
+                f.trashLabel:SetText(string.format("|cffffd200Trash|r |cff888888(%d / %d buckets)|r",
+                    complete, buckets))
+            end
+            for i = 1, #f.trashTexts do
+                local row = f.trashTexts[i]
+                local bucket = trash[i]
+                if bucket and not pickVariantFirst then
+                    local count = trashKills[i] or 0
+                    local color
+                    if count >= bucket.required then
+                        color = "|cff66ff66" -- green
+                    elseif count > 0 then
+                        color = "|cffffd200" -- yellow
+                    else
+                        color = "|cffff6666" -- red
+                    end
+                    row:SetText(string.format("%s%d/%d|r |cffcccccc%s|r",
+                        color, count, bucket.required, bucket.name))
+                    row:Show()
+                else
+                    row:Hide()
+                end
             end
         end
 
@@ -674,8 +875,16 @@ _G.EpogArmoryDungeon_Debug = function()
         tostring(currentDungeon), tostring(currentVariant), tostring(dungeonStartTime)))
     print(string.format("  frame: built=%s, shown=%s",
         tostring(frame ~= nil), tostring(frame and frame:IsShown())))
-    print(string.format("  logging: active=%s, promptShown=%s, userDeclined=%s",
-        tostring(loggingActive), tostring(promptShown), tostring(userDeclinedLog)))
+    print(string.format("  logging: active=%s, logStartTime=%s, logEndTime=%s, promptShown=%s, userDeclined=%s",
+        tostring(loggingActive), tostring(logStartTime), tostring(logEndTime),
+        tostring(promptShown), tostring(userDeclinedLog)))
+    do
+        local nBosses, nTrash = 0, 0
+        for _ in pairs(bossKillTimes) do nBosses = nBosses + 1 end
+        for _ in pairs(trashKills) do nTrash = nTrash + 1 end
+        print(string.format("  kills: %d bosses recorded, %d trash buckets touched",
+            nBosses, nTrash))
+    end
     print(string.format("  GetRealZoneText='%s', GetSubZoneText='%s'",
         tostring(GetRealZoneText and GetRealZoneText() or "?"),
         tostring(GetSubZoneText and GetSubZoneText() or "?")))
@@ -716,6 +925,21 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         if subevent ~= "UNIT_DIED" or not destName then return end
         if IsBossOfCurrent(destName) then
             OnBossKilled(destName)
+            return
+        end
+        -- v1.7.5: trash bucket tracking. Lookup whether this mob name
+        -- belongs to a trash bucket for the current dungeon (and
+        -- variant, if applicable). If so, increment its counter.
+        local dungeonLookup = TRASH_LOOKUP[currentDungeon]
+        if dungeonLookup then
+            local variantMap = dungeonLookup[currentVariant or "_"]
+            if variantMap then
+                local bucketIdx = variantMap[destName]
+                if bucketIdx then
+                    trashKills[bucketIdx] = (trashKills[bucketIdx] or 0) + 1
+                    if frame and frame.UpdateUI then frame.UpdateUI() end
+                end
+            end
         end
         return
     end

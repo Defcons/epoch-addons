@@ -20,6 +20,70 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.5 — Dungeon: trash buckets + log-tied timer + compact + kill timestamps (internal) *(2026-05-20)*
+
+Four interlocking improvements to the dungeon frame from in-game feedback.
+
+**1. Trash bucket tracking.** Each dungeon now ships with its full trash bucket roster from the epoglogs leaderboard rules: a list of mob-name groups with required kill counts. Rendered as a new section below the boss list:
+
+```
+Trash (3 / 7 buckets)
+  16/16 Scarshield
+   6/6  Spirestone
+   8/10 Smolderthorn A
+   0/9  Smolderthorn B
+   ...
+```
+
+Color cues per row: red = 0 kills, yellow = partial, green = met requirement. Trash header shows aggregate `(N / M buckets complete)`. For multi-variant dungeons, the trash section shows `(pick variant first)` until the variant is selected/resolved since buckets are per-variant.
+
+Implementation: `TRASH_LOOKUP[dungeonKey][variantKey or "_"][mobName] = bucketIndex` built once at load time. CLEU `UNIT_DIED` increments `trashKills[bucketIdx]`. Trash counters reset on dungeon entry AND on variant selection/auto-resolve (since LBRS buckets ≠ UBRS buckets — indices don't transfer).
+
+Trash bucket data added for all 7 dungeons (4-7 buckets each, totals: BRD 4, LBRS 7, UBRS 4, Scholo 4, Strat Live 5, Strat Undead 6, Baradin Hold 6). Bucket names kept short ("Anvilrage", "Scarshield", "Crimson melee") so rows fit in 244px of width.
+
+**2. Timer tied to logging, not dungeon entry.** Per user feedback: the timer was running off `dungeonStartTime` and counted forever, even after logging was stopped. Now driven by `logStartTime` / `logEndTime`:
+
+| State | Timer shows |
+|---|---|
+| Logging active | live count from `logStartTime` |
+| Logging stopped (post-Start) | frozen at `logEndTime - logStartTime`, yellow tint |
+| Never started | `--:--`, grey |
+
+`StartLogging` sets `logStartTime` + clears `logEndTime`. `StopLogging` sets `logEndTime`. Restarting the log resets `logStartTime` (since each log file is its own session — the leaderboard sees the most recent file).
+
+**3. Boss kill timestamps.** When a boss dies, the elapsed time since dungeon entry is stored in `bossKillTimes[bossName]`. The boss row in the UI appends `(M:SS)` after the boss name:
+
+```
++ Lord Incendius (1:34)
++ Magmus (3:22)
+- Emperor Dagran Thaurissan
+- Princess Moira Bronzebeard
+```
+
+Note timestamps are relative to **dungeon entry**, not log start. Boss kill events fire whether or not logging is on — relative-to-entry gives consistent timestamps regardless of when the user started/stopped /combatlog.
+
+Internally the `bossKills` set-of-booleans was replaced by `bossKillTimes` set-of-numbers. All previous `if bossKills[name]` truthiness checks still work since a stored number is truthy.
+
+**4. Compact layout.** Multiple sizing changes per user feedback ("Make it generally more compact"):
+
+| Element | Before | After |
+|---|---|---|
+| Timer font | `GameFontNormalHuge` (~32pt) | `GameFontNormalLarge` (~16pt) |
+| Status badge font | `GameFontNormal` | `GameFontHighlightSmall` |
+| Prompt frame height | 54px | 38px |
+| Prompt buttons | 80×22 | 70×18 |
+| Boss row pitch | 12px | 11px |
+| Boss row slot count | 12 (preallocated) | 10 (combined preview cap) |
+| Frame total height | 432 | 430 (smaller total despite added trash section) |
+
+Boss section starts higher (TOPLEFT y=-192) thanks to the smaller timer. Trash section fits below in the freed space (TOPLEFT y=-310). Bottom button position unchanged (`BOTTOM` offset 14).
+
+**No site-side impact.** All these are purely in-game UX. The combat log gating contract is unchanged.
+
+Patch-level. Rolls into v1.8.0 alongside v1.7.1–v1.7.4.
+
+---
+
 ## EpogArmory v1.7.4 — Dungeon multi-variant fix (BRS/Stratholme) (internal) *(2026-05-20)*
 
 Fixes the v1.7.3 dungeon frame failing to detect when in Blackrock Spire. Root cause: `GetInstanceInfo()` returns **`"Blackrock Spire"`** as the instance name regardless of whether the player is doing LBRS or UBRS (both sides share one instance on 3.3.5). My DUNGEONS table keyed on `"Lower Blackrock Spire"` / `"Upper Blackrock Spire"` which the client never returns — so the lookup silently fell through and the frame never opened.
