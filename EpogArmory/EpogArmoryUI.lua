@@ -2534,6 +2534,25 @@ local function BuildMinimapButton()
         end
         add("EpogArmory", nil, true)
         add("Open Armory",  function() ToggleBrowser() end)
+        -- Claude (v1.7.9): direct entry points to the two parse frames
+        -- so users don't need to remember /epogarmory dummy / dungeon.
+        -- Falls through to the slash command if the module global isn't
+        -- loaded (defensive — module files might not have parsed if a
+        -- Lua error halted them).
+        add("Open Dummy parse", function()
+            if _G.EpogArmoryDummy_Toggle then
+                _G.EpogArmoryDummy_Toggle()
+            else
+                SlashCmdList["EPOGARMORY"]("dummy")
+            end
+        end)
+        add("Open Dungeon run", function()
+            if _G.EpogArmoryDungeon_Toggle then
+                _G.EpogArmoryDungeon_Toggle()
+            else
+                SlashCmdList["EPOGARMORY"]("dungeon")
+            end
+        end)
         add("Status",       function() SlashCmdList["EPOGARMORY"]("status") end)
         add("Toggle Debug", function() SlashCmdList["EPOGARMORY"]("debug") end)
         add("Help",         function() SlashCmdList["EPOGARMORY"]("") end)
@@ -2576,7 +2595,7 @@ local function BuildMinimapButton()
         end
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Left-click: open the armory browser", 1, 1, 1)
-        GameTooltip:AddLine("Right-click: menu (status, debug, wipe...)", 1, 1, 1)
+        GameTooltip:AddLine("Right-click: menu (Dummy/Dungeon, status, debug, wipe...)", 1, 1, 1)
         GameTooltip:AddLine("Drag: reposition around the minimap", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)

@@ -20,6 +20,36 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.9 — Minimap menu: Dummy parse + Dungeon run entries (internal) *(2026-05-20)*
+
+Two new items in the minimap right-click menu so users don't need to remember the slash commands:
+
+```
+EpogArmory
+  Open Armory
+  Open Dummy parse    ← v1.7.9
+  Open Dungeon run    ← v1.7.9
+  Status
+  Toggle Debug
+  Help
+  Wipe DB
+  Cancel
+```
+
+**Implementation.** New `add()` calls in `InitMinimapMenu` (`EpogArmoryUI.lua` ~line 2540). Each clicks the relevant module's `_G.EpogArmory*_Toggle` function with a defensive fall-through to `SlashCmdList["EPOGARMORY"]("dummy" / "dungeon")` if the module global isn't loaded (e.g. a Lua error halted the dungeon module file). Same idempotency as the slash commands — clicking again closes the frame.
+
+**Tooltip updated** to mention the new menu entries:
+
+```
+Right-click: menu (Dummy/Dungeon, status, debug, wipe...)
+```
+
+No state changes, no SavedVariables. Pure UX shortcut.
+
+Patch-level. Rolls into v1.8.0 with v1.7.1–v1.7.8.
+
+---
+
 ## EpogArmory v1.7.8 — Raid silent mode (background logging, no UI) (internal) *(2026-05-20)*
 
 Per user feedback on v1.7.7: raid entry should run `/combatlog` invisibly. The dungeon frame should NOT auto-open, and the visible timer should NOT start. The chat confirmation is the only sign anything happened.
