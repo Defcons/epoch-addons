@@ -3646,6 +3646,15 @@ SlashCmdList["EPOGARMORY"] = function(msg)
         else
             print("|cffffaa44EpogArmory|r: dungeon module not loaded")
         end
+    elseif msg == "dungeondebug" then
+        -- Claude (v1.7.3): dump detection state. Use when auto-open
+        -- isn't firing — tells us what GetInstanceInfo returns and
+        -- whether the name matches the DUNGEONS table.
+        if _G.EpogArmoryDungeon_Debug then
+            _G.EpogArmoryDungeon_Debug()
+        else
+            print("|cffffaa44EpogArmory|r: dungeon module not loaded")
+        end
     elseif msg == "autosync" or msg:sub(1, 9) == "autosync " then
         -- Claude (v1.5.1): toggle background auto-sync. Same wire path as
         -- /syncfrom but ticks itself; cap is SYNC_MAX_CONCURRENT (3) and

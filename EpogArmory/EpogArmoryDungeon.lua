@@ -310,7 +310,11 @@ local function AnchorTopLeft(f)
     f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -20)
 end
 
-function BuildFrame()
+-- Assign via expression rather than `function BuildFrame()` so the
+-- forward-declared local is unambiguously the assignment target. The
+-- bare-function-syntax should work in Lua 5.1 but has bit users on
+-- WoW 3.3.5 before; explicit assignment removes the doubt.
+BuildFrame = function()
     local f = CreateFrame("Frame", "EpogArmoryDungeonFrame", UIParent)
     -- Width matches the dummy frame (280) for visual consistency.
     -- Height set so the largest roster (Stratholme combined preview =
@@ -533,6 +537,44 @@ _G.EpogArmoryDungeon_Toggle = function()
         frame:Show()
         frame.UpdateUI()
     end
+end
+
+-- Claude v1.7.3: diagnostic dump for when the auto-open isn't firing.
+-- Tells us exactly what GetInstanceInfo returns, whether the name is
+-- in the DUNGEONS table, and current module state. Wired to
+-- /epogarmory dungeondebug.
+_G.EpogArmoryDungeon_Debug = function()
+    print("|cffffaa44EpogArmory|r [dungeon-debug] dumping detection state:")
+    if IsInInstance then
+        local inInstance, instanceType = IsInInstance()
+        print(string.format("  IsInInstance: %s, type: %s",
+            tostring(inInstance), tostring(instanceType)))
+    else
+        print("  IsInInstance: API not available")
+    end
+    if GetInstanceInfo then
+        local name, instanceType, difficulty, difficultyName, maxPlayers = GetInstanceInfo()
+        print(string.format("  GetInstanceInfo: name='%s' type='%s' difficulty=%s difficultyName='%s' maxPlayers=%s",
+            tostring(name), tostring(instanceType), tostring(difficulty),
+            tostring(difficultyName), tostring(maxPlayers)))
+        if name and DUNGEONS[name] then
+            print(string.format("  |cff66ff66MATCH|r DUNGEONS['%s'] found", name))
+        elseif name then
+            print(string.format("  |cffff6666NO MATCH|r in DUNGEONS table for name='%s'", name))
+            print("  known keys: Blackrock Depths, Lower Blackrock Spire, Upper Blackrock Spire, Scholomance, Stratholme, Baradin Hold")
+        end
+    else
+        print("  GetInstanceInfo: API not available")
+    end
+    print(string.format("  module state: currentDungeon=%s, stratSide=%s, dungeonStartTime=%s",
+        tostring(currentDungeon), tostring(stratSide), tostring(dungeonStartTime)))
+    print(string.format("  frame: built=%s, shown=%s",
+        tostring(frame ~= nil), tostring(frame and frame:IsShown())))
+    print(string.format("  logging: active=%s, promptShown=%s, userDeclined=%s",
+        tostring(loggingActive), tostring(promptShown), tostring(userDeclinedLog)))
+    print(string.format("  GetRealZoneText='%s', GetSubZoneText='%s'",
+        tostring(GetRealZoneText and GetRealZoneText() or "?"),
+        tostring(GetSubZoneText and GetSubZoneText() or "?")))
 end
 
 -- ============================================================================
