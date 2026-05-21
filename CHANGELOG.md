@@ -20,6 +20,83 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.8.0 — Dungeon speedruns + raid auto-log + dummy practice mode *(2026-05-21)*
+
+Consolidated public release of the v1.7.1–v1.7.11 internal iteration. Headline features: a new Dungeon Run frame tracking boss kills + trash buckets for the epoglogs leaderboard, raid auto-log with ownership management, a PRACTICE mode on the dummy frame for log-free DPS readouts, and polish on the existing dummy parse flow.
+
+**Dungeon speedrun status frame** (new file `EpogArmoryDungeon.lua`)
+
+Auto-opens when the player enters a tracked dungeon (`/epogarmory dungeon` to toggle manually). Shows:
+- Dungeon name + variant selector buttons for multi-variant instances
+- Live boss-kill progress with per-boss "(M:SS)" kill timestamps
+- Trash bucket roster from the epoglogs leaderboard rules (e.g. `16/16 Scarshield`) with red/yellow/green color cues
+- /combatlog status row (`ACTIVE` / `OFF`) + manual Start/Stop button
+- Run timer tied to the actual logging session (stops when logging stops)
+- One-time Yes/No prompt on entry asking whether to start /combatlog
+
+**Tracked dungeons (8):**
+
+| Dungeon | Bosses | Trash buckets |
+|---|---|---|
+| Blackrock Depths | 4 | 4 |
+| Blackrock Spire — LBRS | 6 | 7 |
+| Blackrock Spire — UBRS | 4 | 4 |
+| Scholomance | 8 | 4 |
+| Stratholme — Live | 4 | 5 |
+| Stratholme — Undead | 6 | 6 |
+| Baradin Hold | 4 | 6 |
+| Onyxia's Lair *(raid)* | 1 | — |
+
+**Multi-variant detection.** Blackrock Spire and Stratholme both have one instance name covering two leaderboard dungeons. Variant selector buttons appear on entry; first boss kill also auto-resolves the variant. Generic `variants` field in the data table so future multi-variant dungeons inherit the behavior automatically.
+
+**Trash bucket display names are auto-derived** from the longest common word-prefix across each bucket's mob list (`{"Scarshield Legionnaire","Scarshield Acolyte",...}` → `Scarshield`). Manual `name` field is only used as a fallback for mob lists with no shared prefix (e.g. `Wailing Banshee / Shrieking Banshee` → manual `Banshees`). Collisions auto-disambiguate with `(1)`/`(2)` suffixes.
+
+**Raid auto-log.** Entering a `"raid"` instance type (Onyxia's Lair currently) starts `/combatlog` automatically in the background with **no UI interruption** — frame stays hidden, no visible timer. Critical safety:
+
+- Checks `LoggingCombat()` first — if another addon already started a log, we don't claim ownership and won't stop it on exit.
+- Stops the log automatically when the player leaves the raid instance (only if we started it).
+- Ownership flag persisted to SavedVariables so `/reload` during a raid doesn't lose the claim.
+- New slash: `/epogarmory raidlog [on|off|status]` to toggle the auto-log preference (default on).
+
+Highlighted multi-line chat block announces START / RESUMED / STOPPED transitions so the user always knows what's happening with the log.
+
+**Dummy parse improvements**
+
+- **PRACTICE mode** (cyan badge): when attacking a Training Dummy without auto-log enabled, the frame becomes a free DPS meter — tracks DPS / total damage / timer / auras, no file written, no 1:30 limit, no Validate button. The state badge is cyan instead of green so it's unmistakably different from a real log.
+- **10-second strict validate window** with live countdown on the button label (`VALIDATE (10)` → `VALIDATE (1)`). Window expiry shows `LOG FAILED - click Reset to try again`.
+- **Basic Campfire fallback marker** chained after Fishing in the validate macro. Covers the edge case where a player has a Fishing Pole equipped (Fishing would succeed instead of failing). Both spells write a `SPELL_CAST_FAILED` CLEU line — the site accepts either.
+- **`/epogarmory testvalidate`** slash: jump straight into the validate-button state to exercise the marker round-trip without doing a full 1:30 parse. Useful for verifying the secure-button mechanism after client updates.
+
+**Minimap menu**
+
+Two new entries in the right-click context menu so users don't need to memorize slash commands:
+- Open Dummy parse
+- Open Dungeon run
+
+**Slash commands added in this release:**
+
+```
+/epogarmory dummy           — toggle the Dummy parse frame
+/epogarmory dungeon         — toggle the Dungeon run frame
+/epogarmory testvalidate    — exercise the marker mechanism without a full parse
+/epogarmory raidlog [on|off|status] — toggle raid auto-log
+/epogarmory dungeondebug    — dump dungeon-detection diagnostic info
+```
+
+**Backward compatibility**
+
+- All new SavedVariables fields are additive: `EpogArmoryDB.config.dummyAutoLog`, `EpogArmoryDB.config.raidAutoLog`, `EpogArmoryDB.dummyFights[]`, `EpogArmoryDB.session.addonStartedLog`.
+- Wire format unchanged (no mesh-protocol impact).
+- Mixed-version meshes work — older clients see no behavior change.
+- v1.7.x mesh peers will receive the auto-update notification pointing here.
+
+**Files added:**
+
+- `EpogArmoryDummy.lua` (already shipped in v1.7.0; now v1.8.0 includes the v1.7.1+ improvements)
+- `EpogArmoryDungeon.lua` (NEW in v1.8.0 — dungeon frame, ~970 lines)
+
+---
+
 ## EpogArmory v1.7.11 — Raid auto-log: ownership check + auto-stop on exit + highlighted chat (internal) *(2026-05-21)*
 
 Three improvements to the v1.7.7 raid auto-log feature, all from user feedback.
