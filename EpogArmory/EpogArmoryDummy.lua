@@ -128,7 +128,8 @@ local MAX_FIGHT_HISTORY = 50
 -- ============================================================================
 
 local frame              = nil          -- the UI frame, lazily built
-local state              = "idle"       -- "idle" | "armed" | "logging" | "stopping" | "stopped"
+local state              = "idle"       -- "idle" | "armed" | "logging" | "stopping" | "stopped" | "practice"
+local wasPractice        = false        -- v1.7.10: true when current "stopped" state came from practice (not a real log)
 local fightStartTime     = nil          -- GetTime() when combat started
 local validThroughout    = true         -- sticky false on any violation
 local invalidReasons     = {}           -- set of reason strings
@@ -438,6 +439,7 @@ local function DoStartLogging()
     lastDummyName     = UnitName("target")
     savedDummyGUID    = UnitGUID("target")
     lastDummyHitTime  = GetTime() -- count the start of combat as "just hit"
+    wasPractice       = false    -- v1.7.10: defensive — real log clears the practice flag
 
     -- Initial aura check (T+0). If we start with junk auras already on,
     -- validThroughout flips false immediately and the marker won't emit.
@@ -450,6 +452,43 @@ local function DoStartLogging()
     logFilename = date("Logs/%Y-%m-%d-%H.%M.%S WoWCombatLog.txt")
     SetState("logging")
     ValidateNow()
+    return true
+end
+
+-- v1.7.10: practice mode. When the user attacks a dummy without
+-- having opted into real logging (config.dummyAutoLog == false), we
+-- still want to show DPS + timer + auras as a free DPS meter. This
+-- function mirrors DoStartLogging's state setup but skips the actual
+-- LoggingCombat call — no file is written, no marker fires, no
+-- 1:30 limit is enforced.
+--
+-- State transitions:
+--   idle -(combat with dummy, auto-log OFF)-> practice
+--   practice -(combat ends OR Stop clicked)-> stopped (with wasPractice=true)
+--   stopped -(Reset)-> idle
+local function DoStartPractice()
+    if not IsDummyTargeted() then return false end
+    if not IsCity() then return false end
+
+    fightStartTime    = GetTime()
+    validThroughout   = true   -- not validated in practice; reset for consistency
+    invalidReasons    = {}
+    markerEmitted     = false
+    markerVerified    = false
+    pendingMarker     = false
+    stoppingStartTime = nil
+    fightTotalDamage  = 0
+    lastDummyName     = UnitName("target")
+    savedDummyGUID    = UnitGUID("target")
+    lastDummyHitTime  = GetTime()
+    logFilename       = nil    -- no file in practice mode
+    wasPractice       = false  -- gets flipped true when practice transitions to stopped
+
+    -- The key difference from DoStartLogging: NO LoggingCombat(true).
+    -- /combatlog stays in whatever state the user had it in (almost
+    -- always off, since practice is the no-log path).
+
+    SetState("practice")
     return true
 end
 
@@ -496,14 +535,20 @@ local function OnEnterCombat()
         DoStartLogging()
         return
     end
-    -- Auto-log path: user has the config option on, idle state, and
-    -- conditions match.
-    if state == "idle"
-       and EpogArmoryDB and EpogArmoryDB.config
-       and EpogArmoryDB.config.dummyAutoLog
-       and IsDummyTargeted() and IsCity()
-    then
-        DoStartLogging()
+    -- v1.7.10: from idle + dummy + city, branch on dummyAutoLog:
+    --   ON  → real /combatlog session (DoStartLogging)
+    --   OFF → practice mode (DPS meter without log file)
+    -- Practice fires by default if the user hasn't opted into logging,
+    -- so the addon doubles as a free DPS readout when they're just
+    -- training on a dummy.
+    if state == "idle" and IsDummyTargeted() and IsCity() then
+        local autoLog = EpogArmoryDB and EpogArmoryDB.config
+            and EpogArmoryDB.config.dummyAutoLog
+        if autoLog then
+            DoStartLogging()
+        else
+            DoStartPractice()
+        end
     end
 end
 
@@ -531,6 +576,14 @@ end)
 local function OnLeaveCombat()
     _DebugPrint(string.format("PLAYER_REGEN_ENABLED fired. state=%s, elapsed=%.1f",
         state, fightStartTime and (GetTime() - fightStartTime) or -1))
+    -- v1.7.10: practice mode terminates cleanly on combat end. No log
+    -- to stop, no verdict to compute — just freeze the final DPS and
+    -- transition to "stopped" so the user can see the result.
+    if state == "practice" then
+        wasPractice = true
+        SetState("stopped")
+        return
+    end
     if state ~= "logging" and state ~= "stopping" then return end
     local elapsed = GetTime() - (fightStartTime or GetTime())
 
@@ -558,6 +611,14 @@ local function OnTick()
         -- Preview aura check so the user can see what's clean BEFORE
         -- starting the fight. Doesn't write to invalidReasons.
         ValidateNow()
+        if frame and frame:IsShown() then frame.UpdateUI() end
+        return
+    end
+    -- v1.7.10: practice mode tick — refresh UI for live DPS/timer,
+    -- update aura listings, but DON'T enforce 1:30 or run the marker
+    -- flow. Practice runs as long as combat lasts.
+    if state == "practice" then
+        ValidateNow() -- updates currentPlayerAuras/currentTargetDebuffs for display
         if frame and frame:IsShown() then frame.UpdateUI() end
         return
     end
@@ -816,7 +877,14 @@ local function BuildFrame()
             -- print — the user knows they cancelled intentionally.
             if LoggingCombat then LoggingCombat(false) end
             SetState("idle")
+        elseif state == "practice" then
+            -- v1.7.10: stop practice early. No log to close, just freeze
+            -- the DPS readout by transitioning to stopped with the
+            -- wasPractice flag.
+            wasPractice = true
+            SetState("stopped")
         elseif state == "stopped" then
+            wasPractice = false
             SetState("idle")
         end
     end)
@@ -851,6 +919,13 @@ local function BuildFrame()
         elseif state == "logging" then
             f.stateBadge:SetText("LOGGING")
             f.stateBadge:SetTextColor(0.2, 0.9, 0.2)
+            f.actionBtn:SetText("Stop")
+        elseif state == "practice" then
+            -- v1.7.10: practice mode — DPS meter without /combatlog file.
+            -- Shown in cyan to clearly differentiate from the green
+            -- "LOGGING" state that produces a real log for upload.
+            f.stateBadge:SetText("PRACTICE")
+            f.stateBadge:SetTextColor(0.3, 0.85, 1)
             f.actionBtn:SetText("Stop")
         elseif state == "stopping" then
             -- Past T+1:20 — user clicks VALIDATE to stamp the log AND
@@ -904,7 +979,13 @@ local function BuildFrame()
             -- IsCleanVerdict above. Reset SetTextColor to white so the
             -- inline color codes show through cleanly.
             f.verdictLabel:SetTextColor(1, 1, 1)
-            if IsCleanVerdict() then
+            if wasPractice then
+                -- v1.7.10: practice ended (combat ended or user clicked
+                -- Stop). No upload-related verdict — just acknowledge
+                -- the run. Final DPS is still shown by the dpsLabel
+                -- below.
+                f.verdictLabel:SetText("|cff66ccffPractice complete|r - no log file written")
+            elseif IsCleanVerdict() then
                 f.verdictLabel:SetText("Log: |cff66ff66CLEAN|r - valid for upload")
             elseif invalidReasons["validate window expired (10s)"] then
                 -- Claude v1.7.2: explicit failure mode for the strict
@@ -935,19 +1016,49 @@ local function BuildFrame()
             local dps = fightTotalDamage / secs
             f.dpsLabel:SetText(string.format("|cffaaccff%s|r |cffffffffDPS|r", FmtNum(dps)))
             f.totalLabel:SetText(string.format("|cff888888%s damage|r", FmtNum(fightTotalDamage)))
+        elseif state == "practice" and fightStartTime then
+            -- v1.7.10: practice mode timer counts up without a target.
+            -- Format "M:SS" rather than "M:SS / 1:30" since no fixed
+            -- limit applies. Progress bar shown in cyan to differentiate
+            -- from the green/yellow logging/stopping shades.
+            local elapsed = GetTime() - fightStartTime
+            f.timerLabel:SetText(string.format("%d:%02d",
+                floor(elapsed / 60), floor(elapsed % 60)))
+            -- Bar grows over the 1:30 reference window then caps. Even in
+            -- practice this is a useful visual of "how long have I been
+            -- swinging" without us needing extra UI.
+            progressFraction = math.min(elapsed / LOG_DURATION_SEC, 1)
+            f.progressFg:SetVertexColor(0.3, 0.7, 1, 1) -- cyan
+            local secs = math.max(elapsed, 1)
+            local dps = fightTotalDamage / secs
+            f.dpsLabel:SetText(string.format("|cffaaccff%s|r |cffffffffDPS|r", FmtNum(dps)))
+            f.totalLabel:SetText(string.format("|cff888888%s damage (practice)|r", FmtNum(fightTotalDamage)))
         elseif state == "stopped" then
-            progressFraction = 1
-            f.timerLabel:SetText("1:30 / 1:30")
-            if IsCleanVerdict() then
-                f.progressFg:SetVertexColor(0.4, 1, 0.4, 1) -- green for clean
+            local elapsed = fightStartTime and (GetTime() - fightStartTime) or 0
+            if wasPractice then
+                -- v1.7.10: practice run ended. Show actual elapsed (not
+                -- capped to 1:30) and a cyan bar so the final state is
+                -- clearly distinct from a real log's CLEAN/INVALID.
+                progressFraction = math.min(elapsed / LOG_DURATION_SEC, 1)
+                f.timerLabel:SetText(string.format("%d:%02d",
+                    floor(elapsed / 60), floor(elapsed % 60)))
+                f.progressFg:SetVertexColor(0.3, 0.7, 1, 1) -- cyan
             else
-                f.progressFg:SetVertexColor(1, 0.4, 0.4, 1) -- red for invalid
+                progressFraction = 1
+                f.timerLabel:SetText("1:30 / 1:30")
+                if IsCleanVerdict() then
+                    f.progressFg:SetVertexColor(0.4, 1, 0.4, 1) -- green for clean
+                else
+                    f.progressFg:SetVertexColor(1, 0.4, 0.4, 1) -- red for invalid
+                end
             end
-            local secs = math.min(fightStartTime and (GetTime() - fightStartTime) or LOG_DURATION_SEC,
-                LOG_DURATION_SEC)
+            local secs = wasPractice
+                and math.max(elapsed, 1)
+                or math.min(elapsed > 0 and elapsed or LOG_DURATION_SEC, LOG_DURATION_SEC)
             local dps = secs > 0 and (fightTotalDamage / secs) or 0
             f.dpsLabel:SetText(string.format("|cffaaccff%s|r |cffffffffDPS|r", FmtNum(dps)))
-            f.totalLabel:SetText(string.format("|cff888888%s damage|r", FmtNum(fightTotalDamage)))
+            f.totalLabel:SetText(string.format("|cff888888%s damage%s|r",
+                FmtNum(fightTotalDamage), wasPractice and " (practice)" or ""))
         else
             f.timerLabel:SetText("0:00 / 1:30")
             f.progressFg:SetVertexColor(0.4, 0.4, 0.4, 1)
@@ -1286,8 +1397,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             return
         end
 
-        -- Hit + damage tracking only matters during logging/stopping.
-        if state ~= "logging" and state ~= "stopping" then return end
+        -- Hit + damage tracking matters during logging/stopping (real
+        -- parse) AND during practice mode (DPS meter without log).
+        if state ~= "logging" and state ~= "stopping" and state ~= "practice" then return end
 
         -- Hit + damage tracking on the dummy.
         if not savedDummyGUID or destGUID ~= savedDummyGUID then return end

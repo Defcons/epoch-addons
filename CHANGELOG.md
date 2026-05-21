@@ -20,6 +20,48 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.10 — Dummy PRACTICE mode (DPS meter without log) (internal) *(2026-05-21)*
+
+When you attack a Training Dummy in a city without having opted into logging (`config.dummyAutoLog == false`, which is the default), the dummy frame now enters a new **PRACTICE** state — tracks DPS + total damage + timer + auras, but does NOT call `LoggingCombat(true)`. No file is written, no marker, no 1:30 limit. Just a free DPS readout while you practice your rotation.
+
+**State machine extended:**
+
+```
+idle ──(combat with dummy, auto-log ON)──▶ logging ──...
+idle ──(combat with dummy, auto-log OFF)──▶ practice ──(combat ends)──▶ stopped (wasPractice=true)
+                                          ──(Stop click)──▶ stopped (wasPractice=true)
+stopped ──(Reset)──▶ idle
+```
+
+**New function `DoStartPractice()`** mirrors `DoStartLogging()` but skips `LoggingCombat` and never sets `logFilename`. State machine, fight-start-time, damage counter, and aura listings are otherwise identical to the real-logging path.
+
+**UI changes:**
+
+- New state badge: **`PRACTICE`** in cyan (`r=0.3, g=0.85, b=1`) — clearly differentiated from green `LOGGING` so users can never confuse "I have a real log" with "this is practice".
+- Timer format: `M:SS` (no `/ 1:30` target) since there's no fixed limit. Counts up freely while you're swinging at the dummy.
+- Progress bar: cyan instead of green/yellow. Grows over the 1:30 reference and caps so the bar visual remains useful as a "how long have I been at this" indicator without needing extra UI.
+- DPS readout: same big focal `<num> DPS` as logging mode.
+- Total damage subtitle: `<num> damage (practice)` — the suffix makes it unambiguous.
+- Action button: `Stop` (cancels practice, transitions to stopped).
+- Validate button: never shown in practice (no marker to emit).
+- Verdict line in `stopped` state for practice: `Practice complete - no log file written` (cyan). Distinct from the CLEAN / INVALID / LOG FAILED verdicts of real logs.
+
+**CLEU damage tracking** now activates in `practice` as well as `logging` / `stopping` — same SWING/SPELL/RANGE damage event parsing fills `fightTotalDamage`.
+
+**OnTick** branches: when state is `practice`, runs `ValidateNow()` (just to keep the aura listings fresh — doesn't flip any validation flag) and refreshes UI. No 1:30 marker transition, no idle-stop, no hard timeout.
+
+**`OnLeaveCombat`** branches: when state is `practice`, sets `wasPractice = true` and transitions to `stopped`. No `LoggingCombat(false)` call (it was never started).
+
+**Action button OnClick** in `practice` state: same as the `Stop` semantic in `logging`/`stopping` — flip to `stopped` with `wasPractice = true`.
+
+**`wasPractice` flag** is set in 4 places (`DoStartPractice` → false, practice→stopped transitions → true, Reset from stopped → false, `DoStartLogging` → false for defensive cleanup) so a stale practice flag can never leak into a real log session's verdict rendering.
+
+**No backward-compat risk.** Real logging path (auto-log on, manual Ready) is unchanged. Existing users who haven't enabled `dummyAutoLog` will see the new PRACTICE state appear next time they attack a dummy — that's the intended UX upgrade. Site-side gating contract is unaffected (practice writes no file).
+
+Patch-level. Rolls into v1.8.0 with v1.7.1–v1.7.9.
+
+---
+
 ## EpogArmory v1.7.9 — Minimap menu: Dummy parse + Dungeon run entries (internal) *(2026-05-20)*
 
 Two new items in the minimap right-click menu so users don't need to remember the slash commands:
