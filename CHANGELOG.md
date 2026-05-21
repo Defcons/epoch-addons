@@ -20,6 +20,96 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.7.11 — Raid auto-log: ownership check + auto-stop on exit + highlighted chat (internal) *(2026-05-21)*
+
+Three improvements to the v1.7.7 raid auto-log feature, all from user feedback.
+
+**1. Highlighted chat message.** The single one-liner is replaced with a multi-line framed block so it's hard to miss when raids start their auto-log:
+
+```
+=======================================
+EpogArmory RAID AUTO-LOG STARTED
+  Instance: Onyxia's Lair
+  Log file: Logs/2026-05-21-HH.MM.SS WoWCombatLog.txt
+  Will auto-stop when you leave the raid.
+  /epogarmory raidlog off  to disable for future raids
+=======================================
+```
+
+Three message variants based on detected state:
+- `RAID AUTO-LOG STARTED` (green) — we started a new log
+- `RAID AUTO-LOG RESUMED` (green) — log was already running and we own it (claim restored from SavedVariables after /reload)
+- `raid detected` (subdued) — log was already running BUT we don't own it (another addon or user started it); we leave it alone and won't stop it on exit
+
+**2. Don't fight other addons.** Before calling `LoggingCombat(true)`, check the current state via `LoggingCombat()` with no args (returns boolean — wrapped in `pcall` for safety on private-server forks that might change the API). If already on, the addon does NOT claim ownership, so it won't stop someone else's log on raid exit.
+
+New helper:
+```lua
+local function IsLoggingActive()
+    if not LoggingCombat then return false end
+    local ok, isOn = pcall(LoggingCombat)
+    if ok and type(isOn) == "boolean" then return isOn end
+    return false
+end
+```
+
+**3. Auto-stop on raid exit.** New module state:
+- `addonStartedLog` — boolean. True if WE started the current `/combatlog` session (so we know to stop it on exit). False if someone else started it (we leave it alone).
+- `wasInRaid` — boolean. Tracks whether the previous zone change had us in a raid. Used to detect "left a raid" transitions in the event handler.
+
+The event handler now has a pre-detection block:
+
+```
+on PLAYER_LOGIN / PLAYER_ENTERING_WORLD / ZONE_CHANGED_NEW_AREA:
+   1. compute currentInstanceType via IsInInstance()
+   2. if wasInRaid AND not nowInRaid AND addonStartedLog:
+        LoggingCombat(false)
+        clear addonStartedLog + persist
+        print STOP chat block
+   3. wasInRaid = nowInRaid
+   4. (then) DetectDungeon → OnEnterDungeon for the new instance (if any)
+```
+
+Stop chat block:
+
+```
+=======================================
+EpogArmory RAID AUTO-LOG STOPPED
+  Left raid instance - /combatlog closed.
+=======================================
+```
+
+**Persistence across /reload.** `addonStartedLog` is saved to `EpogArmoryDB.session.addonStartedLog`. Restored at `PLAYER_LOGIN` with a sanity check: if the SV flag is true but `IsLoggingActive()` returns false (e.g. the log got stopped by something else between sessions), the flag is cleared.
+
+This handles the /reload-during-raid case correctly:
+1. User in raid, we started the log, `addonStartedLog = true` in SV
+2. `/reload` happens
+3. PLAYER_LOGIN restores `addonStartedLog = true`
+4. PLAYER_ENTERING_WORLD detects we're still in a raid
+5. OnEnterDungeon raid path sees `IsLoggingActive() == true` AND `addonStartedLog == true` → prints "RAID AUTO-LOG RESUMED" instead of starting a new log or treating it as foreign
+
+Without this, we'd lose ownership on every /reload and never stop on exit.
+
+**Edge cases verified:**
+
+| Scenario | Behavior |
+|---|---|
+| Enter raid, no other addon logging | Start log, claim, print STARTED |
+| Enter raid, another addon already logging | Don't start, don't claim, print "(not ours, leaving alone)", won't stop on exit |
+| Enter raid, /reload, still in raid | Restore claim from SV, print RESUMED, log continues |
+| Exit raid (we own log) | Stop log, clear claim, print STOPPED |
+| Exit raid (we don't own log) | Do nothing — print nothing |
+| Exit raid into 5-man (we own log) | Stop log first, THEN normal 5-man flow with Yes/No prompt |
+| Raid auto-log toggle OFF, then enter raid | No auto-log fires, no claim |
+
+**Site-side impact:** none. Pure addon-side ownership management.
+
+**No backward-compat risk.** Existing users will get the better chat message on next raid entry. Users who already had their own /combatlog logic via another addon will benefit from the ownership check.
+
+Patch-level. Rolls into v1.8.0 with v1.7.1–v1.7.10.
+
+---
+
 ## EpogArmory v1.7.10 — Dummy PRACTICE mode (DPS meter without log) (internal) *(2026-05-21)*
 
 When you attack a Training Dummy in a city without having opted into logging (`config.dummyAutoLog == false`, which is the default), the dummy frame now enters a new **PRACTICE** state — tracks DPS + total damage + timer + auras, but does NOT call `LoggingCombat(true)`. No file is written, no marker, no 1:30 limit. Just a free DPS readout while you practice your rotation.

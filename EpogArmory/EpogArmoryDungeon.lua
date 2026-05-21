@@ -335,7 +335,15 @@ local currentVariant     = nil          -- variant key (e.g. "lbrs", "ubrs", "li
 local dungeonStartTime   = nil          -- GetTime() when entered (used for boss kill timestamps)
 local bossKillTimes      = {}           -- v1.7.5: bossName → elapsed seconds (from dungeon entry) when killed; nil = not killed
 local trashKills         = {}           -- v1.7.5: bucketIdx → count of mobs from that bucket killed
-local loggingActive      = false        -- mirror of LoggingCombat() state — set by us, never read from API (no getter)
+local loggingActive      = false        -- mirror of LoggingCombat() state (set by us; the API getter exists but is checked at decision points only)
+-- v1.7.11: track WHO owns the current /combatlog session. true if we
+-- (raid auto-log) started it, false if user/another addon started it
+-- or if nothing's logging. Used to decide whether to stop on raid exit.
+-- Persisted to SavedVariables so /reload doesn't lose ownership.
+local addonStartedLog    = false
+-- v1.7.11: tracks the instance-type from the previous zone change so we
+-- can detect "left a raid instance" transitions. Set by the event handler.
+local wasInRaid          = false
 local logStartTime       = nil          -- v1.7.5: GetTime() when StartLogging was called; nil = never started this run
 local logEndTime         = nil          -- v1.7.5: GetTime() when StopLogging was called; used to freeze the timer at the stopped value
 local promptShown        = false        -- per-run flag: have we already shown the Yes/No prompt?
@@ -406,6 +414,19 @@ local function GetCurrentDisplayName()
         return def.displayName -- "<Name> (variant: select below)"
     end
     return def.displayName
+end
+
+-- v1.7.11: query the actual /combatlog state via LoggingCombat() with
+-- no args (returns boolean on WoW 3.3.5 and later). Wrapped in pcall
+-- because in case some private-server fork changes the API to be
+-- write-only, we don't want to crash — we just fall back to assuming
+-- "off" (the conservative answer, makes us NOT claim ownership in
+-- ambiguous cases).
+local function IsLoggingActive()
+    if not LoggingCombat then return false end
+    local ok, isOn = pcall(LoggingCombat)
+    if ok and type(isOn) == "boolean" then return isOn end
+    return false
 end
 
 -- Format elapsed seconds as "M:SS" or "H:MM:SS" for longer runs.
@@ -516,13 +537,47 @@ local function OnEnterDungeon(dungeonKey)
         ResetRun()
         currentDungeon   = dungeonKey
         dungeonStartTime = GetTime() -- for boss kill timestamps only, not the visible timer
-        if LoggingCombat then LoggingCombat(true) end
-        loggingActive = true -- so StopLogging works correctly if user opens the frame later
-        promptShown = true   -- suppress the Yes/No prompt if frame is opened manually
-        -- Hide frame if it was open from a previous 5-man run
-        if frame and frame:IsShown() then frame:Hide() end
-        print(string.format("|cffffaa44EpogArmory|r: raid (|cffffd200%s|r) - /combatlog auto-started in background. /epogarmory raidlog to toggle.",
-            dungeonKey))
+        promptShown      = true      -- suppress the Yes/No prompt if frame is opened manually
+        if frame and frame:IsShown() then frame:Hide() end -- hide leftover 5-man frame
+
+        -- v1.7.11: don't blindly call LoggingCombat(true) — check whether
+        -- the log is already running (started by another addon, the user
+        -- manually, OR by us in a previous session that /reload survived).
+        -- The addonStartedLog flag is restored from SavedVariables at
+        -- PLAYER_LOGIN, so on a /reload-into-raid it's still set if we
+        -- owned the log before the reload.
+        EpogArmoryDB.session = EpogArmoryDB.session or {}
+        local alreadyOn = IsLoggingActive()
+        if alreadyOn then
+            loggingActive = true
+            -- DON'T overwrite addonStartedLog here — it was restored from
+            -- SV. true = our log from before /reload, false = someone
+            -- else's. We just print the appropriate message.
+            print("|cffffaa44=======================================|r")
+            if addonStartedLog then
+                print(string.format("|cffffd200EpogArmory|r |cff66ff66RAID AUTO-LOG RESUMED|r |cff888888(%s)|r", dungeonKey))
+                print("  |cff888888/combatlog was already running from a previous session|r")
+                print("  |cff888888(survived /reload). Will auto-stop on raid exit.|r")
+            else
+                print(string.format("|cffffd200EpogArmory|r |cffffd200raid detected|r |cff888888(%s)|r", dungeonKey))
+                print("  |cff888888/combatlog was already active|r - leaving it as-is.")
+                print("  |cff888888We won't stop it on raid exit (we didn't start it).|r")
+            end
+            print("|cffffaa44=======================================|r")
+        else
+            if LoggingCombat then LoggingCombat(true) end
+            loggingActive = true
+            addonStartedLog = true
+            EpogArmoryDB.session.addonStartedLog = true
+            local expectedFile = date("Logs/%Y-%m-%d-%H.%M.%S WoWCombatLog.txt")
+            print("|cffffaa44=======================================|r")
+            print(string.format("|cffffd200EpogArmory|r |cff66ff66RAID AUTO-LOG STARTED|r"))
+            print(string.format("  Instance: |cffffd200%s|r", dungeonKey))
+            print(string.format("  Log file: |cffaaaaaa%s|r", expectedFile))
+            print("  |cff888888Will auto-stop when you leave the raid.|r")
+            print("  |cff888888/epogarmory raidlog off  to disable for future raids|r")
+            print("|cffffaa44=======================================|r")
+        end
         return
     end
 
@@ -1044,11 +1099,47 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         if EpogArmoryDB.config.raidAutoLog == nil then
             EpogArmoryDB.config.raidAutoLog = true
         end
+        -- v1.7.11: restore the addonStartedLog claim across /reload via
+        -- SavedVariables. Sanity-check against the actual API state:
+        -- if /combatlog is off, our flag is irrelevant (clear it).
+        EpogArmoryDB.session = EpogArmoryDB.session or {}
+        addonStartedLog = EpogArmoryDB.session.addonStartedLog and true or false
+        if addonStartedLog and not IsLoggingActive() then
+            addonStartedLog = false
+            EpogArmoryDB.session.addonStartedLog = false
+        end
+        loggingActive = IsLoggingActive() -- best-effort sync
     end
 
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD"
        or event == "ZONE_CHANGED_NEW_AREA"
     then
+        -- v1.7.11: detect "left a raid instance" transitions. Compare
+        -- previous wasInRaid flag to the current instance type. If we
+        -- were in a raid and now aren't, stop the log if WE started it
+        -- (addonStartedLog). Done BEFORE the dungeon-detect branch so
+        -- the order is: detect-leave-raid first, then maybe enter-new.
+        local _, currentInstanceType = nil, nil
+        if IsInInstance then
+            _, currentInstanceType = IsInInstance()
+        end
+        local nowInRaid = (currentInstanceType == "raid")
+        if wasInRaid and not nowInRaid and addonStartedLog then
+            -- We own the running /combatlog and have just exited the
+            -- raid. Stop it.
+            if LoggingCombat then LoggingCombat(false) end
+            loggingActive = false
+            addonStartedLog = false
+            EpogArmoryDB = EpogArmoryDB or {}
+            EpogArmoryDB.session = EpogArmoryDB.session or {}
+            EpogArmoryDB.session.addonStartedLog = false
+            print("|cffffaa44=======================================|r")
+            print("|cffffd200EpogArmory|r |cffff9966RAID AUTO-LOG STOPPED|r")
+            print("  |cff888888Left raid instance - /combatlog closed.|r")
+            print("|cffffaa44=======================================|r")
+        end
+        wasInRaid = nowInRaid
+
         local detected = DetectDungeon()
         if detected then
             if currentDungeon ~= detected then
