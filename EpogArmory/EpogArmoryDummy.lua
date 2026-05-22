@@ -144,6 +144,54 @@ local fightTotalDamage   = 0            -- sum of damage from player+pet to dumm
 local logFilename        = nil          -- expected combat-log filename, computed when LoggingCombat(true) fires
 local testMode           = false        -- Claude v1.7.1: /epogarmory testvalidate — short-circuit straight to "stopping" so user can click Validate without doing a full parse
 
+-- ----- AoE-dummy detection (epoglogs v0.86.6+ server rejection mirror) -----
+-- Server-side parser (js/parser.js ~140-158, ~1240) rejects any upload
+-- whose log contains a fight where the player damaged 2+ training
+-- dummies. The dummy leaderboards on epoglogs.com/dummy-stats are
+-- single-target only — Expert's (L60) and Heroic (L63) have very
+-- different EHP curves, so AoE rotations would pollute rankings.
+--
+-- Local mirror: track every distinct dummy GUID destName-matched
+-- during a fight that isn't savedDummyGUID. If at least one extra
+-- dummy was hit, the fight is AoE; on Project Epoch we skip the
+-- save entirely (matches server intent: don't record what won't
+-- upload). On CoA the same fight stays a valid capture — AoE
+-- rotations are legitimate content there.
+local aoeExtraDummyGUIDs = {}           -- {[guid]=true} dummies OTHER than savedDummyGUID
+local aoeExtraDummyName  = nil          -- first extra dummy name seen — popup detail
+-- Realm gating. Override list lives in EpogArmoryDB.skipAoERealms when
+-- the user needs to add an exact realm string the defaults miss; the
+-- login chat message in EpogArmory.lua surfaces the resolved realm so
+-- the user can copy/paste it.
+local DEFAULT_SKIP_AOE_REALMS = {
+    ["Project Epoch"] = true,
+    ["Epoch"]         = true,
+    ["ProjectEpoch"]  = true,
+}
+local function ShouldSkipAoEOnThisRealm()
+    local realm = (GetRealmName and GetRealmName()) or ""
+    local override = EpogArmoryDB and EpogArmoryDB.skipAoERealms
+    if type(override) == "table" then
+        return override[realm] == true
+    end
+    return DEFAULT_SKIP_AOE_REALMS[realm] == true
+end
+local function CountKeys(t)
+    if not t then return 0 end
+    local n = 0
+    for _ in pairs(t) do n = n + 1 end
+    return n
+end
+
+StaticPopupDialogs["EPOGARMORY_AOE_DUMMY_REJECTED"] = {
+    text = "EpogArmory: AoE dummy session ignored.\n\nepoglogs.com leaderboards are single-target only. Hit one Training Dummy at a time for valid uploads.",
+    button1 = OKAY,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    showAlert = true,
+}
+
 -- Live aura listings for the UI. Recomputed each tick.
 local currentPlayerAuras   = {}         -- list of { name, source, allowed }
 local currentTargetDebuffs = {}
@@ -396,6 +444,29 @@ local function SaveFightRecord()
     EpogArmoryDB = EpogArmoryDB or {}
     EpogArmoryDB.dummyFights = EpogArmoryDB.dummyFights or {}
 
+    -- AoE-dummy detection. Two-stage gate:
+    --   1. Did we damage any dummy OTHER than savedDummyGUID this
+    --      fight? (aoeExtraDummyGUIDs is non-empty)
+    --   2. Is this realm one where the epoglogs server rejects AoE?
+    --
+    -- Both true → skip the save entirely and warn the user. The session
+    -- never lands in EpogArmoryDB.dummyFights, so it can't be exported
+    -- or accidentally uploaded. Matches server-side rejection (parser
+    -- regex /\bTraining Dummy\b/ on destName, set-size >= 2).
+    --
+    -- One true (AoE on non-PE realm like CoA) → save normally but tag
+    -- with aoe = true and aoeExtraDummyCount so downstream analytics
+    -- can distinguish ST runs from AoE training.
+    local extraDummyCount = CountKeys(aoeExtraDummyGUIDs)
+    if extraDummyCount > 0 and ShouldSkipAoEOnThisRealm() then
+        print("|cffffaa44EpogArmory|r: |cffff5555AoE dummy session ignored|r — "
+            .. "hit " .. (extraDummyCount + 1) .. " dummies (e.g. "
+            .. (aoeExtraDummyName or "?") .. "). "
+            .. "epoglogs accepts single-target only.")
+        StaticPopup_Show("EPOGARMORY_AOE_DUMMY_REJECTED")
+        return
+    end
+
     local reasonsList = {}
     for reason in pairs(invalidReasons) do
         reasonsList[#reasonsList + 1] = reason
@@ -417,6 +488,13 @@ local function SaveFightRecord()
         dps            = floor(recordedDps + 0.5),
         logFilename    = logFilename,
         addonVersion   = GetAddOnMetadata and GetAddOnMetadata("EpogArmory", "Version") or "?",
+        -- AoE metadata (only populated when the fight actually hit
+        -- multiple dummies AND we didn't skip the save above — i.e.
+        -- the AoE-allowed-on-this-realm path). Lets epoglogs / offline
+        -- parsers tell ST runs apart from AoE training.
+        aoe                  = extraDummyCount > 0 or nil,
+        aoeExtraDummyCount   = extraDummyCount > 0 and extraDummyCount or nil,
+        aoeExtraDummyName    = extraDummyCount > 0 and aoeExtraDummyName or nil,
     })
 
     while #EpogArmoryDB.dummyFights > MAX_FIGHT_HISTORY do
@@ -440,6 +518,8 @@ local function DoStartLogging()
     savedDummyGUID    = UnitGUID("target")
     lastDummyHitTime  = GetTime() -- count the start of combat as "just hit"
     wasPractice       = false    -- v1.7.10: defensive — real log clears the practice flag
+    aoeExtraDummyGUIDs = {}      -- per-fight AoE-dummy detection set
+    aoeExtraDummyName  = nil
 
     -- Initial aura check (T+0). If we start with junk auras already on,
     -- validThroughout flips false immediately and the marker won't emit.
@@ -483,6 +563,8 @@ local function DoStartPractice()
     lastDummyHitTime  = GetTime()
     logFilename       = nil    -- no file in practice mode
     wasPractice       = false  -- gets flipped true when practice transitions to stopped
+    aoeExtraDummyGUIDs = {}    -- per-fight AoE-dummy detection set (mirrored from real-log path)
+    aoeExtraDummyName  = nil
 
     -- The key difference from DoStartLogging: NO LoggingCombat(true).
     -- /combatlog stays in whatever state the user had it in (almost
@@ -1367,9 +1449,27 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- Pull 12 args so we can read the damage amount in either layout:
         --   SWING_DAMAGE:     arg9 = amount
         --   SPELL_DAMAGE etc: arg9 = spellID, arg10 = spellName, arg11 = school, arg12 = amount
-        local _, subevent, _, _, sourceFlags, destGUID, _, _, p9, p10, _, p12 = ...
+        local _, subevent, _, _, sourceFlags, destGUID, destName, _, p9, p10, _, p12 = ...
         if not sourceFlags or bit.band(sourceFlags, AFFILIATION_MINE_BIT) == 0 then
             return
+        end
+
+        -- AoE-dummy detection. Any time we (player or pet) act on a
+        -- Training Dummy that ISN'T the dummy we locked onto at
+        -- combat-start, remember the GUID. SaveFightRecord checks the
+        -- set's size and (on Project Epoch) skips the save entirely.
+        --
+        -- Plain-substring match — Lua doesn't have \b but no real-world
+        -- NPC name has "Training Dummy" as a non-dummy substring, so
+        -- the parser's `\bTraining Dummy\b` and our `find(.., true)`
+        -- agree in practice.
+        if state == "logging" or state == "stopping" or state == "practice" then
+            if destName and destGUID and destGUID ~= savedDummyGUID
+                    and not aoeExtraDummyGUIDs[destGUID]
+                    and string.find(destName, DUMMY_NAME_PATTERN, 1, true) then
+                aoeExtraDummyGUIDs[destGUID] = true
+                aoeExtraDummyName = aoeExtraDummyName or destName
+            end
         end
         -- p10 carries spellName for SPELL_/RANGE_ events; for SWING events p10
         -- is the overkill amount but doesn't matter for marker check below.
