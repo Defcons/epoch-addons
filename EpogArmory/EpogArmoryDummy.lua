@@ -787,7 +787,24 @@ local function BuildFrame()
 
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.title:SetPoint("TOP", 0, -12)
-    f.title:SetText("EpogLogs - Dummy Parse")
+    -- Persistent single-target reminder built into the title — epoglogs
+    -- leaderboards on https://epoglogs.com/dummy-stats only accept ST
+    -- parses, and the parser silently rejects any upload that contains
+    -- 2+ dummies in one fight. Carrying that message into the always-
+    -- visible title prevents the user from training AoE rotations and
+    -- being surprised when their upload bounces.
+    f.title:SetText("EpogLogs · Dummy Parse · |cffaaaaaaSingle-Target Only|r")
+
+    -- AoE warning — hidden until the CLEU handler detects damage on a
+    -- second Training Dummy GUID during the fight. Once shown it stays
+    -- shown for the rest of the fight (and through "stopped" so the
+    -- user sees the verdict) and gets cleared on the next start.
+    f.aoeWarnLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.aoeWarnLabel:SetPoint("TOP", 0, -65)
+    f.aoeWarnLabel:SetWidth(252)
+    f.aoeWarnLabel:SetJustifyH("CENTER")
+    f.aoeWarnLabel:SetText("|cffff5555Multi-target damage detected — fight invalidated|r")
+    f.aoeWarnLabel:Hide()
 
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -2, -2)
@@ -978,6 +995,16 @@ local function BuildFrame()
             f.targetLabel:SetText("Target: |cffffd200" .. tName .. "|r")
         else
             f.targetLabel:SetText("Target: |cff888888(none)|r")
+        end
+
+        -- AoE warning. Stays visible once tripped — including through
+        -- the "stopped" verdict so the user sees why the fight was
+        -- marked invalid. Cleared on the next DoStartLogging /
+        -- DoStartPractice when aoeExtraDummyGUIDs resets to {}.
+        if CountKeys(aoeExtraDummyGUIDs) > 0 then
+            f.aoeWarnLabel:Show()
+        else
+            f.aoeWarnLabel:Hide()
         end
 
         -- State badge + button label + verdict line.
@@ -1456,8 +1483,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 
         -- AoE-dummy detection. Any time we (player or pet) act on a
         -- Training Dummy that ISN'T the dummy we locked onto at
-        -- combat-start, remember the GUID. SaveFightRecord checks the
-        -- set's size and (on Project Epoch) skips the save entirely.
+        -- combat-start, remember the GUID. The first such hit also
+        -- invalidates the fight in real time on PE-skip realms — the
+        -- user sees the red "Multi-target damage detected" line
+        -- IMMEDIATELY in the frame, plus the verdict at end-of-fight,
+        -- plus SaveFightRecord skips the save entirely.
         --
         -- Plain-substring match — Lua doesn't have \b but no real-world
         -- NPC name has "Training Dummy" as a non-dummy substring, so
@@ -1467,8 +1497,20 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             if destName and destGUID and destGUID ~= savedDummyGUID
                     and not aoeExtraDummyGUIDs[destGUID]
                     and string.find(destName, DUMMY_NAME_PATTERN, 1, true) then
+                local firstHit = (next(aoeExtraDummyGUIDs) == nil)
                 aoeExtraDummyGUIDs[destGUID] = true
                 aoeExtraDummyName = aoeExtraDummyName or destName
+                -- Realtime invalidation. Only on realms where the
+                -- server will reject the upload — on CoA-style realms
+                -- AoE is valid content, so we keep the fight valid
+                -- and just tag it with aoe=true at save time.
+                if ShouldSkipAoEOnThisRealm() and not invalidReasons["multi-target damage — single-target only"] then
+                    invalidReasons["multi-target damage — single-target only"] = true
+                    validThroughout = false
+                end
+                if firstHit and frame and frame:IsShown() and frame.UpdateUI then
+                    frame.UpdateUI()
+                end
             end
         end
         -- p10 carries spellName for SPELL_/RANGE_ events; for SWING events p10
