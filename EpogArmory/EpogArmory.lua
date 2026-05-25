@@ -3049,6 +3049,48 @@ local function TryAutoSync()
     end
 end
 
+-- Claude (v1.8.1): online-check cache. SendAddonMessage with channel
+-- "WHISPER" to an offline character triggers the system error message
+-- "No player named X is currently playing" — chat spam reported in
+-- the wild ("Brokuli" case, 2026-05-21). Most common path is a sync
+-- response: we queue up to SYNC_MAX_SETS_PER_RESPONSE (200) WHISPER
+-- chunks back to the requester, and if they log off mid-burst we
+-- fire one error per remaining chunk.
+--
+-- Cache the reachable-set for ~2s so the outQueue tick doesn't have
+-- to re-walk the guild roster every BROADCAST_STAGGER (0.5s).
+local _onlineCache, _onlineCacheAt = nil, 0
+local _ONLINE_CACHE_TTL = 2 -- seconds
+
+local function IsCharOnline(name)
+    if not name or name == "" then return false end
+    local t = now()
+    if not _onlineCache or (t - _onlineCacheAt) > _ONLINE_CACHE_TTL then
+        _onlineCache = BuildAutoSyncReachable()
+        _onlineCacheAt = t
+    end
+    return _onlineCache[name] == true
+end
+
+-- Claude (v1.8.1): when we detect a WHISPER target went offline mid-burst,
+-- drain all remaining queued chunks targeting the same player. Without
+-- this we'd hit the offline-target system error once per remaining chunk
+-- (one outQueue pop per BROADCAST_STAGGER). Returns drop count for log.
+local function DrainWhispersTo(targetName)
+    if not targetName then return 0 end
+    local dropped = 0
+    local i = #outQueue
+    while i > 0 do
+        local item = outQueue[i]
+        if item.ch == "WHISPER" and item.target == targetName then
+            table.remove(outQueue, i)
+            dropped = dropped + 1
+        end
+        i = i - 1
+    end
+    return dropped
+end
+
 -- ---------------- Main loop + events ----------------
 
 local acc, gcAcc = 0, 0
@@ -3065,7 +3107,17 @@ f:SetScript("OnUpdate", function(self, elapsed)
         -- v0.53: WHISPER channel needs a target character name as 4th arg.
         -- Other channels (PARTY/RAID/GUILD/BATTLEGROUND) ignore the 4th arg
         -- so passing item.target = nil is harmless for non-whisper sends.
-        SendAddonMessage(PREFIX, item.body, item.ch, item.target)
+        --
+        -- v1.8.1: guard WHISPER sends against offline targets to avoid
+        -- the "No player named X is currently playing" system error spam
+        -- (see IsCharOnline + DrainWhispersTo comments above).
+        if item.ch == "WHISPER" and item.target and not IsCharOnline(item.target) then
+            local dropped = DrainWhispersTo(item.target)
+            dprint(string.format("[whisper-guard] %s offline - dropped this chunk + %d others queued for same target",
+                item.target, dropped))
+        else
+            SendAddonMessage(PREFIX, item.body, item.ch, item.target)
+        end
         nextSendAt = now() + BROADCAST_STAGGER
     end
 

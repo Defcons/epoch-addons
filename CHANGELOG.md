@@ -20,6 +20,24 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.9.1 — Fix "No player named X" whisper spam (internal) *(2026-05-21)*
+
+**Bug report:** user Onrehab relayed multiple lines of `No player named 'Brokuli' is currently playing.` system errors clogging up his chat from EpogArmory. Root cause: `SendAddonMessage(PREFIX, body, "WHISPER", target)` to an offline player triggers that exact system error on Project Epoch (and other 3.3.5 forks). The addon's sync-response path queues up to `SYNC_MAX_SETS_PER_RESPONSE` (200) WHISPER chunks back to the requester — if the requester logs off mid-burst, every remaining chunk fires the error. Up to 200 spam lines per bad-luck sync request.
+
+**Fix.** Two new helpers in `EpogArmory.lua` plus a guard in the outQueue tick:
+
+1. `IsCharOnline(name)` — small TTL cache (2s) over `BuildAutoSyncReachable()`. Cheap per-tick check that doesn't re-walk the guild roster every `BROADCAST_STAGGER`.
+2. `DrainWhispersTo(targetName)` — iterates `outQueue` removing all queued items whose `ch == "WHISPER"` and `target == targetName`. Called once when we detect a WHISPER target went offline, so we don't pop+check+error the remaining 199 chunks one at a time.
+3. Guard at the SendAddonMessage call site in the OnUpdate driver: if the item is a WHISPER with an offline target, drop it + drain the queue for that target. Logs the drop count via `dprint`.
+
+**No behavior change** for online targets, party/raid/guild broadcasts (`PARTY`/`RAID`/`GUILD`/`BATTLEGROUND` ignore the target arg entirely), or any other code path. Pure offline-target guard.
+
+**Why patch-level and not minor.** The fix is conservative (drops messages, doesn't change protocol). v1.9.0 (AoE-dummy skip + Single-Target-Only branding) is also still pending public promotion. We'll bundle both into the next public release.
+
+Patch-level — no public release, no standalone repo sync, mesh auto-update notification stays silent.
+
+---
+
 ## EpogArmory v1.8.0 — Dungeon speedruns + raid auto-log + dummy practice mode *(2026-05-21)*
 
 Consolidated public release of the v1.7.1–v1.7.11 internal iteration. Headline features: a new Dungeon Run frame tracking boss kills + trash buckets for the epoglogs leaderboard, raid auto-log with ownership management, a PRACTICE mode on the dummy frame for log-free DPS readouts, and polish on the existing dummy parse flow.
