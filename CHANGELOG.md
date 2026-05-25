@@ -20,21 +20,57 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
-## EpogArmory v1.9.1 — Fix "No player named X" whisper spam (internal) *(2026-05-21)*
+## EpogArmory v1.9.1 — Single-target dummy enforcement + whisper-spam fix *(2026-05-21)*
 
-**Bug report:** user Onrehab relayed multiple lines of `No player named 'Brokuli' is currently playing.` system errors clogging up his chat from EpogArmory. Root cause: `SendAddonMessage(PREFIX, body, "WHISPER", target)` to an offline player triggers that exact system error on Project Epoch (and other 3.3.5 forks). The addon's sync-response path queues up to `SYNC_MAX_SETS_PER_RESPONSE` (200) WHISPER chunks back to the requester — if the requester logs off mid-burst, every remaining chunk fires the error. Up to 200 spam lines per bad-luck sync request.
+Consolidated public release of the v1.9.0 + v1.9.1 internal patches. Two themes: dummy parses are now Project-Epoch-realm-enforced single-target only (matches epoglogs server-side rule introduced in v0.86.6), and a long-running chat-spam bug in the mesh code is fixed.
 
-**Fix.** Two new helpers in `EpogArmory.lua` plus a guard in the outQueue tick:
+### Single-Target-Only dummy enforcement
 
-1. `IsCharOnline(name)` — small TTL cache (2s) over `BuildAutoSyncReachable()`. Cheap per-tick check that doesn't re-walk the guild roster every `BROADCAST_STAGGER`.
-2. `DrainWhispersTo(targetName)` — iterates `outQueue` removing all queued items whose `ch == "WHISPER"` and `target == targetName`. Called once when we detect a WHISPER target went offline, so we don't pop+check+error the remaining 199 chunks one at a time.
-3. Guard at the SendAddonMessage call site in the OnUpdate driver: if the item is a WHISPER with an offline target, drop it + drain the queue for that target. Logs the drop count via `dprint`.
+`epoglogs.com` v0.86.6+ rejects combat-log uploads where the player damaged 2+ training dummies in one pull. The leaderboards at `epoglogs.com/dummy-stats` are single-target only — Expert's (L60) vs Heroic (L63) dummies have very different EHP curves and AoE rotations would pollute the rankings. The addon now mirrors that rule locally so users find out *before* they upload.
 
-**No behavior change** for online targets, party/raid/guild broadcasts (`PARTY`/`RAID`/`GUILD`/`BATTLEGROUND` ignore the target arg entirely), or any other code path. Pure offline-target guard.
+**Detection** (`EpogArmoryDummy.lua`):
+- Per-fight set `aoeExtraDummyGUIDs` tracks distinct dummies that aren't the primary `savedDummyGUID`. Populated from the CLEU handler whenever `destName` matches the `Training Dummy` substring pattern. Reset in both `DoStartLogging` and `DoStartPractice` alongside the other per-fight state.
+- Mirrors the server-side parser regex `/\bTraining Dummy\b/` on destName — substring match agrees in practice (no real-world non-dummy NPC has the phrase as a substring).
 
-**Why patch-level and not minor.** The fix is conservative (drops messages, doesn't change protocol). v1.9.0 (AoE-dummy skip + Single-Target-Only branding) is also still pending public promotion. We'll bundle both into the next public release.
+**Realm gating** via `DEFAULT_SKIP_AOE_REALMS` (`Project Epoch` / `Epoch` / `ProjectEpoch`). Override list in `EpogArmoryDB.skipAoERealms` for any exact-string mismatch. CoA-style realms where AoE training is valid content keep the save but tag the fight with `aoe=true` so offline analytics can distinguish.
 
-Patch-level — no public release, no standalone repo sync, mesh auto-update notification stays silent.
+**Realtime visible feedback:**
+- Dummy frame title now reads `EpogLogs . Dummy Parse . Single-Target Only` (the trailing tag is grey via `|c` escape — quiet subtitle, doesn't fight with the main title).
+- New `f.aoeWarnLabel` under the state badge: hidden by default, shown as `Multi-target damage detected — fight invalidated` (red) the moment a second dummy GUID appears in CLEU.
+- `validThroughout` flips false on first extra-dummy detection so the verdict at end-of-fight matches what `SaveFightRecord` does — no "showed CLEAN locally but rejected on upload" surprise.
+
+**SaveFightRecord behavior table:**
+
+| extraDummyCount | Realm in skip-list | Action |
+|---|---|---|
+| 0 (single dummy) | n/a | Save normally |
+| >0 | Yes (PE) | Skip the save entirely. Show `EPOGARMORY_AOE_DUMMY_REJECTED` popup + red chat line |
+| >0 | No (CoA-style) | Save with `aoe=true`, `aoeExtraDummyCount`, `aoeExtraDummyName` tagged on the record |
+
+### Fix: "No player named X" whisper-spam bug
+
+**Bug.** Multiple lines of `No player named 'X' is currently playing.` system errors flooding chat when a peer that the addon was syncing TO logged off mid-burst.
+
+**Root cause.** `SendAddonMessage(PREFIX, body, "WHISPER", target)` to an offline player triggers that exact system error on Project Epoch (and other 3.3.5 forks). The sync-response path queues up to `SYNC_MAX_SETS_PER_RESPONSE` (200) WHISPER chunks back to the requester. If the requester logs off mid-burst, every remaining queued chunk pops one at a time and fires the error — **up to 200 spam lines per bad-luck sync request**.
+
+**Fix.** Two new helpers in `EpogArmory.lua` + a guard at the send site:
+
+1. **`IsCharOnline(name)`** — TTL-cached (2s) wrapper over `BuildAutoSyncReachable()`. Cheap per-tick check that doesn't re-walk the guild roster every `BROADCAST_STAGGER` (0.5s).
+2. **`DrainWhispersTo(targetName)`** — walks `outQueue` and removes all queued items with `ch == "WHISPER"` and `target == targetName`. Called once when we detect a WHISPER target went offline, so we don't pop+error the remaining 199 chunks one at a time.
+3. **Guard at the SendAddonMessage call site** in the OnUpdate driver: if the item is a WHISPER with an offline target, drop + drain. Otherwise normal send. Drop count logged via `dprint`.
+
+**No behavior change** for online targets, party/raid/guild broadcasts (`PARTY`/`RAID`/`GUILD`/`BATTLEGROUND` ignore the target arg entirely), or any non-WHISPER path. Pure offline-target guard.
+
+### Backward compatibility
+
+- New SavedVariables fields are additive: `EpogArmoryDB.dummyFights[].aoe`, `.aoeExtraDummyCount`, `.aoeExtraDummyName` (only set on AoE-tagged records).
+- `EpogArmoryDB.skipAoERealms` is optional override; absent means use `DEFAULT_SKIP_AOE_REALMS`.
+- Wire format unchanged — no mesh-protocol impact. Mixed-version meshes work fine.
+- v1.8.x mesh peers will receive the auto-update notification pointing here.
+
+### Files
+
+Same five files as v1.8.0 — no new files added. `EpogArmoryDummy.lua` carries the AoE detection logic, `EpogArmory.lua` carries the whisper guard.
 
 ---
 
