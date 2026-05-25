@@ -4,6 +4,25 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpochSynch v0.3 — In-BG global override for universal raid-frame compatibility *(2026-05-25)*
+v0.2 ran as a non-invasive overlay only — broadcast data lived in the EpochSynch HUD and our own map/minimap blips, but default raid frames (and Grid / HealBot / ShadowedUF / etc.) still rendered the server's frozen "out-of-range" values for far-away teammates. v0.3 closes that gap.
+
+New `Core/Overlay.lua` wraps `UnitHealth` / `UnitHealthMax` / `UnitMana` / `UnitManaMax` / `GetPlayerMapPosition` and swaps them in **only while inside a battleground**. Wrappers fall through to the original in every case except: the caller is asking about a non-player teammate, we have a fresh (`< STALE_AFTER`) cache entry, AND `UnitIsVisible(unit) == false` — i.e. the precise gap the server isn't covering. When the server has fresh data, the original always wins.
+
+- **Universal compatibility** — every raid-frame addon (default, Grid, HealBot, ShadowedUF, custom UI) sees fresh data automatically. No per-addon shim.
+- **BG-gated install** — `PLAYER_ENTERING_WORLD` / `ZONE_CHANGED_NEW_AREA` drives install on BG entry and uninstall on BG exit. Out-of-BG play has zero taint surface from this addon.
+- **HP/MP rendering** — broadcast HP/MP percent (0..100) returned as "current"; max returned as 100. Bar fill ratio is correct in every consumer; absolute values are not preserved but were 0 anyway before the override.
+- **Position rendering** — only substitutes cached coords when the real `GetPlayerMapPosition` returned `(0, 0)`, so any non-zero server value wins. Default UI world-map blips now appear for far-away teammates with no map-blip changes on our side.
+- **Slash toggle** — `/synch overlay on|off`, default ON. `/synch status` shows current state + active/inactive flag.
+
+Taint disclosure (documented inline in `Overlay.lua`): replacing `UnitHealth`/`UnitMana` propagates a small amount of taint to secure code that reads them — most visibly the raid-frame right-click dropdown being unreliable in combat inside BGs. Out of BG, the wrappers are uninstalled and there is no taint. Toggleable off if a user prefers the v0.2 HUD-only behaviour.
+
+Chain-hook caveat: originals are captured on first install. Another addon hooking these globals AFTER us would have its hook lost on our next uninstall. No addon in this pack hooks them, so this is documented but not mitigated.
+
+Files: `Core/Overlay.lua` (new), `Core/Const.lua` (default + version bump), `EpochSynch.toc` (load order + version), `EpochSynch.lua` (slash command + bootstrap call).
+
+---
+
 ## EpochSynch v0.2 — Rename from PEBGSync-3.3.5 *(2026-05-17)*
 Same addon, cleaner name. Directory renamed `PEBGSync-3.3.5/` → `EpochSynch/`; main file `EpochSynch.lua`; global table `EpochSynch`; SavedVariables `EpochSynchDB` (with one-shot migration from the old `PEBGSyncDB`); wire prefixes `EpochSynch_F` / `_S` / `_E` (still ≤16 chars); slash commands `/synch` and `/epochsynch`. All `PEBG`/`PEBGSync` references in identifiers swapped; internal short-alias renamed `PEBG → ES` across all 8 files.
 

@@ -87,6 +87,22 @@ local function HandleSlash(input)
         Print("World map blips: " .. (profile.worldMapBlips and "ON" or "OFF"))
         return
     end
+    if cmd == "overlay" then  -- Claude: in-BG global override toggle
+        if rest == "on" then
+            profile.overlay = true
+            if ES.Overlay then ES.Overlay.SyncState() end
+            Print("Unit-data overlay |cff66ff66ON|r — default UI / Grid / HealBot / etc. will reflect broadcast HP/MP/position inside BGs.")
+        elseif rest == "off" then
+            profile.overlay = false
+            if ES.Overlay then ES.Overlay.Uninstall() end
+            Print("Unit-data overlay |cffff5555OFF|r — only the EpochSynch HUD/blips will show broadcast data.")
+        else
+            local active = ES.Overlay and ES.Overlay.IsInstalled() and " (active)" or " (inactive)"
+            Print("Overlay: " .. (profile.overlay and "ON" or "OFF") .. active)
+            Print("Usage: /synch overlay on|off")
+        end
+        return
+    end
     if cmd == "minimap" then
         profile.minimapBlips = not profile.minimapBlips
         Print("Minimap blips: " .. (profile.minimapBlips and "ON" or "OFF"))
@@ -104,6 +120,8 @@ local function HandleSlash(input)
         Print("WorldMap:  " .. (profile.worldMapBlips and "ON" or "OFF"))
         Print("Minimap:   " .. (profile.minimapBlips and "ON" or "OFF"))
         Print("Enemy:     " .. (profile.enemyEnabled and "ON" or "OFF"))
+        Print("Overlay:   " .. (profile.overlay and "ON" or "OFF") ..  -- Claude: show overlay state
+            (ES.Overlay and ES.Overlay.IsInstalled() and " (active)" or " (inactive)"))
         Print("Cached teammates: " .. cacheN)
         Print("Cached enemies:   " .. enemyN)
         return
@@ -116,6 +134,7 @@ local function HandleSlash(input)
         Print("  /synch enemy on|off     — enemy spot tracking (default off)")
         Print("  /synch worldmap         — toggle world-map blips")
         Print("  /synch minimap          — toggle minimap blips")
+        Print("  /synch overlay on|off   — override default UI raid frames in BG")  -- Claude: new command
         Print("  /synch status           — current state + cache counts")
         return
     end
@@ -150,6 +169,12 @@ boot:SetScript("OnEvent", function(self, event)
     -- IsInBG / IsGrouped, so calling Start() unconditionally is safe.
     ES.Engine.Start()
     if EpochSynchDB.profile.enemyEnabled then ES.Enemy.Start() end
+
+    -- Claude: if we logged in already inside a BG, the Overlay watcher's
+    -- own PLAYER_ENTERING_WORLD will fire shortly and sync state — but
+    -- call explicitly here so the first-tick behaviour is deterministic
+    -- regardless of event ordering across addons.
+    if ES.Overlay then ES.Overlay.SyncState() end
 
     -- Show the roster if the user had it visible last session AND we're
     -- in a BG. Outside BG it stays hidden until the BG watcher in

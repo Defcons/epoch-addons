@@ -4,7 +4,7 @@
 EpochSynch = EpochSynch or {}
 local ES = EpochSynch
 
-ES.VERSION = "0.2"
+ES.VERSION = "0.3"  -- Claude: v0.3 adds in-BG global override (Core/Overlay.lua)
 
 -- Addon-channel prefix. ≤16 chars per Blizzard's protocol cap.
 ES.PREFIX_F = "EpochSynch_F"  -- fast tier: HP + position + flags
@@ -52,6 +52,7 @@ ES.DEFAULTS = {
     rosterShown   = true,  -- show the HP/MP HUD frame
     worldMapBlips = true,  -- draw teammate dots on world map
     minimapBlips  = true,  -- draw teammate dots on minimap
+    overlay       = true,  -- Claude: in-BG override of UnitHealth/Mana/Position globals
     -- Window position. Saved on drag-stop; nil = first install centred.
     rosterPos     = nil,
 }

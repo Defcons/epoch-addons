@@ -2,13 +2,14 @@
 ## Title: |cff33ccffEpochSynch|r
 ## Notes: Cross-map teammate visibility in battlegrounds — broadcasts HP/MP/position over the addon channel so default raid frames and world map show fresh data for teammates the server has stopped sending updates for. Observe-and-relay extends coverage to non-addon-users.
 ## Author: Defcon
-## Version: 0.2
+## Version: 0.3
 ## SavedVariables: EpochSynchDB
 
 Core\Const.lua
 Core\Protocol.lua
 Core\Engine.lua
 Core\Enemy.lua
+Core\Overlay.lua
 UI\Roster.lua
 UI\WorldMap.lua
 UI\Minimap.lua
