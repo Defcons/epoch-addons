@@ -1,6 +1,6 @@
 -- Core/Enemy.lua
 -- Opt-in enemy spot tracking. Default off (per spec); enable with
--- /pebg enemy on.
+-- /synch enemy on.
 --
 -- Mechanism: when enabled, scan nameplate frames + the local player's
 -- current target each tick. Anything red (hostile) and player-class
@@ -16,16 +16,16 @@
 -- when the enemy is also our current target (we know they're at our
 -- combat radius).
 
-local PEBG = PEBGSync
-PEBG.Enemy = {}
-local Enemy = PEBG.Enemy
+local ES = EpochSynch
+ES.Enemy = {}
+local Enemy = ES.Enemy
 
-PEBG.enemyCache = PEBG.enemyCache or {}
+ES.enemyCache = ES.enemyCache or {}
 
 -- ----- receive ----------------------------------------------------------
 
 function Enemy.OnReceive(records, sender)
-    if not PEBGSyncDB or not PEBGSyncDB.profile or not PEBGSyncDB.profile.enemyEnabled then
+    if not EpochSynchDB or not EpochSynchDB.profile or not EpochSynchDB.profile.enemyEnabled then
         -- Don't store enemy spots if the local user has opt-in off.
         -- They'd be invisible anyway (no UI rendering when off), but
         -- skipping the cache writes saves a few cycles per packet.
@@ -35,13 +35,13 @@ function Enemy.OnReceive(records, sender)
     for i = 1, #records do
         local r = records[i]
         local key = r.name
-        local entry = PEBG.enemyCache[key] or { name = r.name }
+        local entry = ES.enemyCache[key] or { name = r.name }
         entry.x          = r.x
         entry.y          = r.y
         entry.classToken = r.classToken
         entry.lastSeen   = now
         entry.observer   = sender
-        PEBG.enemyCache[key] = entry
+        ES.enemyCache[key] = entry
     end
 end
 
@@ -53,7 +53,7 @@ end
 -- could add nameplate frame enumeration.
 --
 -- Returns a list of enemy records observed THIS TICK. The broadcaster
--- only fires when PEBGSyncDB.profile.enemyEnabled is true.
+-- only fires when EpochSynchDB.profile.enemyEnabled is true.
 
 local seenThisTick = {}
 
@@ -101,23 +101,23 @@ broadcaster:Hide()
 local enemyAccum = 0
 
 local function shouldBroadcastEnemies()
-    if not PEBGSyncDB or not PEBGSyncDB.profile then return false end
-    if not PEBGSyncDB.profile.enabled then return false end
-    if not PEBGSyncDB.profile.enemyEnabled then return false end
-    if not PEBG.IsInBG() then return false end
-    if not PEBG.IsGrouped() then return false end
+    if not EpochSynchDB or not EpochSynchDB.profile then return false end
+    if not EpochSynchDB.profile.enabled then return false end
+    if not EpochSynchDB.profile.enemyEnabled then return false end
+    if not ES.IsInBG() then return false end
+    if not ES.IsGrouped() then return false end
     return true
 end
 
 broadcaster:SetScript("OnUpdate", function(self, elapsed)
     if not shouldBroadcastEnemies() then enemyAccum = 0; return end
     enemyAccum = enemyAccum + elapsed
-    if enemyAccum < PEBG.ENEMY_INTERVAL then return end
+    if enemyAccum < ES.ENEMY_INTERVAL then return end
     enemyAccum = 0
     local records = collectEnemies()
     if #records == 0 then return end
-    local msg = PEBG.Protocol.encodeEnemyBatch(records)
-    PEBG.Protocol.send(PEBG.PREFIX_E, msg)
+    local msg = ES.Protocol.encodeEnemyBatch(records)
+    ES.Protocol.send(ES.PREFIX_E, msg)
 end)
 
 function Enemy.Start() broadcaster:Show() end
@@ -137,17 +137,17 @@ pruner:SetScript("OnUpdate", function(self, elapsed)
     pruneAccum = pruneAccum + elapsed
     if pruneAccum < 1.0 then return end
     pruneAccum = 0
-    local cutoff = GetTime() - PEBG.ENEMY_STALE_AFTER
-    for name, entry in pairs(PEBG.enemyCache) do
+    local cutoff = GetTime() - ES.ENEMY_STALE_AFTER
+    for name, entry in pairs(ES.enemyCache) do
         if (entry.lastSeen or 0) < cutoff then
-            PEBG.enemyCache[name] = nil
+            ES.enemyCache[name] = nil
         end
     end
 end)
 
 function Enemy.ForEachLive(cb)
-    local cutoff = GetTime() - PEBG.ENEMY_STALE_AFTER
-    for _, entry in pairs(PEBG.enemyCache) do
+    local cutoff = GetTime() - ES.ENEMY_STALE_AFTER
+    for _, entry in pairs(ES.enemyCache) do
         if (entry.lastSeen or 0) >= cutoff then
             if cb(entry) == false then return end
         end

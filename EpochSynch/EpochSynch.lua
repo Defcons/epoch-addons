@@ -1,11 +1,11 @@
--- PEBGSync-3.3.5.lua
+-- EpochSynch.lua
 -- Main entry: registers the addon-message prefixes, applies defaults,
 -- wires the slash command, and kicks off the engine.
 
-local PEBG = PEBGSync
+local ES = EpochSynch
 
 local function Print(msg)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[PEBG]|r " .. tostring(msg))
+    DEFAULT_CHAT_FRAME:AddMessage("|cff33ccff[EpochSynch]|r " .. tostring(msg))
 end
 
 local function ApplyDefaults(profile, defaults)
@@ -15,9 +15,18 @@ local function ApplyDefaults(profile, defaults)
 end
 
 local function InitDB()
-    PEBGSyncDB = PEBGSyncDB or {}
-    PEBGSyncDB.profile = PEBGSyncDB.profile or {}
-    ApplyDefaults(PEBGSyncDB.profile, PEBG.DEFAULTS)
+    -- One-shot migration from the pre-rename SavedVariables key. The
+    -- v0.1 release named the global PEBGSyncDB; only a handful of
+    -- testers ever wrote to it so this is mostly cosmetic, but it
+    -- carries any saved profile fields (roster position, enemy opt-in,
+    -- etc.) across the rename without re-prompting.
+    if PEBGSyncDB and not EpochSynchDB then
+        EpochSynchDB = PEBGSyncDB
+        PEBGSyncDB   = nil
+    end
+    EpochSynchDB = EpochSynchDB or {}
+    EpochSynchDB.profile = EpochSynchDB.profile or {}
+    ApplyDefaults(EpochSynchDB.profile, ES.DEFAULTS)
 end
 
 -- ----- slash command ---------------------------------------------------
@@ -26,50 +35,50 @@ local function HandleSlash(input)
     input = (input or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     local cmd, rest = input:match("^(%S+)%s*(.*)$")
     cmd = cmd or ""
-    local profile = PEBGSyncDB.profile
+    local profile = EpochSynchDB.profile
 
     if cmd == "" or cmd == "show" then
-        PEBG.Roster.Show()
+        ES.Roster.Show()
         Print("Roster shown.")
         return
     end
     if cmd == "hide" then
-        PEBG.Roster.Hide()
+        ES.Roster.Hide()
         profile.rosterShown = false
-        Print("Roster hidden. /pebg show to bring it back.")
+        Print("Roster hidden. /synch show to bring it back.")
         return
     end
     if cmd == "toggle" then
-        PEBG.Roster.Toggle()
-        profile.rosterShown = PEBG.Roster.IsShown() and true or false
+        ES.Roster.Toggle()
+        profile.rosterShown = ES.Roster.IsShown() and true or false
         return
     end
     if cmd == "on" then
         profile.enabled = true
-        PEBG.Engine.Start()
+        ES.Engine.Start()
         Print("Broadcasting |cff66ff66ON|r.")
         return
     end
     if cmd == "off" then
         profile.enabled = false
-        PEBG.Engine.Stop()
+        ES.Engine.Stop()
         Print("Broadcasting |cffff5555OFF|r. (Receive still active.)")
         return
     end
     if cmd == "enemy" then
         if rest == "on" then
             profile.enemyEnabled = true
-            PEBG.Enemy.Start()
+            ES.Enemy.Start()
             Print("Enemy tracking |cff66ff66ON|r — your spots will be broadcast and incoming spots shown.")
         elseif rest == "off" then
             profile.enemyEnabled = false
-            PEBG.Enemy.Stop()
+            ES.Enemy.Stop()
             -- Clear any cached enemy state immediately.
-            for k in pairs(PEBG.enemyCache) do PEBG.enemyCache[k] = nil end
+            for k in pairs(ES.enemyCache) do ES.enemyCache[k] = nil end
             Print("Enemy tracking |cffff5555OFF|r (default).")
         else
             Print("Enemy tracking: " .. (profile.enemyEnabled and "ON" or "OFF"))
-            Print("Usage: /pebg enemy on|off")
+            Print("Usage: /synch enemy on|off")
         end
         return
     end
@@ -85,13 +94,13 @@ local function HandleSlash(input)
     end
     if cmd == "status" then
         local cacheN = 0
-        for _ in pairs(PEBG.cache) do cacheN = cacheN + 1 end
+        for _ in pairs(ES.cache) do cacheN = cacheN + 1 end
         local enemyN = 0
-        for _ in pairs(PEBG.enemyCache) do enemyN = enemyN + 1 end
+        for _ in pairs(ES.enemyCache) do enemyN = enemyN + 1 end
         Print("Master:    " .. (profile.enabled and "ON" or "OFF"))
-        Print("In BG:     " .. tostring(PEBG.IsInBG()))
-        Print("Grouped:   " .. tostring(PEBG.IsGrouped()))
-        Print("Roster:    " .. (PEBG.Roster.IsShown() and "shown" or "hidden"))
+        Print("In BG:     " .. tostring(ES.IsInBG()))
+        Print("Grouped:   " .. tostring(ES.IsGrouped()))
+        Print("Roster:    " .. (ES.Roster.IsShown() and "shown" or "hidden"))
         Print("WorldMap:  " .. (profile.worldMapBlips and "ON" or "OFF"))
         Print("Minimap:   " .. (profile.minimapBlips and "ON" or "OFF"))
         Print("Enemy:     " .. (profile.enemyEnabled and "ON" or "OFF"))
@@ -101,21 +110,21 @@ local function HandleSlash(input)
     end
     if cmd == "help" or cmd == "?" then
         Print("Commands:")
-        Print("  /pebg                  — show roster HUD")
-        Print("  /pebg hide / toggle    — hide / toggle roster HUD")
-        Print("  /pebg on / off         — master broadcast toggle")
-        Print("  /pebg enemy on|off     — enemy spot tracking (default off)")
-        Print("  /pebg worldmap         — toggle world-map blips")
-        Print("  /pebg minimap          — toggle minimap blips")
-        Print("  /pebg status           — current state + cache counts")
+        Print("  /synch                  — show roster HUD")
+        Print("  /synch hide / toggle    — hide / toggle roster HUD")
+        Print("  /synch on / off         — master broadcast toggle")
+        Print("  /synch enemy on|off     — enemy spot tracking (default off)")
+        Print("  /synch worldmap         — toggle world-map blips")
+        Print("  /synch minimap          — toggle minimap blips")
+        Print("  /synch status           — current state + cache counts")
         return
     end
-    Print("Unknown command. /pebg help")
+    Print("Unknown command. /synch help")
 end
 
-SLASH_PEBGSYNC1 = "/pebg"
-SLASH_PEBGSYNC2 = "/pebgsync"
-SlashCmdList["PEBGSYNC"] = HandleSlash
+SLASH_EPOCHSYNCH1 = "/synch"
+SLASH_EPOCHSYNCH2 = "/epochsynch"
+SlashCmdList["EPOCHSYNCH"] = HandleSlash
 
 -- ----- bootstrap -------------------------------------------------------
 -- One frame for the few addon-lifecycle events we need to hook. The
@@ -132,22 +141,22 @@ boot:SetScript("OnEvent", function(self, event)
     -- registration. Belt-and-suspenders: if a future Ascension server
     -- introduces it, the call here is forward-compat.
     if RegisterAddonMessagePrefix then
-        RegisterAddonMessagePrefix(PEBG.PREFIX_F)
-        RegisterAddonMessagePrefix(PEBG.PREFIX_S)
-        RegisterAddonMessagePrefix(PEBG.PREFIX_E)
+        RegisterAddonMessagePrefix(ES.PREFIX_F)
+        RegisterAddonMessagePrefix(ES.PREFIX_S)
+        RegisterAddonMessagePrefix(ES.PREFIX_E)
     end
 
     -- Kick off the broadcasters. They self-gate on profile.enabled /
     -- IsInBG / IsGrouped, so calling Start() unconditionally is safe.
-    PEBG.Engine.Start()
-    if PEBGSyncDB.profile.enemyEnabled then PEBG.Enemy.Start() end
+    ES.Engine.Start()
+    if EpochSynchDB.profile.enemyEnabled then ES.Enemy.Start() end
 
     -- Show the roster if the user had it visible last session AND we're
     -- in a BG. Outside BG it stays hidden until the BG watcher in
     -- UI/Roster.lua flips it on at zone-in.
-    if PEBGSyncDB.profile.rosterShown and PEBG.IsInBG() then
-        PEBG.Roster.Show()
+    if EpochSynchDB.profile.rosterShown and ES.IsInBG() then
+        ES.Roster.Show()
     end
 
-    Print("v" .. PEBG.VERSION .. " loaded. /pebg help.")
+    Print("v" .. ES.VERSION .. " loaded. /synch help.")
 end)

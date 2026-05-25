@@ -13,9 +13,9 @@
 --   pixelY = -y * detailH
 -- (Negative Y because WoW frame anchors grow downward from TOPLEFT.)
 
-local PEBG = PEBGSync
-PEBG.WorldMap = {}
-local WM = PEBG.WorldMap
+local ES = EpochSynch
+ES.WorldMap = {}
+local WM = ES.WorldMap
 
 local TEAM_BLIP_SIZE  = 10
 local ENEMY_BLIP_SIZE = 9
@@ -46,7 +46,7 @@ end
 local activeTeam, activeEnemy = {}, {}
 
 local function classColor(token)
-    local c = PEBG.CLASS_COLOR[token or ""]
+    local c = ES.CLASS_COLOR[token or ""]
     if c then return c[1], c[2], c[3] end
     return 1, 1, 1
 end
@@ -54,8 +54,8 @@ end
 local lastDraw = 0
 local function redraw()
     if not WorldMapFrame or not WorldMapFrame:IsShown() then return end
-    if not PEBGSyncDB or not PEBGSyncDB.profile then return end
-    if not PEBGSyncDB.profile.worldMapBlips then
+    if not EpochSynchDB or not EpochSynchDB.profile then return end
+    if not EpochSynchDB.profile.worldMapBlips then
         -- Stop drawing and release any active blips.
         for i = #activeTeam, 1, -1 do
             releaseBlip(teamPool, activeTeam[i]); activeTeam[i] = nil
@@ -81,7 +81,7 @@ local function redraw()
     end
 
     -- Team blips.
-    PEBG.Engine.ForEachLive(function(entry)
+    ES.Engine.ForEachLive(function(entry)
         if not entry.x or not entry.y then return end
         if entry.x <= 0 and entry.y <= 0 then return end  -- "unknown"
         local b = acquireBlip(teamPool, parent, TEAM_BLIP_SIZE)
@@ -100,8 +100,8 @@ local function redraw()
     end)
 
     -- Enemy blips — only when opt-in is on.
-    if PEBGSyncDB.profile.enemyEnabled and PEBG.Enemy and PEBG.Enemy.ForEachLive then
-        PEBG.Enemy.ForEachLive(function(entry)
+    if EpochSynchDB.profile.enemyEnabled and ES.Enemy and ES.Enemy.ForEachLive then
+        ES.Enemy.ForEachLive(function(entry)
             if not entry.x or not entry.y then return end
             if entry.x <= 0 and entry.y <= 0 then return end
             local b = acquireBlip(enemyPool, parent, ENEMY_BLIP_SIZE)

@@ -4,6 +4,13 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## EpochSynch v0.2 — Rename from PEBGSync-3.3.5 *(2026-05-17)*
+Same addon, cleaner name. Directory renamed `PEBGSync-3.3.5/` → `EpochSynch/`; main file `EpochSynch.lua`; global table `EpochSynch`; SavedVariables `EpochSynchDB` (with one-shot migration from the old `PEBGSyncDB`); wire prefixes `EpochSynch_F` / `_S` / `_E` (still ≤16 chars); slash commands `/synch` and `/epochsynch`. All `PEBG`/`PEBGSync` references in identifiers swapped; internal short-alias renamed `PEBG → ES` across all 8 files.
+
+**Inter-version compatibility note:** v0.1 (PEBGSync_*) and v0.2 (EpochSynch_*) won't talk to each other — different wire prefixes. Anyone testing v0.1 needs to update to v0.2 to keep broadcasting. The migration only carries SavedVariables locally; it can't reach into other clients.
+
+---
+
 ## PEBGSync-3.3.5 v0.1 — New addon: cross-map BG teammate visibility *(2026-05-17)*
 Battlegrounds on 3.3.5 freeze raid-frame data and (x,y) for teammates beyond the server's ~100-yard visibility range — the whole reason `UnitIsVisible(unit)` exists. This addon broadcasts each player's HP/MP/position over the addon channel so default UI raid frames, world map, and minimap have fresh data for teammates the server has stopped updating for.
 

@@ -15,9 +15,9 @@
 -- once we know the zone's yardage. Approximating without yardage by
 -- using a per-BG scale factor still gives directionally-correct dots.
 
-local PEBG = PEBGSync
-PEBG.Minimap = {}
-local M = PEBG.Minimap
+local ES = EpochSynch
+ES.Minimap = {}
+local M = ES.Minimap
 
 local UPDATE_HZ = 5
 local DOT_SIZE  = 7
@@ -28,7 +28,7 @@ local active = {}
 local lastDraw = 0
 
 local function classColor(token)
-    local c = PEBG.CLASS_COLOR[token or ""]
+    local c = ES.CLASS_COLOR[token or ""]
     if c then return c[1], c[2], c[3] end
     return 1, 1, 1
 end
@@ -54,8 +54,8 @@ local function release(d)
 end
 
 local function redraw()
-    if not PEBGSyncDB or not PEBGSyncDB.profile then return end
-    if not PEBGSyncDB.profile.minimapBlips then
+    if not EpochSynchDB or not EpochSynchDB.profile then return end
+    if not EpochSynchDB.profile.minimapBlips then
         for i = #active, 1, -1 do release(active[i]); active[i] = nil end
         return
     end
@@ -70,7 +70,7 @@ local function redraw()
     -- Recycle previous frame's dots.
     for i = #active, 1, -1 do release(active[i]); active[i] = nil end
 
-    PEBG.Engine.ForEachLive(function(entry)
+    ES.Engine.ForEachLive(function(entry)
         if not entry.x or not entry.y then return end
         if entry.x <= 0 and entry.y <= 0 then return end
         if entry.name == UnitName("player") then return end

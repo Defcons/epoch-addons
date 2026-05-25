@@ -1,23 +1,23 @@
 -- Core/Protocol.lua
--- Wire format encode/decode + send/receive for PEBG Sync.
+-- Wire format encode/decode + send/receive for ES.
 --
 -- A single packet carries one OR MORE observation records, batched to
 -- amortise per-message overhead and stay under 3.3.5's ~10 msg/sec
 -- outbound throttle. Records are semicolon-delimited; fields within a
 -- record are comma-delimited.
 --
--- Fast packet (prefix PEBGSync_F): name,hp,x,y,flags
--- Slow packet (prefix PEBGSync_S): name,mp,classToken
--- Enemy packet (prefix PEBGSync_E): name,x,y[,class] — see Core/Enemy.lua
+-- Fast packet (prefix EpochSynch_F): name,hp,x,y,flags
+-- Slow packet (prefix EpochSynch_S): name,mp,classToken
+-- Enemy packet (prefix EpochSynch_E): name,x,y[,class] — see Core/Enemy.lua
 --
 -- HP/MP/x/y are sent as integer 0..100 (percent) for HP/MP and 0..1000
 -- (per-mille) for x/y. Per-mille gives ~3.7-yard precision on a 1000-
 -- yard BG which is more than enough for "where is my flag carrier".
 -- Both are bandwidth-friendly: each field is 1-4 ASCII chars.
 
-local PEBG = PEBGSync
-PEBG.Protocol = {}
-local P = PEBG.Protocol
+local ES = EpochSynch
+ES.Protocol = {}
+local P = ES.Protocol
 
 -- ----- encoders ---------------------------------------------------------
 

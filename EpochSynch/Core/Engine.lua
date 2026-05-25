@@ -2,23 +2,23 @@
 -- Sampler + cache + broadcaster + receiver for the teammate channel.
 -- The enemy-spot channel lives in Core/Enemy.lua and is opt-in.
 
-local PEBG = PEBGSync
-PEBG.Engine = {}
-local E = PEBG.Engine
+local ES = EpochSynch
+ES.Engine = {}
+local E = ES.Engine
 
 -- ----- cache -----------------------------------------------------------
 -- Keyed by player name. Each entry holds the latest received state plus
 -- a server-local last-seen timestamp (GetTime()) used for stale pruning
 -- and for "latest wins" conflict resolution when multiple observers
 -- broadcast the same target.
-PEBG.cache = PEBG.cache or {}
+ES.cache = ES.cache or {}
 
 -- Returns the cache entry for `name`, creating it on first sight.
 local function ensure(name)
-    local e = PEBG.cache[name]
+    local e = ES.cache[name]
     if not e then
         e = { name = name }
-        PEBG.cache[name] = e
+        ES.cache[name] = e
     end
     return e
 end
@@ -26,15 +26,15 @@ end
 -- Iterate live (non-stale) cache entries. Stops calling cb when cb
 -- returns false. Used by the UI layer to refresh blips / HUD rows.
 function E.ForEachLive(cb)
-    local cutoff = GetTime() - PEBG.STALE_AFTER
-    for _, entry in pairs(PEBG.cache) do
+    local cutoff = GetTime() - ES.STALE_AFTER
+    for _, entry in pairs(ES.cache) do
         if (entry.lastSeen or 0) >= cutoff then
             if cb(entry) == false then return end
         end
     end
 end
 
-function E.Get(name) return PEBG.cache[name] end
+function E.Get(name) return ES.cache[name] end
 
 -- ----- sampler ---------------------------------------------------------
 
@@ -52,16 +52,16 @@ end
 
 local function unitFlagsByte(unit)
     local f = 0
-    if UnitAffectingCombat(unit) then f = f + PEBG.FLAG_IN_COMBAT end
+    if UnitAffectingCombat(unit) then f = f + ES.FLAG_IN_COMBAT end
     if UnitIsDeadOrGhost(unit) then
         if UnitIsGhost and UnitIsGhost(unit) then
-            f = f + PEBG.FLAG_GHOST
+            f = f + ES.FLAG_GHOST
         else
-            f = f + PEBG.FLAG_DEAD
+            f = f + ES.FLAG_DEAD
         end
     end
     if IsMounted and unit == "player" and IsMounted() then
-        f = f + PEBG.FLAG_MOUNTED
+        f = f + ES.FLAG_MOUNTED
     end
     -- BG flag-carrier detection: the player carrying the WSG/EotS flag
     -- has a hidden buff "Warsong Flag" / "Alliance Flag" / "Horde Flag"
@@ -72,7 +72,7 @@ local function unitFlagsByte(unit)
         if name == "Warsong Flag" or name == "Silverwing Flag"
             or name == "Alliance Flag" or name == "Horde Flag"
             or name == "Netherstorm Flag" then
-            f = f + PEBG.FLAG_HAS_BG_FLAG
+            f = f + ES.FLAG_HAS_BG_FLAG
             break
         end
     end
@@ -153,10 +153,10 @@ local fastAccum = 0
 local slowAccum = 0
 
 local function shouldBroadcast()
-    if not PEBGSyncDB or not PEBGSyncDB.profile then return false end
-    if not PEBGSyncDB.profile.enabled then return false end
-    if not PEBG.IsInBG() then return false end
-    if not PEBG.IsGrouped() then return false end
+    if not EpochSynchDB or not EpochSynchDB.profile then return false end
+    if not EpochSynchDB.profile.enabled then return false end
+    if not ES.IsInBG() then return false end
+    if not ES.IsGrouped() then return false end
     return true
 end
 
@@ -170,12 +170,12 @@ local function sendBatched(prefix, records, encoder)
     for i = 1, #records do
         chunk[#chunk + 1] = records[i]
         if #chunk == MAX_RECORDS_PER_MSG then
-            PEBG.Protocol.send(prefix, encoder(chunk))
+            ES.Protocol.send(prefix, encoder(chunk))
             chunk = {}
         end
     end
     if #chunk > 0 then
-        PEBG.Protocol.send(prefix, encoder(chunk))
+        ES.Protocol.send(prefix, encoder(chunk))
     end
 end
 
@@ -187,16 +187,16 @@ broadcaster:SetScript("OnUpdate", function(self, elapsed)
     fastAccum = fastAccum + elapsed
     slowAccum = slowAccum + elapsed
 
-    if fastAccum >= PEBG.FAST_INTERVAL then
+    if fastAccum >= ES.FAST_INTERVAL then
         fastAccum = 0
         local records = collect(sampleFastRecord)
-        sendBatched(PEBG.PREFIX_F, records, PEBG.Protocol.encodeFastBatch)
+        sendBatched(ES.PREFIX_F, records, ES.Protocol.encodeFastBatch)
     end
 
-    if slowAccum >= PEBG.SLOW_INTERVAL then
+    if slowAccum >= ES.SLOW_INTERVAL then
         slowAccum = 0
         local records = collect(sampleSlowRecord)
-        sendBatched(PEBG.PREFIX_S, records, PEBG.Protocol.encodeSlowBatch)
+        sendBatched(ES.PREFIX_S, records, ES.Protocol.encodeSlowBatch)
     end
 end)
 
@@ -251,19 +251,19 @@ receiver:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender
         return
     elseif event ~= "CHAT_MSG_ADDON" then return end
 
-    if prefix == PEBG.PREFIX_F then
+    if prefix == ES.PREFIX_F then
         for i = 1, #fastBuf do fastBuf[i] = nil end
-        PEBG.Protocol.decodeFastBatch(msg, fastBuf)
+        ES.Protocol.decodeFastBatch(msg, fastBuf)
         applyFast(fastBuf, sender)
-    elseif prefix == PEBG.PREFIX_S then
+    elseif prefix == ES.PREFIX_S then
         for i = 1, #slowBuf do slowBuf[i] = nil end
-        PEBG.Protocol.decodeSlowBatch(msg, slowBuf)
+        ES.Protocol.decodeSlowBatch(msg, slowBuf)
         applySlow(slowBuf, sender)
-    elseif prefix == PEBG.PREFIX_E then
-        if PEBG.Enemy and PEBG.Enemy.OnReceive then
+    elseif prefix == ES.PREFIX_E then
+        if ES.Enemy and ES.Enemy.OnReceive then
             for i = 1, #enemyBuf do enemyBuf[i] = nil end
-            PEBG.Protocol.decodeEnemyBatch(msg, enemyBuf)
-            PEBG.Enemy.OnReceive(enemyBuf, sender)
+            ES.Protocol.decodeEnemyBatch(msg, enemyBuf)
+            ES.Enemy.OnReceive(enemyBuf, sender)
         end
     end
 end)
@@ -279,10 +279,10 @@ pruner:SetScript("OnUpdate", function(self, elapsed)
     pruneAccum = pruneAccum + elapsed
     if pruneAccum < 1.0 then return end
     pruneAccum = 0
-    local cutoff = GetTime() - PEBG.STALE_AFTER
-    for name, entry in pairs(PEBG.cache) do
+    local cutoff = GetTime() - ES.STALE_AFTER
+    for name, entry in pairs(ES.cache) do
         if (entry.lastSeen or 0) < cutoff then
-            PEBG.cache[name] = nil
+            ES.cache[name] = nil
         end
     end
 end)

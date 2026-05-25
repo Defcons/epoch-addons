@@ -4,9 +4,9 @@
 -- overlay. Auto-shows in battlegrounds and auto-hides when leaving so
 -- it doesn't clutter the world UI.
 
-local PEBG = PEBGSync
-PEBG.Roster = {}
-local R = PEBG.Roster
+local ES = EpochSynch
+ES.Roster = {}
+local R = ES.Roster
 
 local ROW_H        = 16
 local ROW_W        = 180
@@ -17,7 +17,7 @@ local frame, rows
 local lastDraw = 0
 
 local function classColor(token)
-    local c = PEBG.CLASS_COLOR[token or ""]
+    local c = ES.CLASS_COLOR[token or ""]
     if c then return c[1], c[2], c[3] end
     return 1, 1, 1
 end
@@ -72,7 +72,7 @@ end
 
 local function ensureFrame()
     if frame then return end
-    frame = CreateFrame("Frame", "PEBGSyncRoster", UIParent)
+    frame = CreateFrame("Frame", "EpochSynchRoster", UIParent)
     frame:SetWidth(ROW_W + 8)
     frame:SetHeight(ROW_H * 8 + 26)   -- room for 8 rows; resizes dynamically
     frame:SetBackdrop({
@@ -88,15 +88,15 @@ local function ensureFrame()
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        if PEBGSyncDB and PEBGSyncDB.profile then
+        if EpochSynchDB and EpochSynchDB.profile then
             local point, _, _, x, y = self:GetPoint()
-            PEBGSyncDB.profile.rosterPos = { point = point, x = x, y = y }
+            EpochSynchDB.profile.rosterPos = { point = point, x = x, y = y }
         end
     end)
     frame:SetClampedToScreen(true)
 
     -- Restore saved position; fall back to top-left default.
-    local pos = PEBGSyncDB and PEBGSyncDB.profile and PEBGSyncDB.profile.rosterPos
+    local pos = EpochSynchDB and EpochSynchDB.profile and EpochSynchDB.profile.rosterPos
     if pos and pos.point then
         frame:SetPoint(pos.point, UIParent, pos.point, pos.x or 0, pos.y or 0)
     else
@@ -106,7 +106,7 @@ local function ensureFrame()
     -- Title bar — also serves as drag handle visual cue.
     frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     frame.title:SetPoint("TOP", 0, -4)
-    frame.title:SetText("|cff66ccffPEBG Roster|r")
+    frame.title:SetText("|cff66ccffEpochSynch Roster|r")
 
     rows = {}
     for i = 1, MAX_ROWS do
@@ -122,7 +122,7 @@ end
 local snapshot = {}
 local function refreshSnapshot()
     for i = #snapshot, 1, -1 do snapshot[i] = nil end
-    PEBG.Engine.ForEachLive(function(entry)
+    ES.Engine.ForEachLive(function(entry)
         snapshot[#snapshot + 1] = entry
     end)
     table.sort(snapshot, function(a, b)
@@ -162,10 +162,10 @@ local function redraw()
             row.mpFg:SetWidth(math.max(0, ROW_W * mp / 100))
 
             local flags = e.flags or 0
-            if PEBG.bit and PEBG.bit.band then
+            if ES.bit and ES.bit.band then
                 -- not used; we rely on Blizzard's bit lib below
             end
-            if bit and bit.band(flags, PEBG.FLAG_HAS_BG_FLAG) ~= 0 then
+            if bit and bit.band(flags, ES.FLAG_HAS_BG_FLAG) ~= 0 then
                 row.flagIcon:Show()
             else
                 row.flagIcon:Hide()
@@ -216,7 +216,7 @@ local bgWatcher = CreateFrame("Frame")
 bgWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 bgWatcher:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 bgWatcher:SetScript("OnEvent", function()
-    if not PEBGSyncDB or not PEBGSyncDB.profile then return end
-    if not PEBGSyncDB.profile.rosterShown then return end
-    if PEBG.IsInBG() then R.Show() else R.Hide() end
+    if not EpochSynchDB or not EpochSynchDB.profile then return end
+    if not EpochSynchDB.profile.rosterShown then return end
+    if ES.IsInBG() then R.Show() else R.Hide() end
 end)
