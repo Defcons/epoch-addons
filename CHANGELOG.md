@@ -20,6 +20,38 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.9.3 — Dungeon frame: compact rows + dynamic layout (internal) *(2026-05-25)*
+
+**Bug.** In LBRS (6 bosses + 7 trash buckets), the bottom "Stop logging" button clipped the last trash row ("Bloodaxe"). Two contributing issues:
+
+1. Boss/trash row pitch was 11px — slightly too generous.
+2. Trash section was anchored at a static y position reserved for the worst-case 10-boss preview. For dungeons with fewer bosses (LBRS = 6, BRD = 4, Scholo = 8), this left a big empty gap between the last boss and the trash header, pushing the trash rows down into the button area.
+
+**Fix.** Two changes, both in `EpogArmoryDungeon.lua`:
+
+1. **Tighter rows.** `BOSS_PITCH` and `TRASH_PITCH` 11 → 10.
+2. **Dynamic layout.** Each `UpdateUI` tick now repositions the trash label + all trash rows to sit immediately below the last visible boss row (with an 8px section gap). Frame height is also recomputed to fit the actual visible content — no more empty space, no more bottom-button overlap. Lower-bounded at 270px so the header section always fits even on no-boss instances.
+
+Constants exposed on the frame for the repositioner: `BOSS_LABEL_Y`, `BOSS_TOP`, `BOSS_PITCH`, `TRASH_PITCH`, `SECTION_GAP`, `LABEL_TO_ROW`, `FRAME_FOOTER`.
+
+**Per-dungeon visual impact** (approximate visible heights):
+
+| Dungeon | Before (fixed 430) | After (dynamic) |
+|---|---|---|
+| BRD (4 boss + 4 trash) | 430, big empty middle | ~318 |
+| LBRS (6 + 7) | 430, button clipping | ~378 |
+| UBRS (4 + 4) | 430 | ~318 |
+| Scholomance (8 + 4) | 430 | ~338 |
+| Stratholme combined preview (10 + 0) | 430 | ~318 |
+| Stratholme Live (4 + 5) | 430 | ~328 |
+| Onyxia's Lair (1 + 0) | 430 (manual-open only) | ~270 (min clamp) |
+
+Frame uses `SetHeight` only if the delta is >1px to avoid per-tick flicker.
+
+Patch-level. Rolls into the next public release with v1.9.2.
+
+---
+
 ## EpogArmory v1.9.2 — Hide dungeon-frame /combatlog prompt when logging is active (internal) *(2026-05-25)*
 
 **Bug.** Dungeon frame's "Start /combatlog for this run? [Yes] [No]" prompt stayed visible even after logging was started by another means (clicking the bottom "Start logging" button, raid auto-log claiming an existing log, another addon turning /combatlog on). Real reproduction: user in LBRS clicked the bottom Start-logging button → status changed to "Logging: ACTIVE" → prompt remained in the frame, overlapping the bosses section and the CombatLogQuickButtonFrame quick controls.

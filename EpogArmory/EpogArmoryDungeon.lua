@@ -741,39 +741,46 @@ BuildFrame = function()
         if frame and frame.UpdateUI then frame.UpdateUI() end
     end)
 
-    -- Boss list header. v1.7.5: row pitch 12 -> 11, slot count 12 -> 10
-    -- (we never have more than 10 bosses combined preview anyway), and
-    -- whole section moved up since the rest got more compact.
+    -- v1.9.2 fix: row pitch reduced 11 -> 10, plus the trash section
+    -- now positions dynamically below the actual visible boss rows
+    -- (instead of a static y reserved for the worst-case 10-boss
+    -- preview). Frame height is also recomputed each tick to fit
+    -- the visible content. Net effect: LBRS (6 bosses + 7 trash)
+    -- now fits without the "Stop logging" button clipping the last
+    -- trash row.
+    f.BOSS_LABEL_Y   = -192
+    f.BOSS_TOP       = -204
+    f.BOSS_PITCH     = 10
+    f.TRASH_PITCH    = 10
+    f.SECTION_GAP    = 8   -- gap between last boss row and trash label
+    f.LABEL_TO_ROW   = 12  -- gap from a section label to its first row
+    f.FRAME_FOOTER   = 50  -- space reserved at bottom for the log toggle button
+
     f.bossesLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.bossesLabel:SetPoint("TOPLEFT", 14, -192)
+    f.bossesLabel:SetPoint("TOPLEFT", 14, f.BOSS_LABEL_Y)
     f.bossesLabel:SetText("|cffffd200Bosses|r")
 
-    local BOSS_TOP   = -204
-    local BOSS_PITCH = 11
     f.bossTexts = {}
     for i = 1, 10 do
         local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        fs:SetPoint("TOPLEFT", 18, BOSS_TOP - (i - 1) * BOSS_PITCH)
+        fs:SetPoint("TOPLEFT", 18, f.BOSS_TOP - (i - 1) * f.BOSS_PITCH)
         fs:SetWidth(244)
         fs:SetJustifyH("LEFT")
         fs:Hide()
         f.bossTexts[i] = fs
     end
 
-    -- v1.7.5: trash bucket section. Each row shows "<name> X/Y" with
-    -- color cue (red if 0, yellow if partial, green if complete).
-    -- Row max = 7 (LBRS has the most). Hidden if variant unresolved
-    -- (per-variant data) or no trash defined for the dungeon.
+    -- Trash section. Labels + row positions get re-anchored every
+    -- UpdateUI tick to sit right below the last visible boss row.
+    -- Initial positions are placeholders; UpdateUI overwrites them.
     f.trashLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     f.trashLabel:SetPoint("TOPLEFT", 14, -310)
     f.trashLabel:SetText("|cffffd200Trash|r")
 
-    local TRASH_TOP   = -322
-    local TRASH_PITCH = 11
     f.trashTexts = {}
     for i = 1, 7 do
         local fs = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        fs:SetPoint("TOPLEFT", 18, TRASH_TOP - (i - 1) * TRASH_PITCH)
+        fs:SetPoint("TOPLEFT", 18, -322 - (i - 1) * f.TRASH_PITCH)
         fs:SetWidth(244)
         fs:SetJustifyH("LEFT")
         fs:Hide()
@@ -997,6 +1004,44 @@ BuildFrame = function()
                 else
                     row:Hide()
                 end
+            end
+
+            -- v1.9.2: dynamic repositioning. Sit the trash label + rows
+            -- right below the actual visible boss list (instead of at a
+            -- fixed y reserved for the worst-case 10-boss preview), and
+            -- resize the frame so the bottom button doesn't overlap the
+            -- last trash row. Without this, LBRS (6 bosses + 7 trash)
+            -- had ~40px of empty space between bosses and trash, AND
+            -- the "Stop logging" button clipped the last trash row.
+            local visibleBosses = math.min(#bosses, #f.bossTexts)
+            local visibleTrash = pickVariantFirst and 0 or math.min(buckets, #f.trashTexts)
+
+            local trashLabelY = f.BOSS_TOP - visibleBosses * f.BOSS_PITCH - f.SECTION_GAP
+            f.trashLabel:ClearAllPoints()
+            f.trashLabel:SetPoint("TOPLEFT", 14, trashLabelY)
+
+            local trashRowsTopY = trashLabelY - f.LABEL_TO_ROW
+            for i = 1, #f.trashTexts do
+                local row = f.trashTexts[i]
+                row:ClearAllPoints()
+                row:SetPoint("TOPLEFT", 18, trashRowsTopY - (i - 1) * f.TRASH_PITCH)
+            end
+
+            -- Compute desired frame height. Bottom of trash section
+            -- (label+rows or just label if no trash) plus footer space
+            -- for the log toggle button. SetHeight only if changed by
+            -- more than 1px to avoid flicker.
+            local trashBottomY
+            if visibleTrash > 0 then
+                trashBottomY = trashRowsTopY - visibleTrash * f.TRASH_PITCH
+            else
+                trashBottomY = trashLabelY - f.LABEL_TO_ROW
+            end
+            local desiredHeight = -trashBottomY + f.FRAME_FOOTER
+            -- Clamp to a sensible minimum so the header section always fits
+            if desiredHeight < 270 then desiredHeight = 270 end
+            if math.abs(desiredHeight - f:GetHeight()) > 1 then
+                f:SetHeight(desiredHeight)
             end
         end
 
