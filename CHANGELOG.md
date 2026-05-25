@@ -20,6 +20,53 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.10.0 — Dungeon frame layout polish *(2026-05-25)*
+
+Consolidated public release of v1.9.2 + v1.9.3 internal patches. Two UI fixes to the Dungeon Run frame from in-game screenshot feedback.
+
+### Stale prompt fixed
+
+The "Start /combatlog for this run? [Yes] [No]" prompt stayed visible even after logging was started by another means (bottom "Start logging" button, raid auto-log claiming an existing log, another addon turning `/combatlog` on). It overlapped the Bosses section and the `CombatLogQuickButtonFrame` quick controls.
+
+Cause: the visibility gate only evaluated `not loggingActive` on the first eligible tick. Once `promptShown = true`, the only remaining hide trigger was `not currentDungeon` (leaving the dungeon).
+
+Fix: recompute visibility every tick — `loggingActive` or `userDeclinedLog` now always trigger `Hide()` regardless of `promptShown`.
+
+### Compact rows + dynamic layout
+
+In LBRS (6 bosses + 7 trash buckets), the bottom "Stop logging" button clipped the last trash row, and BRD/UBRS (fewer bosses) had a big empty gap between the last boss and the trash header. Both caused by static layout reserving worst-case space for 10-boss multi-variant previews.
+
+Two changes:
+
+1. **Tighter rows.** Boss/trash pitch 11px → 10px.
+2. **Dynamic layout.** Each `UpdateUI` tick repositions the trash label + rows to sit immediately below the actual last visible boss row (8px gap). Frame height is recomputed to fit visible content, lower-bounded at 270px so the header still fits on minimal rosters (e.g. Onyxia: 1 boss, 0 trash).
+
+Per-dungeon visible-height impact (approximate):
+
+| Dungeon | Before (fixed 430) | After (dynamic) |
+|---|---|---|
+| BRD (4+4) | 430, empty middle | ~318 |
+| LBRS (6+7) | 430, button clipping last row | ~378 |
+| UBRS (4+4) | 430 | ~318 |
+| Scholomance (8+4) | 430 | ~338 |
+| Stratholme combined preview (10+0) | 430 | ~318 |
+| Stratholme Live (4+5) | 430 | ~328 |
+| Onyxia's Lair (1+0) | 430 | 270 (clamped floor) |
+
+`SetHeight` only fires when the delta is >1px so there's no per-tick flicker.
+
+### Backward compatibility
+
+- No SavedVariables changes.
+- No wire-format / mesh-protocol impact.
+- Mesh peers running v1.9.x will receive the auto-update notification pointing here.
+
+### Files
+
+Same five files as v1.9.1, with the dungeon module changes in `EpogArmoryDungeon.lua`. No new files.
+
+---
+
 ## EpogArmory v1.9.3 — Dungeon frame: compact rows + dynamic layout (internal) *(2026-05-25)*
 
 **Bug.** In LBRS (6 bosses + 7 trash buckets), the bottom "Stop logging" button clipped the last trash row ("Bloodaxe"). Two contributing issues:
