@@ -4,6 +4,24 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## PEBGSync-3.3.5 v0.1 — New addon: cross-map BG teammate visibility *(2026-05-17)*
+Battlegrounds on 3.3.5 freeze raid-frame data and (x,y) for teammates beyond the server's ~100-yard visibility range — the whole reason `UnitIsVisible(unit)` exists. This addon broadcasts each player's HP/MP/position over the addon channel so default UI raid frames, world map, and minimap have fresh data for teammates the server has stopped updating for.
+
+Architecture (~1,300 lines across 8 files):
+
+- **Observe-and-relay protocol** — each addon-user samples not just self but every visible raid member (`UnitIsVisible(unit) == true`) and broadcasts their state too. Coverage extends well past the addon-user fraction; even at 10-15% adoption you cover 50%+ of the raid. Conflict resolution: latest received wins, since all observers passed the visibility gate and have fresh first-hand data.
+- **Tiered tick rates** — fast tier (HP, position, flags) every **0.5s**; slow tier (MP, class) every **2.0s**. Two-tier model amortises per-message overhead while keeping HP/position responsive enough to act on. Both well under 3.3.5's ~10 msg/sec outbound throttle.
+- **Wire format**: pipe + comma + semicolon delimited, batched to fit 5-6 records per ~255-byte message. Per-mille (0-1000) x/y gives ~3.7 yard precision on a 1000-yard BG. Worst-case sender: ~500 bytes/sec; worst-case receiver (40-player AV, 30% adoption): ~6 KB/sec.
+- **Flag-carrier detection** — scans for `Warsong Flag` / `Silverwing Flag` / `Alliance Flag` / `Horde Flag` / `Netherstorm Flag` auras; that bit travels in the per-record flag byte alongside in-combat / dead / ghost / mounted.
+- **Default UI compatible** — non-invasive overlays only. Standalone movable HP/MP HUD frame (`UI/Roster.lua`), world map blips on `WorldMapDetailFrame` children, minimap blips clamped to a circle around the player. No raid-frame replacement; works alongside whatever frames the user has.
+- **Opt-in enemy tracking** (`/pebg enemy on`, default off) — broadcasts enemies the local player can target/mouseover/raid-mark, approximated at the local player's coords (since nameplates don't carry world coords on 3.3.5). Separate `PEBGSync_E` prefix, separate cache, separate prune (15s vs 5s — enemy positions stale faster).
+- **Slash commands**: `/pebg show|hide|toggle`, `on|off`, `enemy on|off`, `worldmap`, `minimap`, `status`, `help`.
+- Auto-shows the roster HUD on BG entry, auto-hides on exit.
+
+Files: `PEBGSync-3.3.5.toc` / `PEBGSync-3.3.5.lua` / `Core/{Const,Protocol,Engine,Enemy}.lua` / `UI/{Roster,WorldMap,Minimap}.lua`. Tracked in `.gitignore` exception list.
+
+---
+
 ## unitscan v1.2 — Suppress ADDON_ACTION_BLOCKED spam on Ascension *(2026-05-10)*
 unitscan probes for nearby units by repeatedly calling `TargetUnit(name)` and watching for `ADDON_ACTION_FORBIDDEN` (the protection event that signals the unit exists but can't be targeted from non-secure code). On retail 3.3.5 this fires the FORBIDDEN variant; on Ascension's server some calls fire `ADDON_ACTION_BLOCKED` instead — and unitscan was only listening for / suppressing FORBIDDEN, so:
 - the addon's "found a unit" detection silently failed when the server emitted BLOCKED, and

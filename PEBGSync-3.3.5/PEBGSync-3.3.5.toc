@@ -1,0 +1,15 @@
+## Interface: 30300
+## Title: |cff33ccffPEBG Sync|r
+## Notes: Cross-map teammate visibility in battlegrounds — broadcasts HP/MP/position over the addon channel so default raid frames and world map show fresh data for teammates the server has stopped sending updates for. Observe-and-relay extends coverage to non-addon-users.
+## Author: Defcon
+## Version: 0.1
+## SavedVariables: PEBGSyncDB
+
+Core\Const.lua
+Core\Protocol.lua
+Core\Engine.lua
+Core\Enemy.lua
+UI\Roster.lua
+UI\WorldMap.lua
+UI\Minimap.lua
+PEBGSync-3.3.5.lua
