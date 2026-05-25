@@ -842,18 +842,21 @@ BuildFrame = function()
             f.logStatusLabel:SetText("Logging: |cffff6666OFF|r")
         end
 
-        -- Prompt visibility — show ONLY on first entry into a dungeon
-        -- if we haven't yet asked AND user hasn't already declined AND
-        -- logging isn't already going.
-        if currentDungeon
-           and not promptShown
-           and not userDeclinedLog
-           and not loggingActive
-        then
+        -- Prompt visibility. v1.9.2 fix: previously the gate only
+        -- evaluated `not loggingActive` AT FIRST DISPLAY. Once
+        -- promptShown flipped to true, the prompt stayed visible
+        -- even if logging later became active (e.g. user clicked
+        -- the bottom Start-logging button, or another addon
+        -- turned /combatlog on). Now: hide unconditionally when
+        -- logging is active or user declined; only show on the
+        -- first eligible tick.
+        if not currentDungeon then
+            f.prompt:Hide()
+        elseif loggingActive or userDeclinedLog then
+            f.prompt:Hide()
+        elseif not promptShown then
             f.prompt:Show()
             promptShown = true
-        elseif not currentDungeon then
-            f.prompt:Hide()
         end
 
         -- Variant selection buttons (v1.7.4). Shown only when the

@@ -20,6 +20,31 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.9.2 — Hide dungeon-frame /combatlog prompt when logging is active (internal) *(2026-05-25)*
+
+**Bug.** Dungeon frame's "Start /combatlog for this run? [Yes] [No]" prompt stayed visible even after logging was started by another means (clicking the bottom "Start logging" button, raid auto-log claiming an existing log, another addon turning /combatlog on). Real reproduction: user in LBRS clicked the bottom Start-logging button → status changed to "Logging: ACTIVE" → prompt remained in the frame, overlapping the bosses section and the CombatLogQuickButtonFrame quick controls.
+
+**Cause.** The visibility gate evaluated `not loggingActive` only on the first eligible tick (when `promptShown` was still false). Once `promptShown = true`, the elseif chain only re-hid the prompt when `not currentDungeon` — leaving the prompt stuck on screen for the rest of the run regardless of what logging did.
+
+**Fix.** Rewrote the gate so the visible state is recomputed every tick:
+
+```lua
+if not currentDungeon then
+    f.prompt:Hide()
+elseif loggingActive or userDeclinedLog then
+    f.prompt:Hide()    -- new: hide unconditionally when prompt is moot
+elseif not promptShown then
+    f.prompt:Show()
+    promptShown = true
+end
+```
+
+Hides immediately on any transition to `loggingActive == true`, regardless of `promptShown`. The flag still suppresses re-asking during a normal "prompt → user dismissed → prompt stays hidden" flow.
+
+Patch-level — no public release, mesh auto-update notification stays silent. Will roll into the next minor.
+
+---
+
 ## EpogArmory v1.9.1 — Single-target dummy enforcement + whisper-spam fix *(2026-05-21)*
 
 Consolidated public release of the v1.9.0 + v1.9.1 internal patches. Two themes: dummy parses are now Project-Epoch-realm-enforced single-target only (matches epoglogs server-side rule introduced in v0.86.6), and a long-running chat-spam bug in the mesh code is fixed.
