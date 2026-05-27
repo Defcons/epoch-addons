@@ -64,6 +64,53 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.11.0 — Dungeon trash mob name fixes (UBRS / Scholo / Strat Undead) *(2026-05-25)*
+
+Consolidated public release of v1.10.1 + v1.10.2 internal patches. Three silent-failure mob-name typos fixed.
+
+### The bug class
+
+The addon's trash bucket tracker does **exact-string** match against `destName` from `COMBAT_LOG_EVENT_UNFILTERED` `UNIT_DIED` events:
+
+```lua
+TRASH_LOOKUP[currentDungeon][currentVariant or "_"][destName] = bucketIndex
+```
+
+If the mob-name string in the addon's data table doesn't *exactly* match the actual in-game NPC name, the lookup misses on every kill — silently. The bucket counter stays at `0/N` for the entire run no matter how many of those mobs the player kills, and the run can fail leaderboard upload validation with no clear indication of why.
+
+### Three names corrected
+
+| Dungeon | Old (broken) | New (correct) | Bucket |
+|---|---|---|---|
+| Upper Blackrock Spire | `Ragetalon Dragonspawn` / `Ragetalon Flamescale` | `Rage Talon Dragonspawn` / `Rage Talon Flamescale` | "Rage Talon (1)" — required 10 |
+| Scholomance | `Scolomance Adept` (missing 'h') | `Scholomance Adept` | "Necromancer / Adept" — required 9 |
+| Stratholme Undead | `Ghould Ravener` (extra 'd') | `Ghoul Ravener` | "Ghouls" — required 10 |
+
+All three were originally sourced from the epoglogs leaderboard rules file as pasted to me in May; the rules file itself carried the typos. The companion handoff doc at `memory/handoff_epoglogs_dungeon_mob_names_verify.md` flags these for parser-side verification too.
+
+### Side effect (UBRS only)
+
+Both UBRS Rage Talon buckets now share the auto-computed display name `"Rage Talon"`. The load-time collision detector adds `(1)` / `(2)` suffixes, matching the existing Blackhand `(1)` / `(2)` pattern. UI rows for UBRS trash:
+
+```
+0/10 Rage Talon (1)         ← was: 0/10 Ragetalon (never incremented)
+0/14 Blackhand (1)
+0/6  Rage Talon (2)         ← was: 0/6 Rage Talon (still tracked)
+0/6  Blackhand (2)
+```
+
+### Backward compatibility
+
+- No SavedVariables changes.
+- No wire-format / mesh-protocol impact.
+- Mesh peers running v1.10.x will receive the auto-update notification pointing here.
+
+### Files
+
+Same five files as v1.10.0. The changes are confined to mob-name strings inside `EpogArmoryDungeon.lua`'s `DUNGEONS` table.
+
+---
+
 ## EpogArmory v1.10.2 — Scholomance Adept + Ghoul Ravener mob name fixes (internal) *(2026-05-25)*
 
 Two more mob-name typos in the same class of bug as v1.10.1's Ragetalon fix. User confirmed both are typos in the epoglogs rules I originally sourced from; the actual in-game NPC names use the standard spellings.
