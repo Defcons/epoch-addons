@@ -133,9 +133,10 @@ local DUNGEONS = {
             -- ("Spectral" vs "Scholomance"); manual name retained for clarity.
             { name = "Spectral / Acolyte",    mobs = {"Spectral Researcher","Scholomance Acolyte","Scholomance Neophyte"},     required = 4 },
             { name = "Dark Summoner / Necro", mobs = {"Scholomance Dark Summoner","Scholomance Necrolyte"},                    required = 6 },
-            -- Note: keeping the typo "Scolomance Adept" verbatim from the
-            -- epoglogs rules — Blizzard's mob name is misspelled in-game.
-            { name = "Necromancer / Adept",   mobs = {"Scholomance Necromancer","Spectral Tutor","Scolomance Adept"},          required = 9 },
+            -- v1.10.2: "Scolomance Adept" -> "Scholomance Adept". User confirmed
+            -- this was a typo in the epoglogs rules I sourced from. CLEU lookup
+            -- would never have matched without the 'h'.
+            { name = "Necromancer / Adept",   mobs = {"Scholomance Necromancer","Spectral Tutor","Scholomance Adept"},         required = 9 },
         },
     },
     ["Stratholme"] = {
@@ -175,9 +176,13 @@ local DUNGEONS = {
                 trash = {
                     { name = "Skeletons/Cadavers", mobs = {"Skeletal Berserker","Mangled Cadaver","Skeletal Guardian","Ravaged Cadaver"}, required = 8 },
                     { name = "Banshees",           mobs = {"Wailing Banshee","Shrieking Banshee"},                                         required = 6 },
-                    -- Typo "Ghould Ravener" kept verbatim from epoglogs rules (Blizzard mob name).
-                    -- No common first word -> manual "Ghouls" retained.
-                    { name = "Ghouls",             mobs = {"Plague Ghoul","Ghould Ravener","Fleshflayer Ghoul"},                          required = 10 },
+                    -- v1.10.2: "Ghould Ravener" -> "Ghoul Ravener". User confirmed
+                    -- the 'd' was a typo in the epoglogs rules. CLEU lookup would
+                    -- never have matched against an actual NPC named "Ghoul Ravener".
+                    -- Common-word "Ghoul" now -> all three share first word, so
+                    -- ComputeBucketName would auto-derive "Ghoul"; manual "Ghouls"
+                    -- retained as a plural override since "Ghoul" reads as singular.
+                    { name = "Ghouls",             mobs = {"Plague Ghoul","Ghoul Ravener","Fleshflayer Ghoul"},                           required = 10 },
                     { mobs = {"Crypt Beast","Crypt Crawler"},                                                 required = 6 },
                     { mobs = {"Rockwing Screecher","Rockwing Gargoyle"},                                      required = 6 },
                     { mobs = {"Thuzadin Necromancer","Thuzadin Shadowcaster"},                                required = 6 },

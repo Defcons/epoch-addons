@@ -64,6 +64,20 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.10.2 — Scholomance Adept + Ghoul Ravener mob name fixes (internal) *(2026-05-25)*
+
+Two more mob-name typos in the same class of bug as v1.10.1's Ragetalon fix. User confirmed both are typos in the epoglogs rules I originally sourced from; the actual in-game NPC names use the standard spellings.
+
+**Scholo:** `"Scolomance Adept"` → `"Scholomance Adept"` (missing the 'h'). The bucket "Necromancer / Adept" now matches all three of its mobs correctly. Previously, the Adept kills never incremented the bucket counter.
+
+**Strat Undead:** `"Ghould Ravener"` → `"Ghoul Ravener"` (extra 'd'). Same class of bug — bucket "Ghouls" was missing kills on this mob type.
+
+Both were flagged as "⚠ suspicious" in the handoff I wrote for the epoglogs parser session (`handoff_epoglogs_dungeon_mob_names_verify.md`). User confirmed before that session was run, so the addon side is fixed now; the parser side still needs verification (the handoff is still accurate for that purpose, just with these two specific items now confirmed as parser-side typos).
+
+Patch-level. Rolls into the next minor release with v1.10.1.
+
+---
+
 ## EpogArmory v1.10.1 — UBRS trash mob name fix (Ragetalon → Rage Talon) (internal) *(2026-05-25)*
 
 **Bug.** UBRS trash bucket 1 ("Ragetalon Dragonspawn / Ragetalon Flamescale") never incremented during runs — the counter sat at 0/10 even when the user killed dozens of those mobs. Reported via screenshot.
