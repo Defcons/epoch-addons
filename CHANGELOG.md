@@ -64,6 +64,36 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.10.1 — UBRS trash mob name fix (Ragetalon → Rage Talon) (internal) *(2026-05-25)*
+
+**Bug.** UBRS trash bucket 1 ("Ragetalon Dragonspawn / Ragetalon Flamescale") never incremented during runs — the counter sat at 0/10 even when the user killed dozens of those mobs. Reported via screenshot.
+
+**Cause.** Mob names in the data table were one-word (`"Ragetalon"`), but the actual in-game NPC names are two-word (`"Rage Talon Dragonspawn"`, `"Rage Talon Flamescale"`). The CLEU `UNIT_DIED` handler does a string-exact lookup in `TRASH_LOOKUP[dungeonKey][variantKey][destName]`, so the one-word entries never matched any death event.
+
+The epoglogs server parser was previously updated to use the two-word names; the addon copy was stale.
+
+**Fix.** Single one-line data change in `EpogArmoryDungeon.lua`:
+
+```lua
+-- before
+{ mobs = {"Ragetalon Dragonspawn","Ragetalon Flamescale"}, required = 10 },
+-- after
+{ mobs = {"Rage Talon Dragonspawn","Rage Talon Flamescale"}, required = 10 },
+```
+
+**Side effect:** both UBRS trash buckets now share the auto-computed display name `"Rage Talon"`. The load-time collision detector adds `(1)` / `(2)` suffixes — same pattern as the two Blackhand buckets. UI rows become:
+
+```
+0/10 Rage Talon (1)        <-- was: 0/10 Ragetalon (never incremented)
+0/14 Blackhand (1)
+0/6  Rage Talon (2)        <-- was: 0/6 Rage Talon
+0/6  Blackhand (2)
+```
+
+Patch-level. Rolls into the next minor release.
+
+---
+
 ## EpogArmory v1.10.0 — Dungeon frame layout polish *(2026-05-25)*
 
 Consolidated public release of v1.9.2 + v1.9.3 internal patches. Two UI fixes to the Dungeon Run frame from in-game screenshot feedback.

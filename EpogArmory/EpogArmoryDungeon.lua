@@ -100,8 +100,14 @@ local DUNGEONS = {
                     "General Drakkisath",
                 },
                 trash = {
-                    { mobs = {"Ragetalon Dragonspawn","Ragetalon Flamescale"},                       required = 10 },
-                    -- Blackhand (1) and (2) collide on auto; load-time suffix handles it.
+                    -- v1.10.1: mob names corrected from "Ragetalon" (one word)
+                    -- to "Rage Talon" (two words) to match the in-game NPC
+                    -- names. The old strings never matched CLEU UNIT_DIED,
+                    -- so the counter for this bucket stayed at 0 forever.
+                    -- After this fix, both Rage Talon buckets collide on
+                    -- auto-name and get "(1)" / "(2)" suffixes -- same
+                    -- pattern as the two Blackhand buckets.
+                    { mobs = {"Rage Talon Dragonspawn","Rage Talon Flamescale"},                     required = 10 },
                     { mobs = {"Blackhand Dreadweaver","Blackhand Elite","Blackhand Veteran"},        required = 14 },
                     { mobs = {"Rage Talon Dragon Guard","Rage Talon Fire Tongue","Rage Talon Captain"}, required = 6 },
                     { mobs = {"Blackhand Thug","Blackhand Iron Guard","Blackhand Assassin"},         required = 6 },
