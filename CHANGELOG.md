@@ -64,6 +64,24 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.11.2 — Minimize button: text label, fixed alignment (internal) *(2026-05-25)*
+
+Two fixes to the v1.11.1 minimize button from screenshot feedback.
+
+**1. Wrong glyph.** The Blizzard texture path `UI-Panel-MinimizeButton-Up` rendered as just the button bevel without the minus icon on the user's client — looked like a second X next to the close button. Switched to a text label: `−` (U+2212 minus sign, visually heavier than ASCII `-`) when restored, `+` when minimized. Text labels are reliable across all UI themes and patch versions.
+
+**2. Misalignment.** Was anchored to the close button's TOPLEFT with a `(4, 0)` offset which placed the minimize button overlapping the close button. Now anchors directly to the frame's TOPRIGHT at `(-28, -8)` so it sits at a predictable position visually aligned with the close button's X glyph.
+
+Implementation:
+- `f.minimizeBtn` is now a plain Button with a centered FontString label (`GameFontNormalLarge`, gold color matching the close button).
+- `ButtonHilight-Square` highlight texture provides the standard hover feedback.
+- Label centered with a `+1y` offset to optically center the dash glyph (which sits slightly low in the font baseline).
+- All three places that set the button state (OnClick, PLAYER_LOGIN restore, BuildFrame initial) now use `label:SetText("−" / "+")` instead of texture swaps.
+
+Patch-level. Rolls into next minor with v1.11.0 + v1.11.1.
+
+---
+
 ## EpogArmory v1.11.1 — Dungeon frame minimize button (internal) *(2026-05-25)*
 
 Per user request: a minimize button on the Dungeon Run frame so it can sit on screen during long runs without dominating the UI.

@@ -691,30 +691,29 @@ BuildFrame = function()
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -2, -2)
 
-    -- v1.11.1: minimize/restore button. Collapses the frame to a
-    -- single compact status line (dungeon name · timer · boss
-    -- progress · logging) so the user can keep it on screen without
-    -- it dominating the UI during the rest of the run. Toggle state
-    -- persists across /reload via EpogArmoryDB.config.dungeonMinimized.
+    -- v1.11.2: minimize/restore button. Text-based "−" / "+" label
+    -- (was a texture-based button in v1.11.1, but the texture path
+    -- rendered as a bevel without the icon on the user's client —
+    -- looked like a second X next to the close button). Text is
+    -- reliable across UI themes. Positioned to visually align with
+    -- the close button's X glyph.
     f.minimizeBtn = CreateFrame("Button", nil, f)
     f.minimizeBtn:SetSize(20, 20)
-    f.minimizeBtn:SetPoint("TOPRIGHT", close, "TOPLEFT", 4, 0)
-    f.minimizeBtn:SetNormalTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Up")
-    f.minimizeBtn:SetPushedTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Down")
-    f.minimizeBtn:SetHighlightTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Highlight")
+    -- Anchor to the frame directly (not to `close`) so positioning is
+    -- predictable regardless of UIPanelCloseButton's internal padding.
+    -- -28 puts us just left of the close X; -8 matches its visible y.
+    f.minimizeBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -28, -8)
+    f.minimizeBtn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
+    f.minimizeBtn.label = f.minimizeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    f.minimizeBtn.label:SetPoint("CENTER", 0, 1) -- +1y to optically center the dash glyph
+    f.minimizeBtn.label:SetText("−") -- U+2212 (minus sign) — visually heavier than ASCII '-'
+    f.minimizeBtn.label:SetTextColor(1, 0.82, 0) -- gold, matches close button
     f.minimizeBtn:SetScript("OnClick", function(self)
         f.minimized = not f.minimized
         EpogArmoryDB = EpogArmoryDB or {}
         EpogArmoryDB.config = EpogArmoryDB.config or {}
         EpogArmoryDB.config.dungeonMinimized = f.minimized
-        -- Swap button texture: minimize when restored, maximize when minimized
-        if f.minimized then
-            self:SetNormalTexture("Interface\\Buttons\\UI-Panel-BiggerButton-Up")
-            self:SetPushedTexture("Interface\\Buttons\\UI-Panel-BiggerButton-Down")
-        else
-            self:SetNormalTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Up")
-            self:SetPushedTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Down")
-        end
+        self.label:SetText(f.minimized and "+" or "−")
         if f.UpdateUI then f.UpdateUI() end
     end)
     f.minimizeBtn:SetScript("OnEnter", function(self)
@@ -1205,8 +1204,7 @@ BuildFrame = function()
        and EpogArmoryDB.config.dungeonMinimized
     then
         f.minimized = true
-        f.minimizeBtn:SetNormalTexture("Interface\\Buttons\\UI-Panel-BiggerButton-Up")
-        f.minimizeBtn:SetPushedTexture("Interface\\Buttons\\UI-Panel-BiggerButton-Down")
+        f.minimizeBtn.label:SetText("+")
     end
 
     return f
@@ -1298,10 +1296,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- creation, so either path applies the persisted state.
         if frame and EpogArmoryDB.config.dungeonMinimized ~= nil then
             frame.minimized = EpogArmoryDB.config.dungeonMinimized
-            -- Sync button texture to match restored state
-            if frame.minimized and frame.minimizeBtn then
-                frame.minimizeBtn:SetNormalTexture("Interface\\Buttons\\UI-Panel-BiggerButton-Up")
-                frame.minimizeBtn:SetPushedTexture("Interface\\Buttons\\UI-Panel-BiggerButton-Down")
+            -- v1.11.2: sync the button label to match restored state
+            if frame.minimizeBtn and frame.minimizeBtn.label then
+                frame.minimizeBtn.label:SetText(frame.minimized and "+" or "−")
             end
         end
         -- v1.7.11: restore the addonStartedLog claim across /reload via
