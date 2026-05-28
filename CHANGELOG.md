@@ -64,6 +64,41 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.11.1 — Dungeon frame minimize button (internal) *(2026-05-25)*
+
+Per user request: a minimize button on the Dungeon Run frame so it can sit on screen during long runs without dominating the UI.
+
+**The button.** New `f.minimizeBtn` placed to the left of the close (X) button at the top-right of the frame. Uses Blizzard's standard panel textures:
+- Restored state: `UI-Panel-MinimizeButton-Up/Down`
+- Minimized state: `UI-Panel-BiggerButton-Up/Down`
+
+Hover tooltip reads "Minimize" or "Restore" depending on current state.
+
+**Minimized layout.** Frame collapses to a 52px-tall row showing one compact status line:
+
+```
+<ShortName>  <Timer>  <N/M>  <LOG/OFF>
+```
+
+Example: `LBRS  3:42  2/6  LOG`
+
+- **ShortName** comes from the variant's `shortName` field for multi-variant dungeons (LBRS / UBRS / Live / Undead), otherwise the first word of the dungeon's `displayName` (Blackrock, Scholomance, Onyxia's, Baradin).
+- **Timer** uses the existing log-tied logic — counts up while logging is active, freezes yellow when stopped, `--:--` if never started.
+- **N/M** is bosses killed / total for the current variant.
+- **LOG/OFF** is logging status, color-coded (green `LOG` / red `OFF`).
+
+When minimized, all bulky elements (boss list, trash buckets, prompt, variant container, action button) are hidden via the `RenderCompact()` branch in `UpdateUI` — the dynamic-resize logic also skips, since `RenderCompact` returns early and sets its own fixed 52px height.
+
+**Persistence.** Toggle state saved to `EpogArmoryDB.config.dungeonMinimized`. Survives `/reload` and re-login. State is applied at frame creation OR at PLAYER_LOGIN (whichever fires first when the frame exists).
+
+**Implementation notes:**
+- New helper `ComputeTimerDisplay()` extracted from `UpdateUI` so both the full and compact paths render an identical timer (same color logic, same format) without duplicating code.
+- The existing full-render path now explicitly re-`Show()`s all the section elements at entry — needed because toggling from minimized → restored had hidden them.
+
+Patch-level. Rolls into next minor with v1.11.0's mob-name fixes.
+
+---
+
 ## EpogArmory v1.11.0 — Dungeon trash mob name fixes (UBRS / Scholo / Strat Undead) *(2026-05-25)*
 
 Consolidated public release of v1.10.1 + v1.10.2 internal patches. Three silent-failure mob-name typos fixed.
