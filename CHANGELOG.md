@@ -64,6 +64,59 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v2.0.0 — Dungeon frame minimize + whisper-spam defense in depth *(2026-05-27)*
+
+Consolidated public release of the v1.11.1–v1.11.3 internal patches. The major bump reflects the cumulative polish across the v1.7–v1.11 dungeon/raid/dummy tooling reaching a maturity milestone — the addon's three top-level surfaces (armory inspector, dummy parse, dungeon speedruns) are all in stable shape, with this release focusing on quality-of-life refinements rather than new features.
+
+### Highlights
+
+**Dungeon Run frame: minimize button + compact mode**
+
+A new minimize button (`−`) sits just left of the close (X) on the Dungeon Run frame. Click it and the frame collapses to a single 52px-tall status row:
+
+```
+LBRS  3:42  2/6  LOG
+```
+
+- **ShortName** — variant `shortName` for multi-variant dungeons (`LBRS` / `UBRS` / `Live` / `Undead`), first word of the dungeon name otherwise (`Blackrock`, `Scholomance`, `Onyxia's`, `Baradin`)
+- **Timer** — same log-tied logic as the full frame; counts up while logging is active, freezes yellow on stop, `--:--` if never started
+- **N/M** — bosses killed / total
+- **LOG/OFF** — logging status, green when active, red when off
+
+Click the now-`+` button to restore. Toggle state persists across `/reload` and re-login via `EpogArmoryDB.config.dungeonMinimized`.
+
+Useful pattern: minimize after the variant is locked in, keep the frame on screen as a tiny progress tracker without it dominating the UI for the rest of the run.
+
+### Bugfix: "No player named X is currently playing" chat spam (whisper-guard defense in depth)
+
+v1.9.1 attempted to fix this by checking `IsCharOnline` before WHISPER addon-message sends. It worked for the obvious cases (target was offline at the time of the check) but missed a subtle one: the underlying guild-roster `online` flag only updates when the client explicitly calls `GuildRoster()`, and EpogArmory only calls it from the autosync tick (every few minutes). So when a peer logged off mid-sync-response, the cache reported them online for a long time, the guard said "send", and the WoW client errored anyway — potentially 200 spam lines per bad-luck sync request.
+
+User reported continued spam from "Haxxorz" and "Pawgie" 2026-05-27, confirmed it stopped when autosync was disabled.
+
+**Fix:** added a chat-filter belt that catches the actual `CHAT_MSG_SYSTEM` "No player named X is currently playing." error string, suppresses it from chat, and drains the outQueue for that target to prevent the next ~199 chunks from each firing their own error. Combined with the existing `IsCharOnline` cache guard, this is now defense in depth:
+
+| Layer | When it fires | Effect |
+|---|---|---|
+| `IsCharOnline` cache | Before each WHISPER send | Drop chunk silently when target known offline |
+| `_knownOffline` set (60s TTL) | After chat filter catches an error | IsCharOnline returns false for the name regardless of cache state |
+| `CHAT_MSG_SYSTEM` filter | After WoW client emits the error | Suppress from chat, drain queue, mark known-offline |
+
+**False-positive protection:** the chat filter only suppresses when we can prove the error is ours (outQueue has a pending WHISPER for that name OR we caught a related error within the last 5 seconds). Manual `/w SomeoneOffline` from the user goes through neither path → errors visible as normal.
+
+**Localization caveat:** the pattern matches the English form `"No player named ... is currently playing."`. If Epoch ever ships localized clients the pattern will need extension. Flagged in `reference_addon_lessons_epogarmory.md`.
+
+### Backward Compatibility
+
+- New SavedVariable `EpogArmoryDB.config.dungeonMinimized` (boolean, default false). Additive — existing installs default to non-minimized.
+- No wire-format / mesh-protocol impact.
+- Mesh peers running v1.11.x will receive the auto-update notification pointing here. (v1.x.y → v2.0.0 is a major bump, notification fires.)
+
+### Files
+
+Same five files as v1.11.0. No new files added.
+
+---
+
 ## EpogArmory v1.11.3 — Whisper-spam fix part 2 (chat-filter belt) (internal) *(2026-05-27)*
 
 **Bug.** v1.9.1's whisper-spam fix only catches the case where `IsCharOnline` knows the target is offline. The underlying data (guild roster `online` flag) lags by minutes because `GuildRoster()` is only called from the autosync tick (every few minutes). Result: when a peer logs off mid-sync-response, the cache reports them online for a long time, the guard says "send", and we get the system error anyway. User reported "Haxxorz" / "Pawgie" spam continuing even with v1.9.1's fix, confirmed by turning autosync OFF stopping it.
