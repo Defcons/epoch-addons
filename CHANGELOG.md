@@ -64,6 +64,30 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v1.11.3 — Whisper-spam fix part 2 (chat-filter belt) (internal) *(2026-05-27)*
+
+**Bug.** v1.9.1's whisper-spam fix only catches the case where `IsCharOnline` knows the target is offline. The underlying data (guild roster `online` flag) lags by minutes because `GuildRoster()` is only called from the autosync tick (every few minutes). Result: when a peer logs off mid-sync-response, the cache reports them online for a long time, the guard says "send", and we get the system error anyway. User reported "Haxxorz" / "Pawgie" spam continuing even with v1.9.1's fix, confirmed by turning autosync OFF stopping it.
+
+**Fix.** Defense-in-depth — keep the v1.9.1 guard (catches the obvious cases cheaply) AND add a chat-filter belt that catches the actual system error string when the guard misses:
+
+1. **`_knownOffline[name] → GetTime()`** — populated by the chat filter below when we catch an offline-target system error. Treated as offline for 60s.
+2. **`IsCharOnline` checks `_knownOffline` FIRST** before the cache, so a recently-erroring name stays "offline" regardless of cache state.
+3. **`ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", ...)`** matches the error string `"No player named '?<name>'? is currently playing."`, suppresses it from chat (return true), records the name as known-offline, AND drains the outQueue for that target to prevent the next ~199 chunks from each firing their own error.
+
+**False-positive guard.** The filter only suppresses when we can demonstrate the error is ours:
+- The outQueue currently has a pending WHISPER item for that name, OR
+- We caught an error for that name within the last 5 seconds (handles the race where the queue was just drained but a trailing system message hasn't reached the chat frame yet).
+
+Manual `/w SomeoneOffline` from the user goes through neither path → falls through unchanged, user sees their error normally.
+
+**Localization caveat.** The pattern matches the English form `"No player named ..."`. If Epoch ever ships localized clients, the pattern needs to be extended. Worth flagging in `reference_addon_lessons_epogarmory.md`.
+
+**Why two layers and not just the chat filter?** The IsCharOnline guard is still cheap and useful — it prevents the WoW client from even firing the SendAddonMessage when we know the target is offline (e.g. lifecycle case where the autosync tick just refreshed the roster). The chat filter is the safety net for the cases where the cache is wrong.
+
+Patch-level. Rolls into next minor.
+
+---
+
 ## EpogArmory v1.11.2 — Minimize button: text label, fixed alignment (internal) *(2026-05-25)*
 
 Two fixes to the v1.11.1 minimize button from screenshot feedback.

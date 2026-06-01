@@ -3052,18 +3052,46 @@ end
 -- Claude (v1.8.1): online-check cache. SendAddonMessage with channel
 -- "WHISPER" to an offline character triggers the system error message
 -- "No player named X is currently playing" — chat spam reported in
--- the wild ("Brokuli" case, 2026-05-21). Most common path is a sync
--- response: we queue up to SYNC_MAX_SETS_PER_RESPONSE (200) WHISPER
--- chunks back to the requester, and if they log off mid-burst we
--- fire one error per remaining chunk.
+-- the wild ("Brokuli" case, 2026-05-21; "Haxxorz/Pawgie" 2026-05-27).
+-- Most common path is a sync response: we queue up to
+-- SYNC_MAX_SETS_PER_RESPONSE (200) WHISPER chunks back to the
+-- requester, and if they log off mid-burst we fire one error per
+-- remaining chunk.
 --
 -- Cache the reachable-set for ~2s so the outQueue tick doesn't have
 -- to re-walk the guild roster every BROADCAST_STAGGER (0.5s).
 local _onlineCache, _onlineCacheAt = nil, 0
 local _ONLINE_CACHE_TTL = 2 -- seconds
 
+-- Claude (v1.11.3): defense-in-depth additions for the Pawgie/Haxxorz
+-- case. The IsCharOnline cache CAN BE WRONG: the underlying guild
+-- roster only refreshes when GuildRoster() is called (rate-limited to
+-- 10s, and our autosync only calls it every few minutes). So when a
+-- peer logs off mid-sync-response, the cache may still report them
+-- online for a long time → we keep sending WHISPERs → keep erroring.
+--
+-- Two layers of belt-and-suspenders:
+--
+-- 1. _knownOffline: a name → timestamp map populated by the chat
+--    filter below when we catch the offline-target system error.
+--    IsCharOnline checks this FIRST so a recently-erroring name stays
+--    "offline" for 60s regardless of cache state.
+--
+-- 2. CHAT_MSG_SYSTEM filter catches the system error string itself,
+--    suppresses it from chat (no spam visible to the user), records
+--    the name as known-offline, AND drains the outQueue for that
+--    target so we don't repeat the same SendAddonMessage 200 more
+--    times.
+local _knownOffline = {}                -- name → GetTime() when error caught
+local _KNOWN_OFFLINE_TTL = 60           -- treat as offline for this many seconds
+
 local function IsCharOnline(name)
     if not name or name == "" then return false end
+    -- v1.11.3: chat-filter-caught offline names override the cache.
+    local offlineAt = _knownOffline[name]
+    if offlineAt and (GetTime() - offlineAt) < _KNOWN_OFFLINE_TTL then
+        return false
+    end
     local t = now()
     if not _onlineCache or (t - _onlineCacheAt) > _ONLINE_CACHE_TTL then
         _onlineCache = BuildAutoSyncReachable()
@@ -3090,6 +3118,43 @@ local function DrainWhispersTo(targetName)
     end
     return dropped
 end
+
+-- Claude (v1.11.3): CHAT_MSG_SYSTEM filter for the offline-target error.
+-- WoW's client emits a localized string like "No player named 'X' is
+-- currently playing." when SendAddonMessage (or SendChatMessage) WHISPER
+-- targets an offline character. We match the English form here; if Epoch
+-- ever ships localized clients the pattern can be expanded.
+--
+-- When matched: suppress the message from chat (return true), mark the
+-- name as known-offline so IsCharOnline returns false for it going
+-- forward, AND drain any remaining WHISPERs to that target so we don't
+-- pop+error 199 more chunks.
+ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(self, event, msg, ...)
+    if type(msg) ~= "string" then return false end
+    -- Pattern matches both quoted ("'Pawgie'") and unquoted (Pawgie) forms
+    -- defensively. Lua's character class catches alphanumeric WoW names.
+    local name = msg:match("^No player named '?([%w_%-]+)'? is currently playing%.$")
+    if not name then return false end
+    -- Only suppress when WE are demonstrably the cause:
+    --   (a) The outQueue currently has a pending WHISPER for this name, OR
+    --   (b) We caught an error for this name within the last 5 seconds
+    --       (handles the race where the queue was just drained but a
+    --       trailing system message hasn't reached the chat frame yet).
+    -- Manual `/w SomeoneWhoLogged off` from the user goes through neither
+    -- path → falls through, user sees their error normally.
+    local queueHasName = false
+    for _, item in ipairs(outQueue) do
+        if item.ch == "WHISPER" and item.target == name then
+            queueHasName = true
+            break
+        end
+    end
+    local recentlyCaught = _knownOffline[name] and (GetTime() - _knownOffline[name]) < 5
+    if not (queueHasName or recentlyCaught) then return false end
+    _knownOffline[name] = GetTime()
+    DrainWhispersTo(name)
+    return true -- suppress the system message
+end)
 
 -- ---------------- Main loop + events ----------------
 
