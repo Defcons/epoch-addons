@@ -808,6 +808,22 @@ local function BuildFrame()
 
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -2, -2)
+    -- v2.0.1: combat-lockdown safe close. UIPanelCloseButton's built-in
+    -- OnClick calls parent:Hide(), but the dummy frame contains a
+    -- SecureActionButton (the Validate button) which makes Hide()
+    -- protected in combat. While attacking a training dummy the user
+    -- is IN combat, so the X silently did nothing. Same SetAlpha
+    -- trick we already use for validate-button visibility works here:
+    -- fake the close visually, restore on next Show.
+    close:SetScript("OnClick", function()
+        if InCombatLockdown and InCombatLockdown() then
+            f:SetAlpha(0)
+            f:EnableMouse(false)
+            f._softClosed = true
+        else
+            f:Hide()
+        end
+    end)
 
     -- Target line (compact)
     f.targetLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1349,6 +1365,10 @@ _G.EpogArmoryDummy_Toggle = function()
         if state == "stopped" then SetState("idle") end
         AnchorTopLeft(frame)
         ValidateNow()
+        -- v2.0.1: restore from soft-close (combat-lockdown close fallback)
+        if frame._softClosed then
+            frame:SetAlpha(1); frame:EnableMouse(true); frame._softClosed = false
+        end
         frame:Show()
         frame.UpdateUI()
     end
@@ -1393,6 +1413,10 @@ _G.EpogArmoryDummy_TestValidate = function()
     -- Open the frame and jump straight to "stopping" — that's the
     -- only state where the validate button is shown at alpha 1.
     AnchorTopLeft(frame)
+    -- v2.0.1: restore from soft-close (combat-lockdown close fallback)
+    if frame._softClosed then
+        frame:SetAlpha(1); frame:EnableMouse(true); frame._softClosed = false
+    end
     frame:Show()
     SetState("stopping")
     frame.UpdateUI()
@@ -1442,7 +1466,15 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         then
             if state == "stopped" then SetState("idle") end
             if not frame then frame = BuildFrame() end
-            if not frame:IsShown() then
+            -- v2.0.1: restore from soft-close (combat-lockdown close fallback).
+            -- IsShown() returns true even when soft-closed (alpha=0), so we
+            -- need to check the flag explicitly and unsoft-close before
+            -- skipping the show path.
+            if frame._softClosed then
+                frame:SetAlpha(1); frame:EnableMouse(true); frame._softClosed = false
+                AnchorTopLeft(frame)
+                if not frame:IsShown() then frame:Show() end
+            elseif not frame:IsShown() then
                 AnchorTopLeft(frame)
                 frame:Show()
             end

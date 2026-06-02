@@ -64,6 +64,42 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v2.0.1 — Dummy frame X works in combat (soft-close fallback) (internal) *(2026-06-01)*
+
+**Bug.** User reported the X (close) button on the dummy parse frame doesn't close the frame while attacking a training dummy. Confirmed: the X had no effect during dummy combat.
+
+**Cause.** The dummy frame contains the Validate button (`SecureActionButtonTemplate`). WoW's combat lockdown protects `Hide()` on any frame that contains a secure child. The `UIPanelCloseButton` template's built-in OnClick calls `parent:Hide()`, which silently fails in lockdown. Since attacking a dummy always puts the player in combat, the X was effectively dead the whole time.
+
+This is the same protection that originally forced us to use `SetAlpha(0)` for the Validate button's visibility — and the same workaround applies here.
+
+**Fix.** Override the close button's OnClick to detect combat lockdown and fall back to soft-close:
+
+```lua
+close:SetScript("OnClick", function()
+    if InCombatLockdown and InCombatLockdown() then
+        f:SetAlpha(0)
+        f:EnableMouse(false)
+        f._softClosed = true
+    else
+        f:Hide()  -- normal close out of combat
+    end
+end)
+```
+
+All three Show() sites in the module are updated to detect the `_softClosed` flag and restore alpha + mouse before showing. Special case for the auto-open-on-target path: `IsShown()` returns true for soft-closed frames (they're alpha-0 but still "shown"), so we check the flag explicitly there.
+
+**End-to-end behavior:**
+
+| State at X click | Result |
+|---|---|
+| Out of combat | Frame hides normally |
+| In combat (attacking dummy) | Frame becomes invisible (alpha 0) + mouse-pass-through. Considered "closed" by the user. |
+| User stops attacking, combat ends, then opens dummy again | Frame restores to alpha 1, mouse enabled, normal open |
+
+Patch-level (v2.0.0 → v2.0.1). Rolls into next minor.
+
+---
+
 ## EpogArmory v2.0.0 — Dungeon frame minimize + whisper-spam defense in depth *(2026-05-27)*
 
 Consolidated public release of the v1.11.1–v1.11.3 internal patches. The major bump reflects the cumulative polish across the v1.7–v1.11 dungeon/raid/dummy tooling reaching a maturity milestone — the addon's three top-level surfaces (armory inspector, dummy parse, dungeon speedruns) are all in stable shape, with this release focusing on quality-of-life refinements rather than new features.
