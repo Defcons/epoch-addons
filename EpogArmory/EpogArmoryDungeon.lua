@@ -1283,13 +1283,17 @@ eventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
-        -- v1.7.7: default raid auto-log to ON for new users. Existing
-        -- users who explicitly disabled it (set to false) keep their
-        -- preference. Only inits when the key is nil.
+        -- v2.0.2: default raid auto-log to OFF for new users (was ON in
+        -- v1.7.7-v2.0.x). Users on existing installs keep whatever
+        -- preference they had — the key is only initialized when nil,
+        -- so anyone who had it as `true` (default) explicitly OR via
+        -- /epogarmory raidlog on stays opted in. New installs and
+        -- anyone who has never logged in with v1.7.7+ start with it
+        -- off and must explicitly enable via the minimap menu or slash.
         EpogArmoryDB = EpogArmoryDB or {}
         EpogArmoryDB.config = EpogArmoryDB.config or {}
         if EpogArmoryDB.config.raidAutoLog == nil then
-            EpogArmoryDB.config.raidAutoLog = true
+            EpogArmoryDB.config.raidAutoLog = false
         end
         -- v1.11.1: restore minimized state if the frame already exists.
         -- If not yet built (lazy), BuildFrame reads the same SV on

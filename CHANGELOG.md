@@ -64,6 +64,44 @@ TOC bump 1.0 → 1.2 (1.1 was a previously-unreleased internal version).
 
 ---
 
+## EpogArmory v2.0.2 — Auto-log defaults off + minimap menu toggles (internal) *(2026-06-01)*
+
+Per user request: both auto-`/combatlog` features default to **off** for new installs, and both are now toggleable from the minimap right-click menu with their current state visible at-a-glance.
+
+**Defaults flipped:**
+
+| Feature | SavedVariable | Before | After (v2.0.2) |
+|---|---|---|---|
+| Dummy combat auto-start | `EpogArmoryDB.config.dummyAutoLog` | `false` (already off) | `false` (no change) |
+| Raid entry auto-start | `EpogArmoryDB.config.raidAutoLog` | `true` | **`false`** |
+
+Existing users who have explicitly set their preference (or accepted the v1.7.7-v2.0.1 default of `true` for raid) keep that preference — the PLAYER_LOGIN init only assigns the default when the key is `nil`. New installs and anyone who has never logged in with v1.7.7+ get the new default.
+
+**Minimap menu entries.** Right-click the minimap button → two new entries between "Open Dungeon run" and "Status":
+
+```
+Dummy auto-log: OFF       (← click to toggle)
+Raid auto-log: OFF        (← click to toggle)
+```
+
+Labels show current state, so the menu doubles as a status indicator. Clicking toggles + prints a confirmation chat line:
+
+```
+EpogArmory dummy auto-log: ON
+EpogArmory raid auto-log: OFF
+```
+
+Both menu items re-read from SavedVariables every time the menu opens, so the displayed state always matches reality even if it was changed via slash command between opens.
+
+**Existing surfaces unchanged:**
+- `/epogarmory raidlog [on|off|status]` still works (help text default updated from "on" → "off")
+- The dummy frame's "Auto-start log on combat" checkbox still toggles `dummyAutoLog`
+- All print confirmations and behavior identical to before — only the default value and the menu entries are new
+
+Patch-level. Rolls into next minor.
+
+---
+
 ## EpogArmory v2.0.1 — Dummy frame X works in combat (soft-close fallback) (internal) *(2026-06-01)*
 
 **Bug.** User reported the X (close) button on the dummy parse frame doesn't close the frame while attacking a training dummy. Confirmed: the X had no effect during dummy combat.

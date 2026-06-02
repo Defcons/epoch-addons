@@ -2553,6 +2553,31 @@ local function BuildMinimapButton()
                 SlashCmdList["EPOGARMORY"]("dungeon")
             end
         end)
+        -- Claude (v2.0.2): toggle entries for the two auto-/combatlog
+        -- features. Both default OFF as of v2.0.2; user must explicitly
+        -- enable. Labels show current state so the menu doubles as a
+        -- status indicator.
+        do
+            local cfg = (EpogArmoryDB and EpogArmoryDB.config) or {}
+            local dummyState = cfg.dummyAutoLog and "ON" or "OFF"
+            add("Dummy auto-log: " .. dummyState, function()
+                EpogArmoryDB = EpogArmoryDB or {}
+                EpogArmoryDB.config = EpogArmoryDB.config or {}
+                EpogArmoryDB.config.dummyAutoLog = not EpogArmoryDB.config.dummyAutoLog
+                local newState = EpogArmoryDB.config.dummyAutoLog and "ON" or "OFF"
+                print(string.format("|cffffaa44EpogArmory|r dummy auto-log: |cff%s%s|r",
+                    EpogArmoryDB.config.dummyAutoLog and "00ff00" or "ff0000", newState))
+            end)
+            local raidState = cfg.raidAutoLog and "ON" or "OFF"
+            add("Raid auto-log: " .. raidState, function()
+                EpogArmoryDB = EpogArmoryDB or {}
+                EpogArmoryDB.config = EpogArmoryDB.config or {}
+                EpogArmoryDB.config.raidAutoLog = not EpogArmoryDB.config.raidAutoLog
+                local newState = EpogArmoryDB.config.raidAutoLog and "ON" or "OFF"
+                print(string.format("|cffffaa44EpogArmory|r raid auto-log: |cff%s%s|r",
+                    EpogArmoryDB.config.raidAutoLog and "00ff00" or "ff0000", newState))
+            end)
+        end
         add("Status",       function() SlashCmdList["EPOGARMORY"]("status") end)
         add("Toggle Debug", function() SlashCmdList["EPOGARMORY"]("debug") end)
         add("Help",         function() SlashCmdList["EPOGARMORY"]("") end)
