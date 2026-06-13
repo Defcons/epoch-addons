@@ -53,3 +53,38 @@ Some releases bundle related addons together:
 - **Server:** Project Epoch (vanilla + TBC talents)
 - **Client:** WoW 3.3.5a (Interface 30300)
 - **Lua:** 5.1
+
+---
+
+## Credits & Licenses
+
+The **New Addons** above are original works by **Defcon**, released under the GNU GPL v3.0 (or later).
+
+The **Ported / Modified** addons are community addons adapted for Project Epoch. Each retains its
+original author and license — see that addon's own `.toc` header and any bundled `LICENSE` file; the
+Epoch modifications are by Defcon under each addon's original license. Original authors:
+
+| Addon | Original author(s) |
+|---|---|
+| Aux-addon | shirsig |
+| ArkInventory | Arkayenro |
+| ItemRack / ItemRackOptions | Gello |
+| pfQuest-wotlk | Shagu |
+| pfQuest-epoch | Bennylavaa, Cuddlehorn (atop Shagu's pfQuest) |
+| unitscan | shirsig, tablegrapes, Sattva |
+| TradeSkillMaster (AuctionDB / Crafting) | Sapu94, Bart39 |
+| TitanGoldTracker | Poena @ Area 52, Titan Development Team |
+| TitanPerformance | Titan Development Team |
+| FavoriteContacts | lqpbgjuc, eXochron |
+| Magnify-WotLK | rissole |
+| NotPlater-3.3.5 | RichSteini |
+| Whats-Training-Epoch | ZythDr |
+| FishingBuddy | Sutorix |
+| PlateBuffs | Cyprias |
+| HCBreathBar | cralor |
+
+Bundled libraries (Ace3, LibStub, PeriodicTable-3.1, SharedMedia-3.0, Threat-2.0, etc.) remain under
+their respective licenses.
+
+> If you authored one of these addons and would prefer it not be redistributed here, please open an
+> issue and it will be removed promptly.

@@ -2,7 +2,7 @@
 ## Title: QuestRewardIcons
 ## Notes: Shows gold/DE value icons on quest reward choice items. Highlights the best pick.
 ## Version: 1.1
-## Author: Claude
+## Author: Defcon
 ## SavedVariables: QuestRewardIconsDB
 
 QuestRewardIcons.lua

@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: AuxTSMBridge
 ## Notes: Shares price data between aux and TradeSkillMaster. Exposes aux prices as TSM price sources (AuxMarket, AuxMinBuyout) and provides TSM prices to aux tooltips.
-## Author: you
+## Author: Defcon
 ## Version: 1.1
 ## X-Curse-Packaged-Version: 1.1
 ## Dependencies: Aux-addon, TradeSkillMaster, TradeSkillMaster_AuctionDB
