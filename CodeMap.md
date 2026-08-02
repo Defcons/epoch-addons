@@ -5,7 +5,7 @@
   Anchor to SYMBOL names, never line numbers. Only expensive-to-rediscover facts.
 -->
 
-_Last verified: 2026-07-08 @ e52873a (master) — by Opus 4.8 (memory migration)_
+_Last verified: 2026-08-03 @ 145a1c2 (master) — standardized filename → CodeMap.md; pointers spot-checked_
 
 ## What this is
 20+ WoW addons ported to / created for **Project Epoch** (vanilla + TBC talents, 3.3.5a client, Interface 30300, Lua 5.1). Each addon is a self-contained folder installed by copying into `Interface/Addons/`. Repo tracks only modified/created addons — everything else is excluded via `.gitignore` (default-deny `/*` + explicit `!Addon/` allowlist).
