@@ -3,19 +3,19 @@
 _The distilled, canonical TRUTH about this addon collection as a working system:
 the platform contract it must obey, the cross-cutting behaviours that bite, and
 the per-addon facts that matter. This is the MODEL — not the code index
-([`CodeMap.md`](CodeMap.md)) and not the chronology
+([`OrientationMap.md`](OrientationMap.md)) and not the chronology
 ([`ResearchJournal.md`](ResearchJournal.md))._
 
-_The triad: **CodeMap = the machine · KnowledgeBase = the model ·
+_The triad: **OrientationMap = the machine · KnowledgeBase = the model ·
 ResearchJournal = the history.**_
 
-> **Reconcile note — this KB + [`CodeMap.md`](CodeMap.md) are the reference of
+> **Reconcile note — this KB + [`OrientationMap.md`](OrientationMap.md) are the reference of
 > record.** As of 2026-08-03 `CLAUDE.md` was thinned to **env/workflow only**
 > (server/client versions, install path, session-commit workflow, sibling-repo
 > paths); the deep reference it used to hold moved HERE — the full 3.3.5-API-death
 > table + code (§2.1), every cross-cutting pattern (§3), the per-addon notes +
 > SavedVariables quick-reference (§9). This KB is the tagged MODEL layer;
-> `CodeMap.md` is the code index. When they disagree, the **code wins, then this
+> `OrientationMap.md` is the code index. When they disagree, the **code wins, then this
 > KB**; correct this file. Per-session change detail lives in
 > [`CHANGELOG.md`](CHANGELOG.md) (the Journal summarises it).
 
@@ -173,7 +173,7 @@ Use `notCheckable = true` for non-radio menu items.
 
 _One durable line each; the deep per-addon notes + the SavedVariables
 quick-reference table are in **§9 below** (ported from CLAUDE.md 2026-08-03).
-Navigation (which folder) is in [`CodeMap.md`]._
+Navigation (which folder) is in [`OrientationMap.md`]._
 
 - **EpogArmory** — the flagship; combat-log/DPS + gear-scan armory addon. See §5.
 - **Aux-addon** — auction house; custom module/thread system + temp-table
@@ -221,10 +221,10 @@ Navigation (which folder) is in [`CodeMap.md`]._
 - **[FACT, 85%] Cross-repo role:** EpogArmory dumps gear scans (`GetItemStats`) to
   its SavedVariables, uploaded to **epogarmory-web**; those scans are one of the
   three stat sources reconciled by **epog-data** (see that repo's KB — "armory
-  `GetItemStats` scans"). — `CLAUDE.md` "Other Projects" + epog-data CodeMap.
+  `GetItemStats` scans"). — `CLAUDE.md` "Other Projects" + epog-data OrientationMap.
 - **[UNKNOWN]** EpogArmory's internal architecture (files, SavedVariables schema,
   the marker round-trip mechanism) is not distilled anywhere. Reading its source
-  into §9 / `CodeMap.md` is the top documentation debt.
+  into §9 / `OrientationMap.md` is the top documentation debt.
 
 ## 6. Distribution & workflow facts
 
@@ -255,7 +255,7 @@ the Aux temp-table crash + workaround, the cross-addon behavioural hazards, the
 distribution model — all cross-checked against code + CLAUDE.md. Weakest (≤85% /
 UNKNOWN): EpogArmory's internals and SavedVariables schema, and the current live
 status of EpochFixes' four patches. Those are the priority for the next reading
-pass. (As of 2026-08-03 this KB + `CodeMap.md` — not `CLAUDE.md` — are the
+pass. (As of 2026-08-03 this KB + `OrientationMap.md` — not `CLAUDE.md` — are the
 reference of record; the deep per-addon detail is in §9 and the top-of-file
 reconcile note explains the split.)
 
@@ -266,7 +266,7 @@ reconcile note explains the split.)
 _The detailed per-addon technical notes + the SavedVariables quick-reference that
 used to live in `CLAUDE.md`, moved here when `CLAUDE.md` was thinned to env/workflow
 only. `(Claude)` marks Defcon/Claude-authored additions to a community addon. The
-one-line index in §4 points here; navigation (which folder) is in `CodeMap.md`._
+one-line index in §4 points here; navigation (which folder) is in `OrientationMap.md`._
 
 ### Aux-addon
 - Module system via `libs/module.lua` with `module` and `include` directives

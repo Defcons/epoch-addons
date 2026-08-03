@@ -3,7 +3,7 @@
 _The chronological history of this addon collection: what shipped when, the
 milestones, and the hard-won lessons behind them. Append-only. The DISTILLED
 current truth lives in [`KnowledgeBase.md`](KnowledgeBase.md); the code index in
-[`CodeMap.md`](CodeMap.md). The triad: **CodeMap = the machine · KnowledgeBase =
+[`OrientationMap.md`](OrientationMap.md). The triad: **OrientationMap = the machine · KnowledgeBase =
 the model · ResearchJournal = the history.**_
 
 > **Reconcile note:** the rich, per-session, per-addon narrative already exists in
@@ -116,7 +116,7 @@ handle both events on this server.
 
 ## Open threads (for future entries)
 
-- Fold **EpogArmory** into `CLAUDE.md` + `CodeMap.md` (files, SavedVariables
+- Fold **EpogArmory** into `CLAUDE.md` + `OrientationMap.md` (files, SavedVariables
   schema, the marker round-trip). Currently git-only.
 - Confirm the live status of **EpochFixes**' four patches (self-flagged "may be
   server-side").

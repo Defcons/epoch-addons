@@ -1,4 +1,4 @@
-# Code Map — epoch-addons
+# OrientationMap — epoch-addons
 
 <!--
   Thin, pointer-based index. Read first, update after changes.

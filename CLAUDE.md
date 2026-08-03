@@ -27,7 +27,7 @@ Follow these steps every session:
 **This file is env/workflow only.** Everything else lives in the triad — don't
 duplicate it here:
 
-- **`CodeMap.md`** — where code lives (addon → folder + key symbols), invariants,
+- **`OrientationMap.md`** — where code lives (addon → folder + key symbols), invariants,
   ordering constraints, cross-cutting flows, contracts, and known landmines.
 - **`KnowledgeBase.md`** — what's true: the platform contract + the **full 3.3.5
   API-incompatibility reference + code** (§2 / §2.1), cross-cutting behavioural
@@ -35,7 +35,7 @@ duplicate it here:
   SavedVariables quick-reference** (§9).
 - **`ResearchJournal.md`** — the history: milestones, lessons, known-issue chronology.
 
-Read `CodeMap.md` + `KnowledgeBase.md` before touching any tracked addon.
+Read `OrientationMap.md` + `KnowledgeBase.md` before touching any tracked addon.
 
 ---
 
