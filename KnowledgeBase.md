@@ -9,17 +9,20 @@ the per-addon facts that matter. This is the MODEL — not the code index
 _The triad: **CodeMap = the machine · KnowledgeBase = the model ·
 ResearchJournal = the history.**_
 
-> **Reconcile note — this KB does NOT replace [`CLAUDE.md`](CLAUDE.md).**
-> `CLAUDE.md` is the exhaustive REFERENCE MANUAL (the full 3.3.5-API-death
-> table, every cross-cutting pattern with code, per-addon notes, the
-> SavedVariables quick-reference). This KB is the thin, tagged MODEL layer that
-> states _what is true and why it bites_ and points INTO `CLAUDE.md` for the
-> detail. When they disagree, the code wins, then `CLAUDE.md`; correct this file.
-> Per-session change detail lives in [`CHANGELOG.md`](CHANGELOG.md) (the Journal
-> summarises it).
+> **Reconcile note — this KB + [`CodeMap.md`](CodeMap.md) are the reference of
+> record.** As of 2026-08-03 `CLAUDE.md` was thinned to **env/workflow only**
+> (server/client versions, install path, session-commit workflow, sibling-repo
+> paths); the deep reference it used to hold moved HERE — the full 3.3.5-API-death
+> table + code (§2.1), every cross-cutting pattern (§3), the per-addon notes +
+> SavedVariables quick-reference (§9). This KB is the tagged MODEL layer;
+> `CodeMap.md` is the code index. When they disagree, the **code wins, then this
+> KB**; correct this file. Per-session change detail lives in
+> [`CHANGELOG.md`](CHANGELOG.md) (the Journal summarises it).
 
-_Last verified: 2026-08-03 @ 8223a48 (master) — seeded from CLAUDE.md + README +
-git history (284 commits, 29 tracked addons) as the DEEP-pass model layer._
+_Last verified: 2026-08-03 @ 8223a48 (+ uncommitted doc-thinning) — seeded from
+CLAUDE.md + README + git history (284 commits, 29 tracked addons) as the DEEP-pass
+model layer; then ABSORBED CLAUDE.md's deep reference (§2.1 full API table + code,
+§9 per-addon notes + SavedVariables) when CLAUDE.md was thinned to env/workflow only._
 
 ## How to read this doc
 
@@ -54,8 +57,8 @@ Confidence: 60% likely · 80% strong · 95% almost certain · 100% repeated evid
 
 ## 2. The platform contract (3.3.5a / Lua 5.1) — the deaths that actually bite
 
-_Full incompatibility table in [`CLAUDE.md` §"Critical WoW 3.3.5 API
-Incompatibilities"]. The load-bearing ones every addon here has had to route
+_Full incompatibility table + code patterns in **§2.1 below** (ported from
+CLAUDE.md 2026-08-03). The load-bearing ones every addon here has had to route
 around:_
 
 - **[FACT, 100%]** **`xpcall` silently drops extra args on Lua 5.1** —
@@ -73,6 +76,66 @@ around:_
   capability-guarded (`if tex.SetAtlas then`) or replaced with the 3.3.5 call.
   This is the dominant hazard when back-porting a retail addon (see
   FavoriteContacts, ported from retail 12.0).
+
+### 2.1 Full 3.3.5 API incompatibility reference (ported from CLAUDE.md 2026-08-03)
+
+**`xpcall` does NOT support extra arguments (Lua 5.1).** `xpcall(func, handler, ...)`
+silently drops the extra args — `func` is called with no args (`self = nil`). Fix:
+replace with `pcall(func, ...)` + a manual error-handler call. This breaks any modern
+Ace3 library that uses variadic xpcall (AceGUI-3.0 v36+).
+
+**Missing APIs (modern → 3.3.5 replacement):**
+
+| Modern API | 3.3.5 Replacement / Notes |
+|---|---|
+| `CreateFromMixins` / `EventRegistry` | Not available (Legion+); rewrite manually |
+| `C_Timer.After` / `C_Timer.NewTicker` | Not available (Legion+); see replacement below |
+| `Settings.RegisterCanvasLayoutCategory` | Use `InterfaceOptions_AddCategory` |
+| `Settings.RegisterAddOnCategory` | Use `InterfaceOptions_AddCategory` |
+| `C_AddOns.GetAddOnMetadata` | Use `GetAddOnMetadata` |
+| `MenuUtil` / `Menu` / `CreateAnchor` | Use `UIDropDownMenu` |
+| `texture:SetAtlas()` | Not available; guard with `if texture.SetAtlas then` |
+| `texture:SetColorTexture()` | Not available; use `SetTexture(r, g, b)` |
+| `frame:SetMask()` | Not available; guard with `if frame.SetMask then` |
+| `frame:GetPortrait()` | Not available; use `frame.portrait` directly |
+| `slider:SetObeyStepOnDrag()` | Not available; guard with capability check |
+| `WOW_PROJECT_ID` / `WOW_PROJECT_MAINLINE` | Not available |
+| `LE_EXPANSION_DRAGONFLIGHT` / `LE_EXPANSION_LEVEL_CURRENT` | Guard with nil check |
+| `SCROLL_FRAME_SCROLL_BAR_OFFSET_LEFT` | May not exist; use `or 0` |
+| `[AllowLoadGameType xxx]` in TOC | Not supported; remove conditionals |
+| `SendMailAttachmentButton_OnDropAny` | Not available; guard with nil check |
+
+**Settings panel (3.3.5 pattern):**
+```lua
+group.frame.name = GetAddOnMetadata(ADDON_NAME, "Title")
+InterfaceOptions_AddCategory(group.frame)
+
+-- Open the panel (must call twice for correct tab selection):
+InterfaceOptionsFrame_OpenToCategory(frame)
+InterfaceOptionsFrame_OpenToCategory(frame)
+```
+
+**`C_Timer` replacement:**
+```lua
+-- Instead of C_Timer.After(delay, func):
+local f = CreateFrame("Frame")
+f:SetScript("OnUpdate", function(self)
+    self:SetScript("OnUpdate", nil)
+    func()
+end)
+
+-- Instead of C_Timer.NewTicker(interval, func):
+frame:SetScript("OnUpdate", func)  -- starts ticker
+frame:SetScript("OnUpdate", nil)   -- cancels ticker
+```
+
+**`UIDropDownMenu` (context menus):**
+```lua
+UIDropDownMenu_Initialize(dropdown, initFunc)
+UIDropDownMenu_AddButton({ text = "Label", func = callback, notCheckable = true })
+ToggleDropDownMenu(1, nil, dropdown, "cursor", 0, 0)
+```
+Use `notCheckable = true` for non-radio menu items.
 
 ## 3. Cross-cutting behavioural truths (the ones that cause bugs across addons)
 
@@ -108,8 +171,9 @@ around:_
 
 ## 4. Per-addon truth index
 
-_One durable line each; deep per-addon notes + the SavedVariables quick-reference
-table live in [`CLAUDE.md`]. Navigation (which folder) is in [`CodeMap.md`]._
+_One durable line each; the deep per-addon notes + the SavedVariables
+quick-reference table are in **§9 below** (ported from CLAUDE.md 2026-08-03).
+Navigation (which folder) is in [`CodeMap.md`]._
 
 - **EpogArmory** — the flagship; combat-log/DPS + gear-scan armory addon. See §5.
 - **Aux-addon** — auction house; custom module/thread system + temp-table
@@ -123,8 +187,8 @@ table live in [`CLAUDE.md`]. Navigation (which folder) is in [`CodeMap.md`]._
   role from `GetTalentTabInfo` (self) + `NotifyInspect` queue (raid). Data/logic/
   config split across three files with an explicit `BW.*` cross-file contract.
 - **EpochFixes** — four client-bug patches (spellbook crash, quest-abandon,
-  quest-reward tooltips, inspect-cache expiry). **Flagged in CLAUDE.md as "not
-  working as intended — may be server-side"** — treat its fixes as provisional.
+  quest-reward tooltips, inspect-cache expiry). **Self-flagged "not working as
+  intended — may be server-side" (see §9)** — treat its fixes as provisional.
 - **EpochSynch** (was PEBGSync-3.3.5) — cross-map BG teammate HP/MP/position via
   the addon channel; v0.3 adds an in-BG global override of `UnitHealth`/`UnitMana`/
   `GetPlayerMapPosition` for universal raid-frame compat (documented taint cost).
@@ -142,8 +206,8 @@ table live in [`CLAUDE.md`]. Navigation (which folder) is in [`CodeMap.md`]._
 ## 5. EpogArmory — the flagship (and the documentation gap)
 
 - **[FACT, 100%] EpogArmory is by far the most-developed addon here — 145 of 284
-  commits (51%), v1.5→v2.0.2, Apr–Jun 2026** — yet it has **no entry in
-  `CLAUDE.md`'s per-addon notes and no row in `README.md`'s catalog.** This is the
+  commits (51%), v1.5→v2.0.2, Apr–Jun 2026** — yet it has **no entry in the
+  per-addon deep notes (§9) and no row in `README.md`'s catalog.** This is the
   collection's biggest doc gap; its history lives only in git + `CHANGELOG.md`.
   _(git-verified; see the Journal.)_
 - **[FACT, 90%]** Function, from its commit history: a **combat-log + DPS-meter +
@@ -160,7 +224,7 @@ table live in [`CLAUDE.md`]. Navigation (which folder) is in [`CodeMap.md`]._
   `GetItemStats` scans"). — `CLAUDE.md` "Other Projects" + epog-data CodeMap.
 - **[UNKNOWN]** EpogArmory's internal architecture (files, SavedVariables schema,
   the marker round-trip mechanism) is not distilled anywhere. Reading its source
-  into CLAUDE.md/CodeMap is the top documentation debt.
+  into §9 / `CodeMap.md` is the top documentation debt.
 
 ## 6. Distribution & workflow facts
 
@@ -168,10 +232,11 @@ table live in [`CLAUDE.md`]. Navigation (which folder) is in [`CodeMap.md`]._
   comments on changed lines, update `CHANGELOG.md` per session, commit with a
   descriptive message, `git status` before finishing. This is why `CHANGELOG.md`
   is a genuine per-session ledger (165 entries) rather than a release-note stub.
-- **[FACT, 90%]** Cross-references in `CLAUDE.md` "Other Projects" carry **stale
-  absolute paths** (`C:\Dev\epog-data`, `C:\Dev\warcraftlogs-epog`). The WoW tree
-  relocated to `C:\Dev\games\wow\` (epog-data's CodeMap confirms). Trust the
-  relocated paths.
+- **[FACT, 95%]** `CLAUDE.md` "Other Projects" paths were **corrected 2026-08-03**
+  (verified on disk) to `C:\Dev\games\wow\epog-data`, `…\epogarmory-web`, and
+  `…\epoglogs` — the WoW tree relocated under `C:\Dev\games\wow\`. (Previously they
+  carried stale `C:\Dev\` roots; the "warcraftlogs-epog" combat-log viewer's real
+  folder is `epoglogs`.)
 
 ## 7. Known-fragile / open
 
@@ -190,5 +255,167 @@ the Aux temp-table crash + workaround, the cross-addon behavioural hazards, the
 distribution model — all cross-checked against code + CLAUDE.md. Weakest (≤85% /
 UNKNOWN): EpogArmory's internals and SavedVariables schema, and the current live
 status of EpochFixes' four patches. Those are the priority for the next reading
-pass — and the reason `CLAUDE.md` (not this file) remains the reference of record
-until EpogArmory is folded into it.
+pass. (As of 2026-08-03 this KB + `CodeMap.md` — not `CLAUDE.md` — are the
+reference of record; the deep per-addon detail is in §9 and the top-of-file
+reconcile note explains the split.)
+
+---
+
+## 9. Per-addon deep reference & SavedVariables (ported from CLAUDE.md 2026-08-03)
+
+_The detailed per-addon technical notes + the SavedVariables quick-reference that
+used to live in `CLAUDE.md`, moved here when `CLAUDE.md` was thinned to env/workflow
+only. `(Claude)` marks Defcon/Claude-authored additions to a community addon. The
+one-line index in §4 points here; navigation (which folder) is in `CodeMap.md`._
+
+### Aux-addon
+- Module system via `libs/module.lua` with `module` and `include` directives
+- Temp-table allocator in `libs/T.lua` for GC optimization (critical — don't bypass)
+- Threading via `thread()`, `when()`, `signal()`, `later()` — custom coroutine-like system
+- Custom vararg pattern: `vararg-function(arg)` with `arg.n` for argument counts
+- **Item key format:** `itemID:suffixID`
+- **History key:** `aux.faction[realm|faction].history[item_key]`
+- **Decay config (Claude):** `aux.account.history_decay` (default 0.75); exposed via `M.get_decay()` / `M.set_decay(v)`
+- **% Hist. Value column (Claude):** in `gui/auction_listing.lua`
+- **SavedVariables:** `aux` (scopes: `character`, `faction`, `realm`, `account`), `aux_scale`, `aux_items`, `aux_item_ids`, etc.
+
+### TitanGoldTracker
+- Ace3-based (AceAddon, AceHook, AceTimer)
+- 1-second bar update via Ace3 `ScheduleRepeatingTimer` (no C_Timer)
+- UIDropDownMenu for character selector dropdown
+- **Session item wealth tracking (Claude additions):**
+  - `GT_PriceCache[item_key]` — session-only copper/item from Aux or TSM
+  - `GT_QualCache[link]` — item quality (0–6)
+  - `GT_TradeableCache[itemID]` — BoP detection via GameTooltip:SetHyperlink
+  - `GT_ItemValCache[charIndex]` — bags+bank total copper
+  - `GT_AHValCache[charIndex]` — own AH listings total copper
+  - `GT_SessAHBase` — snapshot of (bags+AH) at session start
+  - `GT_SessMailedVal` — cumulative mailed value this session
+  - `GT_SessBagAtMail` — bag value at MAIL_SHOW (to compute outgoing)
+- **Events:** `PLAYER_MONEY`, `BAG_UPDATE` (debounced 0.5s), `BANKFRAME_OPENED`, `AUCTION_OWNED_LIST_UPDATE`, `MAIL_SHOW`, `MAIL_SEND_SUCCESS`
+- **Price chain:** Aux weighted median → TSM DBMarket → `GetItemInfo` vendor → 0
+- **SavedVariables:** `GoldArray` keyed by `realm|charname`
+
+### EpochFixes *(status: not working as intended — issues may be server-side)*
+Four targeted client bug patches:
+1. **Spellbook crash** — wraps `SpellBookFrameTabButton2:GetScript("OnEnter")` in `pcall()`
+2. **Quest abandon wrong quest** — hooks `QuestLogAbandonButton:OnClick()` to save title+index; hooks popup `OnAccept()` to restore selection by title before `AbandonQuest()` fires
+3. **Quest reward tooltips** — hooks each `QuestInfoItem[1-6]:OnEnter()` to force `GameTooltip:SetOwner()` before `SetQuestItem()`, undoing pfQuest/Leatrix anchor theft
+4. **Inspect tooltip cache expiry** — caches all 19 slot links on `INSPECT_READY`; `OnEnter()` hooks fall back to `SetHyperlink(cachedLink)` when live link is nil
+- **Pattern:** Separate frames for `PLAYER_LOGIN` and event handlers to avoid script clobbering.
+
+### pfQuest-epoch
+- Depends on `pfQuest-wotlk` (loaded after via `depend pfQuest-wotlk` in TOC)
+- Removes unavailable Epoch content by setting entries to `{}`:
+  ```lua
+  pfDB["units"]["data-epoch"][15174] = {}  -- removes NPC
+  pfDB["quests"]["data-epoch"][8369] = {}  -- removes quest
+  ```
+- Removals cover: Silithus NPCs, TBC quest NPCs, PvP quests not yet on server
+- `patchtable.lua` patches quest objectives/rewards/level ranges for Epoch-specific changes
+
+### pfQuest-wotlk
+- Database: `pfDB["quests"]`, `pfDB["units"]`, `pfDB["objects"]`, `pfDB["items"]`
+- Uses `hooksecurefunc('QuestLog_Update', ...)` (taint-safe, required for EpochFixes compatibility)
+- **Minimap range-limited icons (Claude):** only draws icons within encounter range to reduce clutter
+
+### unitscan
+- LibCompat-1.0 backport embedded for 3.3.5 compatibility
+- **QuickDispatch (Claude):** `pcall()`-based dispatch wraps scan callbacks to prevent crashes from bad data
+- Scans nearby units via `UnitName()` + database lookup on `OnUpdate`
+
+### ArkInventory
+- Ace3 xpcall Lua 5.1 fix applied to event dispatchers:
+  ```lua
+  local ok, err = pcall(func, arg1, arg2)
+  if not ok then handler(err) end
+  ```
+- Core files: `ArkInventory.lua`, `ArkInventoryStorage.lua`, `ArkInventoryRules.lua`, `ArkInventorySearch.lua`
+
+### ItemRack / ItemRackOptions
+- **NoBG flag (Claude):** `ItemRackUser[setName].NoBG = true`
+- On `ZONE_CHANGED_NEW_AREA`: if in BG/Arena and current set has NoBG, auto-switch to default gear
+- ItemRackOptions is LoadOnDemand — opens on first `/itemrack` command
+- NoBG checkbox added to Sets panel in ItemRackOptions
+- Known issue: zone change can misfire — guard checks current_set before applying.
+
+### FavoriteContacts (ported from retail 12.0)
+- Removed: `CreateFromMixins`, `EventRegistry`, `Settings` API, modern atlas icons
+- Manual callback tables replace EventRegistry: `RegisterLoginCallback()`, `RegisterLoadUICallback()`
+- `parentKey` pattern manually implemented
+- MSA-DropDownMenu-1.0 (LibStub) for right-click context menus
+- Contact format: `{recipient, icon, note}` stored in `FavoriteContactsSettings.contacts[index]`
+
+### AuxTSMBridge
+- Reads raw aux history strings directly (avoids aux temp-table allocator)
+- **Aux history string format:** `next_push#daily_min_buyout#val@time;val@time;...` — split on `#` (first two = next_push, daily_min; rest = data points); each point via `gmatch("([^;]+)", segment)` then split on `@` → value, timestamp
+- Writes to TSM AuctionDB via `adbModule:DecodeItemData()` / `EncodeItemData()`
+- Registers two TSM price sources: `AuxMarket`, `AuxMinBuyout`
+- Rate-limited: syncs at most every 12 hours (`AuxTSMBridgeDB.lastSyncTime`)
+- Guard: `d.quantity > 0` before encoding (nil quantity crashes TSM)
+- Slash: `/axtsm sync` (force), `/axtsm status`
+
+### TradeSkillMaster_AuctionDB
+- Custom JSON parser (no LibJSON on 3.3.5)
+- `decodeScans()` wrapped in `pcall()` — corrupt scan data no longer crashes
+- Faction data merge: guards against nil faction tables
+- Provides `DBMarket` and `DBMinBuyout` price sources to TSM formulas
+
+### TradeSkillMaster_Crafting
+- **Vellum support (Claude):** `Modules/VellumInfo.lua` maps enchantments → vellum item IDs; `CheapestVellum` logic picks cheapest available; DB migration converts existing recipes
+- Scrap-conversion recipes excluded from intermediate crafting
+
+### BuffWatcher
+- Per-role buff/consume checker with talent-based spec detection
+- 4 roles: Tank, Healer, Melee, Ranged — each with independent buff entry lists
+- Spec detection: `GetTalentTabInfo()` for player, `NotifyInspect()` queue for raid members
+- Inspect queue: one-at-a-time with 3s timeout, fallback to `CLASS_DEFAULT_ROLE`
+- `BW.SPEC_ROLE_MAP[classFile][tabIndex]` maps talent tab → role
+- `BuffWatcherDB.specRoles[classFile][tabIndex]` stores user overrides
+- Config UI: UIDropDownMenu role selector, per-role entry editor, spec override panel
+- Status frame shows Role column; Export TSV includes Role + per-role label applicability
+- Slash: `/bw`, `/bw config`, `/bw check`, `/bw export`, `/bw inspect`, `/bw help`
+- Migration: reads old `BuffWatcher2DB` if present
+- **TOC load order:** `BuffWatcher_Data.lua` → `BuffWatcher.lua` → `BuffWatcher_Config.lua`
+- **Cross-file contracts:**
+  - `BW` table defined in Data.lua; extended in BuffWatcher.lua and Config.lua
+  - `BW.ROLES`, `BW.SPEC_ROLE_MAP`, `BW.DefaultRoleEntries`, `BW.ClassColors`, `BW.RoleColors` — all in Data.lua
+  - `BW.inspectResults[guid]` — cached `{ classFile, role }` per inspected player
+  - `BuffWatcherDB.roles[role].entries` — per-role buff entry arrays
+  - `BuffWatcherDB.specRoles` — optional override table
+- **SavedVariables:** `BuffWatcherDB` → `{ roles = { Tank = { entries = {...} }, ... }, specRoles = {}, buttonPos = {} }`
+
+### DeleteItems
+- Three named deletion lists (itemID-keyed, account-wide)
+- Junk scanner: bags below `DIData.junkThreshold` copper, excluding `DIData.junkIgnore`
+- No suffix/enchant differentiation — item ID only
+
+### HCBreathBar
+- Hides original breath bar (`SetAlpha(0)`), renders custom bar
+- Sound alert below 20s: `PlaySoundFile("Sound\\Interface\\AlarmClockWarning1.wav")`
+- Alert rate doubles below 10s
+- Combat overlay warns against using spacebar to surface
+
+### TitanSpeed
+- Updates every 0.2s via `OnUpdate`
+- Speed % = `GetUnitSpeed("player") / 7 * 100` (7 yards/sec = 100%)
+- `SPEED_BUFF_INFO` table for buff name → bonus% mapping (English only)
+
+### Magnify-Wotlk
+- Zoom range: 1.0–4.0x (map), 1.0–10.0x (minimap), step 0.2 / 0.1
+- `MagnifyOptions.enablePersistZoom`: remembers pan/zoom per zone
+- Resizes quest POI buttons to match zoom via `ResizeQuestPOIs()`
+- Mapster compatibility: disables Mapster POI handler if present
+
+### SavedVariables quick reference
+
+| Addon | Variable | Key Structure |
+|---|---|---|
+| Aux-addon | `aux` | `{character, faction, realm, account}` scopes |
+| TitanGoldTracker | `GoldArray` | `[realm\|charname]` → gold + session data |
+| AuxTSMBridge | `AuxTSMBridgeDB` | `{lastSyncTime}` |
+| DeleteItems | `DIData` | `{lists, listNames, junkThreshold, junkIgnore, activeList}` |
+| Magnify-Wotlk | `MagnifyOptions` | `{enablePersistZoom}` |
+| FavoriteContacts | `FavoriteContactsSettings` | `{contacts[], columnCount, rowCount, enabled}` |
+| ItemRack | `ItemRackUser` | `[charname]` → `{currentSet, NoBG}` |
+| pfQuest-wotlk | `pfQuest_config` | Per-character quest log state, colors |

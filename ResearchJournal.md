@@ -124,3 +124,23 @@ handle both events on this server.
   `CLAUDE.md` "Other Projects" (tree relocated to `C:\Dev\games\wow\`).
 
 _Append new milestones below this line; never rewrite earlier entries._
+
+---
+
+### M6 — CLAUDE.md thinned to env/workflow only (2026-08-03)
+`CLAUDE.md` had been the exhaustive reference manual (3.3.5 API table, cross-cutting
+patterns, per-addon notes, SavedVariables) with the triad layered on top of it. To
+kill the duplication/drift risk, its deep-reference content was MOVED into
+`KnowledgeBase.md`: the full API-incompatibility table + code → **KB §2.1**; the
+per-addon technical notes + the SavedVariables quick-reference → **KB §9**. The
+cross-cutting patterns and the known-issues table were already covered by KB §3/§7
+(deleted as duplication, with two stragglers folded into §9: the ItemRack NoBG
+zone-misfire guard and the Aux history-string parse format). `CLAUDE.md` now holds
+only environment, session workflow, sibling-repo paths, and a pointer into the triad.
+`CodeMap.md`'s "where the real docs live" + its internal cross-links were repointed
+from `CLAUDE.md` to `KnowledgeBase.md`.
+- **Resolves the open thread** "correct the stale `C:\Dev\epog-data` /
+  `warcraftlogs-epog` paths": verified on disk and fixed to
+  `C:\Dev\games\wow\epog-data`, `…\epogarmory-web`, and `…\epoglogs` (the
+  "warcraftlogs-epog" combat-log viewer's real folder is `epoglogs`).
+- Edits left in the working tree, not yet committed.
