@@ -12,8 +12,7 @@ the model · ResearchJournal = the history.**_
 > from `git log` (284 commits) and that changelog. For "exactly what changed in
 > addon X on date Y", read `CHANGELOG.md`.
 
-_Last verified: 2026-08-03 @ 8223a48 (master) — seeded from git history + CHANGELOG
-as the DEEP-pass chronology layer._
+_Last verified: 2026-08-20 @ 6f85371 (master) — M7 appended (estate-wide bible pass)._
 
 ---
 
@@ -144,3 +143,15 @@ from `CLAUDE.md` to `KnowledgeBase.md`.
   `C:\Dev\games\wow\epog-data`, `…\epogarmory-web`, and `…\epoglogs` (the
   "warcraftlogs-epog" combat-log viewer's real folder is `epoglogs`).
 - Edits left in the working tree, not yet committed.
+
+### M7 — Estate-wide bible pass: verification + dedupe (2026-08-20)
+No code commits since M6 (the 2026-08-03 edits landed as `ae966cd`/`291fa87`/`6f85371`).
+This pass re-verified every KB/OM code pointer against the tree (35/35 resolve, incl.
+ESD's ring caps live at the install path — its lua has grown ~950→1392 lines and gained
+analysis scripts), deduped KB §2/§4 into §2.1/§9, consolidated EpochSynch's facts into
+KB §9, and filled the ToDo/Testing stubs from repo state. New durable findings: the repo
+has TWO checkouts of the same origin (dev clone + live install checkout, the latter with
+uncommitted Aux/TSM/pfQuest work → ToDo); `Postal/` is tracked without an allowlist
+entry; ESD is untracked in ANY repo (single copy → ToDo). The pre-M6 "Open threads":
+EpogArmory fold-in → `ToDo.md`; EpochFixes live-status → `Testing.md`; paths thread was
+resolved in M6. Layout stays all-root (no `docs/` dir — correct per the house rule).

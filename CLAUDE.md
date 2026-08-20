@@ -5,7 +5,9 @@
 - **Server:** Ascension private server (WoW 3.3.5 client)
 - **Interface version:** 30300
 - **Lua version:** 5.1 (no Lua 5.2+ features)
-- **Repo path:** `C:\Private\Games\Ascension Launcher\resources\epoch_live\Interface\Addons\`
+- **Two checkouts, same origin (`Defcons/epoch-addons`):**
+  - **Live install checkout** (the game reads this one): `C:\Private\Games\Ascension Launcher\resources\epoch_live\Interface\AddOns\`
+  - **Dev clone:** `C:\Dev\games\wow\epoch-addons` — sync via origin, not by copying
 - **Branch:** master
 - **Tracked addons only** — all unmodified addons are excluded via `.gitignore`
 
@@ -24,7 +26,7 @@ Follow these steps every session:
 
 ## Deeper docs — architecture, API gotchas, per-addon facts, invariants
 
-**This file is env/workflow only.** Everything else lives in the triad — don't
+**This file is env/workflow only.** Everything else lives in the bible docs — don't
 duplicate it here:
 
 - **`OrientationMap.md`** — where code lives (addon → folder + key symbols), invariants,
@@ -34,6 +36,7 @@ duplicate it here:
   truths (§3), the per-addon truth index (§4), and the **per-addon deep notes +
   SavedVariables quick-reference** (§9).
 - **`ResearchJournal.md`** — the history: milestones, lessons, known-issue chronology.
+- **`ToDo.md`** — deferral ledger. **`Testing.md`** — pending human in-game verifications.
 
 Read `OrientationMap.md` + `KnowledgeBase.md` before touching any tracked addon.
 

@@ -1,37 +1,29 @@
 # Epoch Addons — Knowledge Base
 
-_The distilled, canonical TRUTH about this addon collection as a working system:
-the platform contract it must obey, the cross-cutting behaviours that bite, and
-the per-addon facts that matter. This is the MODEL — not the code index
-([`OrientationMap.md`](OrientationMap.md)) and not the chronology
-([`ResearchJournal.md`](ResearchJournal.md))._
+_The distilled, canonical TRUTH about this addon collection: the platform
+contract it must obey, the cross-cutting behaviours that bite, and the per-addon
+facts that matter. This is the MODEL — not the code index
+([`OrientationMap.md`](OrientationMap.md)), not the chronology
+([`ResearchJournal.md`](ResearchJournal.md)); deferred work lives in
+[`ToDo.md`](ToDo.md), pending human verifications in [`Testing.md`](Testing.md),
+per-session change detail in [`CHANGELOG.md`](CHANGELOG.md)._
 
-_The triad: **OrientationMap = the machine · KnowledgeBase = the model ·
-ResearchJournal = the history.**_
+> **Reference of record:** this KB + `OrientationMap.md`. `CLAUDE.md` is
+> env/workflow ONLY (since 2026-08-03); its old deep reference lives HERE — the
+> full 3.3.5 API table + code (§2.1), the per-addon notes + SavedVariables
+> quick-reference (§9). When docs and code disagree: **code wins, then this KB**;
+> correct this file.
 
-> **Reconcile note — this KB + [`OrientationMap.md`](OrientationMap.md) are the reference of
-> record.** As of 2026-08-03 `CLAUDE.md` was thinned to **env/workflow only**
-> (server/client versions, install path, session-commit workflow, sibling-repo
-> paths); the deep reference it used to hold moved HERE — the full 3.3.5-API-death
-> table + code (§2.1), every cross-cutting pattern (§3), the per-addon notes +
-> SavedVariables quick-reference (§9). This KB is the tagged MODEL layer;
-> `OrientationMap.md` is the code index. When they disagree, the **code wins, then this
-> KB**; correct this file. Per-session change detail lives in
-> [`CHANGELOG.md`](CHANGELOG.md) (the Journal summarises it).
-
-_Last verified: 2026-08-03 @ 8223a48 (+ uncommitted doc-thinning) — seeded from
-CLAUDE.md + README + git history (284 commits, 29 tracked addons) as the DEEP-pass
-model layer; then ABSORBED CLAUDE.md's deep reference (§2.1 full API table + code,
-§9 per-addon notes + SavedVariables) when CLAUDE.md was thinned to env/workflow only._
+_Last verified: 2026-08-20 @ 6f85371 — full pointer re-verification (35 symbol/file
+spot-checks, all resolve); §2/§4 deduped against §2.1/§9; EpochSynch facts
+consolidated into §9; README gap (§5) re-confirmed on disk._
 
 ## How to read this doc
 
-- **[FACT]** — confirmed by code, CLAUDE.md, README, or git history.
-- **[HYP]** — hypothesis; carries a confidence % and what would settle it.
-- **[ASSUMPTION]** — believed, unverified.
-- **[UNKNOWN]** — open question.
-
-Confidence: 60% likely · 80% strong · 95% almost certain · 100% repeated evidence.
+- **[FACT]** — confirmed by code, README, or git history. **[HYP]** — hypothesis
+  (confidence % + what settles it). **[ASSUMPTION]** — believed, unverified.
+  **[UNKNOWN]** — open question.
+- Confidence: 60% likely · 80% strong · 95% almost certain · 100% repeated evidence.
 
 ---
 
@@ -40,12 +32,14 @@ Confidence: 60% likely · 80% strong · 95% almost certain · 100% repeated evid
 - **[FACT, 100%]** **29 tracked addon folders** ported to / created for **Project
   Epoch** — a WoW private server running the **3.3.5a client (Interface 30300,
   Lua 5.1)** with a _vanilla + TBC talents_ ruleset. Each top-level folder is a
-  self-contained addon installed by copying into `Interface/Addons/`. There is no
-  build step. — repo tree, `README.md`.
+  self-contained addon installed by copying into `Interface/Addons/`. No build
+  step. — repo tree, `README.md`. _(Re-counted 2026-08-20: still 29.)_
 - **[FACT, 100%]** The repo is an **allowlist**: `.gitignore` default-denies
   `/*` and re-includes only the modified/created addons (`!Addon/`). Everything
   the author didn't touch is deliberately absent, so "not in the tree" ≠ "not
-  installed". — `.gitignore`.
+  installed". **Exception:** `Postal/Modules/OpenAll.lua` is tracked but `Postal/`
+  has NO allowlist entry — new files under `Postal/` are silently ignored
+  (see `ToDo.md`). — `.gitignore`, `git ls-files` (2026-08-20).
 - **[FACT, 100%]** Two authorship classes, credited in `README.md`: **new
   originals by Defcon** (BuffWatcher, QuestRewardIcons, DeleteItems, TitanSpeed,
   EpochFixes, AuxTSMBridge, HCBreathBar, FeralAPFix, EpochSynch, EpogArmory,
@@ -57,32 +51,19 @@ Confidence: 60% likely · 80% strong · 95% almost certain · 100% repeated evid
 
 ## 2. The platform contract (3.3.5a / Lua 5.1) — the deaths that actually bite
 
-_Full incompatibility table + code patterns in **§2.1 below** (ported from
-CLAUDE.md 2026-08-03). The load-bearing ones every addon here has had to route
-around:_
+_The full incompatibility table + replacement code is **§2.1** (single home —
+don't repeat entries elsewhere). The two that bite hardest:_
 
 - **[FACT, 100%]** **`xpcall` silently drops extra args on Lua 5.1** —
-  `xpcall(f, handler, ...)` calls `f` with NO args (`self = nil`). This breaks any
-  modern Ace3 that uses variadic xpcall (AceGUI-3.0 v36+). Fix everywhere:
-  `pcall(f, ...)` + a manual handler call (applied in ArkInventory). — `CLAUDE.md`.
-- **[FACT, 100%]** **`C_Timer` does not exist** (Legion+). Replacement is a
-  `CreateFrame("Frame")` + `OnUpdate` one-shot / ticker, or Ace3
-  `ScheduleTimer`/`ScheduleRepeatingTimer` where the addon already embeds Ace3.
-- **[FACT, 100%]** **The modern `Settings.*` canvas API is absent** — use
-  `InterfaceOptions_AddCategory`, and `InterfaceOptionsFrame_OpenToCategory`
-  **must be called twice** to select the right tab (a real 3.3.5 quirk).
-- **[FACT, 95%]** **Texture/atlas modern methods are missing** — `SetAtlas`,
-  `SetColorTexture`, `SetMask`, `SetObeyStepOnDrag`, `GetPortrait` etc. must be
-  capability-guarded (`if tex.SetAtlas then`) or replaced with the 3.3.5 call.
-  This is the dominant hazard when back-porting a retail addon (see
-  FavoriteContacts, ported from retail 12.0).
+  `xpcall(f, handler, ...)` calls `f` with NO args (`self = nil`). Breaks any
+  modern Ace3 using variadic xpcall (AceGUI-3.0 v36+). Fix everywhere:
+  `pcall(f, ...)` + a manual handler call (applied in ArkInventory).
+- **[FACT, 95%]** **Modern texture/atlas/Settings APIs are absent** — the
+  dominant hazard when back-porting a retail addon (see FavoriteContacts, ported
+  from retail 12.0). Capability-guard (`if tex.SetAtlas then`) or replace per the
+  table below.
 
 ### 2.1 Full 3.3.5 API incompatibility reference (ported from CLAUDE.md 2026-08-03)
-
-**`xpcall` does NOT support extra arguments (Lua 5.1).** `xpcall(func, handler, ...)`
-silently drops the extra args — `func` is called with no args (`self = nil`). Fix:
-replace with `pcall(func, ...)` + a manual error-handler call. This breaks any modern
-Ace3 library that uses variadic xpcall (AceGUI-3.0 v36+).
 
 **Missing APIs (modern → 3.3.5 replacement):**
 
@@ -110,12 +91,13 @@ Ace3 library that uses variadic xpcall (AceGUI-3.0 v36+).
 group.frame.name = GetAddOnMetadata(ADDON_NAME, "Title")
 InterfaceOptions_AddCategory(group.frame)
 
--- Open the panel (must call twice for correct tab selection):
+-- Open the panel (must call twice for correct tab selection — real 3.3.5 quirk):
 InterfaceOptionsFrame_OpenToCategory(frame)
 InterfaceOptionsFrame_OpenToCategory(frame)
 ```
 
-**`C_Timer` replacement:**
+**`C_Timer` replacement** (or Ace3 `ScheduleTimer`/`ScheduleRepeatingTimer` where
+the addon already embeds Ace3):
 ```lua
 -- Instead of C_Timer.After(delay, func):
 local f = CreateFrame("Frame")
@@ -143,7 +125,7 @@ Use `notCheckable = true` for non-radio menu items.
   a Blizzard function in quest/combat code taints protected frames and breaks them
   (dropdowns unreliable in combat, protected calls blocked). Always
   `hooksecurefunc`. pfQuest-wotlk learned this the hard way; it's why EpochFixes
-  and pfQuest can coexist. — `CLAUDE.md`.
+  and pfQuest can coexist.
 - **[FACT, 95%] `GameTooltip` ownership gets stolen mid-frame** by any addon
   calling `SetHyperlink` on `OnUpdate` (pfQuest scanner, Leatrix). Defence: always
   `SetOwner(button, "ANCHOR_RIGHT")` immediately before use, and cache links as a
@@ -159,10 +141,10 @@ Use `notCheckable = true` for non-radio menu items.
   GC-optimised temp tables mean calling Aux's history/scan functions in an
   external mass-parse loop exhausts the heap and crashes. AuxTSMBridge exists
   specifically to route around this — it parses the **raw aux history string**
-  (`next_push#daily_min#val@time;...`) directly instead of calling Aux.
+  directly instead of calling Aux (format: §9 AuxTSMBridge).
 - **[FACT, 90%] The price-lookup chain is a fixed fallthrough:** Aux (weighted
-  median) → TSM (DBMarket) → `GetItemInfo` vendor → 0, each `pcall`-guarded. Shared
-  by the wealth/AH tooling (TitanGoldTracker). — `CLAUDE.md`.
+  median) → TSM (DBMarket) → `GetItemInfo` vendor → 0, each `pcall`-guarded.
+  Shared by the wealth/AH tooling; lives in TitanGoldTracker.
 - **[FACT, 90%] Ascension emits `ADDON_ACTION_BLOCKED` where retail emits
   `ADDON_ACTION_FORBIDDEN`.** Protection-sensitive addons must treat the two
   identically (unitscan v1.2 had to, or its unit-detection silently failed and the
@@ -171,45 +153,39 @@ Use `notCheckable = true` for non-radio menu items.
 
 ## 4. Per-addon truth index
 
-_One durable line each; the deep per-addon notes + the SavedVariables
-quick-reference table are in **§9 below** (ported from CLAUDE.md 2026-08-03).
-Navigation (which folder) is in [`OrientationMap.md`]._
+_Pure index — one line per addon of note; the facts live in **§9** (deep notes +
+SavedVariables) or the named section. Navigation (which folder) is in
+[`OrientationMap.md`](OrientationMap.md)._
 
-- **EpogArmory** — the flagship; combat-log/DPS + gear-scan armory addon. See §5.
-- **Aux-addon** — auction house; custom module/thread system + temp-table
-  allocator (`libs/T.lua`, don't bypass). Item key `itemID:suffixID`. Defcon adds:
-  history-decay knob, "% Hist. Value" column.
-- **TitanGoldTracker** — session wealth (bags+bank+own-AH+mail), BoP detection via
-  tooltip scan, cross-faction display; the price chain lives here.
-- **AuxTSMBridge** — feeds Aux prices into TSM by direct history-string parse
-  (the temp-table workaround); rate-limited to ≤ every 12h.
-- **BuffWatcher** — per-role (Tank/Healer/Melee/Ranged) buff/consume checker;
-  role from `GetTalentTabInfo` (self) + `NotifyInspect` queue (raid). Data/logic/
-  config split across three files with an explicit `BW.*` cross-file contract.
-- **EpochFixes** — four client-bug patches (spellbook crash, quest-abandon,
-  quest-reward tooltips, inspect-cache expiry). **Self-flagged "not working as
-  intended — may be server-side" (see §9)** — treat its fixes as provisional.
-- **EpochSynch** (was PEBGSync-3.3.5) — cross-map BG teammate HP/MP/position via
-  the addon channel; v0.3 adds an in-BG global override of `UnitHealth`/`UnitMana`/
-  `GetPlayerMapPosition` for universal raid-frame compat (documented taint cost).
-- **pfQuest-epoch / pfQuest-wotlk** — Epoch quest DB overlay (removes unavailable
-  content by setting entries to `{}`); taint-safe `hooksecurefunc('QuestLog_Update')`.
-- **unitscan** — rare scanner; the BLOCKED-vs-FORBIDDEN fix (§3) + `pcall` dispatch.
-- **ItemRack(+Options)** — equipment sets; NoBG flag auto-swaps out of BG/Arena gear.
-- **TSM_Crafting(+AuctionDB)** — crafting queue + vellum support; custom JSON parser
-  (no LibJSON on 3.3.5), `pcall`-guarded scan decode.
-- Utility/QoL: FavoriteContacts (retail-12.0 back-port), Magnify-WotLK (map zoom),
-  HCBreathBar (hardcore breath alarm), TitanSpeed, TitanPerformance, DeleteItems,
-  QuestRewardIcons, NotPlater-3.3.5, Whats-Training-Epoch, FeralAPFix,
-  LootAppraiser-3.3.5, PlateBuffs, FishingBuddy, Postal.
+- **EpogArmory** — the flagship; combat-log/DPS/gear-scan armory → **§5**
+  (no §9 notes yet — top doc debt, see `ToDo.md`).
+- **Aux-addon** — auction-house engine; module/thread system, temp-table
+  allocator (§3) → §9.
+- **TitanGoldTracker** — session wealth tracking; hosts the price chain (§3) → §9.
+- **AuxTSMBridge** — Aux→TSM price feed via raw history-string parse (the §3
+  temp-table workaround) → §9.
+- **BuffWatcher** — per-role buff/consume checker → §9.
+- **EpochFixes** — four client-bug patches; **self-flagged "not working as
+  intended — may be server-side"** → §9; live status queued in `Testing.md`.
+- **EpochSynch** — cross-map BG teammate HP/MP/position over the addon channel → §9.
+- **pfQuest-epoch / pfQuest-wotlk** — Epoch quest DB overlay → §9.
+- **unitscan** — rare scanner; the BLOCKED≡FORBIDDEN fix (§3) → §9.
+- **ItemRack(+Options)** — equipment sets; NoBG auto-swap → §9.
+- **TSM_Crafting(+AuctionDB)** — crafting queue + vellums; custom JSON parser → §9.
+- With §9 notes too: FavoriteContacts, Magnify-WotLK, DeleteItems, HCBreathBar,
+  TitanSpeed, ArkInventory.
+- Utility/QoL without deep notes (small or lightly-modified): FeralAPFix,
+  FishingBuddy, LootAppraiser-3.3.5, NotPlater-3.3.5, PlateBuffs, Postal
+  (one tracked file: `Modules/OpenAll.lua`), QuestRewardIcons, TitanPerformance,
+  Whats-Training-Epoch.
 
 ## 5. EpogArmory — the flagship (and the documentation gap)
 
-- **[FACT, 100%] EpogArmory is by far the most-developed addon here — 145 of 284
-  commits (51%), v1.5→v2.0.2, Apr–Jun 2026** — yet it has **no entry in the
-  per-addon deep notes (§9) and no row in `README.md`'s catalog.** This is the
-  collection's biggest doc gap; its history lives only in git + `CHANGELOG.md`.
-  _(git-verified; see the Journal.)_
+- **[FACT, 100%] EpogArmory is by far the most-developed addon here — ~145 of 284
+  pre-doc commits (51%), v1.5→v2.0.2, Apr–Jun 2026** — yet it has **no entry in the
+  per-addon deep notes (§9) and no row in `README.md`'s catalog** _(re-verified
+  2026-08-20)_. This is the collection's biggest doc gap; its history lives only
+  in git + `CHANGELOG.md`.
 - **[FACT, 90%]** Function, from its commit history: a **combat-log + DPS-meter +
   gear-scan armory** addon. Shipped features include a target-**dummy parse
   validation** module (fires a combat-log marker and verifies the parse landed),
@@ -217,14 +193,15 @@ Navigation (which folder) is in [`OrientationMap.md`]._
   timestamps, log-tied timer), **raid auto-log** (auto `/combatlog` on raid entry,
   ownership + auto-stop + silent mode), a **practice mode** (DPS without logging),
   **single-target-only enforcement** (AoE-dummy skip, Epoch-specific), plus
-  whisper-spam and mob-name-typo fixes and a minimap menu.
+  whisper-spam and mob-name-typo fixes and a minimap menu. As of v2.0.2 the
+  auto-log features default OFF for new installs, toggled via the minimap menu.
 - **[FACT, 85%] Cross-repo role:** EpogArmory dumps gear scans (`GetItemStats`) to
   its SavedVariables, uploaded to **epogarmory-web**; those scans are one of the
   three stat sources reconciled by **epog-data** (see that repo's KB — "armory
   `GetItemStats` scans"). — `CLAUDE.md` "Other Projects" + epog-data OrientationMap.
 - **[UNKNOWN]** EpogArmory's internal architecture (files, SavedVariables schema,
   the marker round-trip mechanism) is not distilled anywhere. Reading its source
-  into §9 / `OrientationMap.md` is the top documentation debt.
+  into §9 / `OrientationMap.md` is the top documentation debt (`ToDo.md`).
 
 ## 6. Distribution & workflow facts
 
@@ -232,40 +209,38 @@ Navigation (which folder) is in [`OrientationMap.md`]._
   comments on changed lines, update `CHANGELOG.md` per session, commit with a
   descriptive message, `git status` before finishing. This is why `CHANGELOG.md`
   is a genuine per-session ledger (165 entries) rather than a release-note stub.
-- **[FACT, 95%]** `CLAUDE.md` "Other Projects" paths were **corrected 2026-08-03**
-  (verified on disk) to `C:\Dev\games\wow\epog-data`, `…\epogarmory-web`, and
-  `…\epoglogs` — the WoW tree relocated under `C:\Dev\games\wow\`. (Previously they
-  carried stale `C:\Dev\` roots; the "warcraftlogs-epog" combat-log viewer's real
-  folder is `epoglogs`.)
+- **[FACT, 100%]** The repo has **two checkouts of the same origin**
+  (`Defcons/epoch-addons`): the dev clone `C:\Dev\games\wow\epoch-addons` and the
+  **live install checkout** inside the game client (path in `CLAUDE.md`) — the
+  game only reads the latter. Doc work happens in the dev clone; live addon edits
+  historically happen in the install checkout. Sync via origin, not by copying.
+  — verified 2026-08-20 (`git remote -v` in both).
+- **[FACT, 95%]** Sibling projects live at `C:\Dev\games\wow\epog-data`,
+  `…\epogarmory-web`, `…\epoglogs` (paths verified on disk 2026-08-03 and
+  re-verified 2026-08-20).
 
 ## 7. Known-fragile / open
 
 - **[OPEN]** EpochFixes self-flagged "not working as intended — may be
-  server-side." Its four patches should not be assumed live.
-- **[OPEN]** EpogArmory undocumented outside git (§5).
-- **[FACT, 90%]** EpochSynch's in-BG global override propagates a small, disclosed
-  taint (raid-frame right-click dropdown unreliable in combat inside BGs); it
-  uninstalls on BG exit so out-of-BG play is taint-free. A deliberate trade, not a
-  bug.
+  server-side." Its four patches should not be assumed live → `Testing.md`.
+- **[OPEN]** EpogArmory undocumented outside git (§5) → `ToDo.md`.
+- **[OPEN]** The live install checkout carries uncommitted modifications
+  (Aux-addon search UI, TSM_Crafting `CraftingGUI.lua`, pfQuest-epoch toc/docs
+  — seen 2026-08-20) and a stale `claude/*` branch → `ToDo.md`.
 
 ## 8. Confidence summary
 
-Best-understood (≥95%): the platform contract (the API deaths), the taint rule,
-the Aux temp-table crash + workaround, the cross-addon behavioural hazards, the
-distribution model — all cross-checked against code + CLAUDE.md. Weakest (≤85% /
-UNKNOWN): EpogArmory's internals and SavedVariables schema, and the current live
-status of EpochFixes' four patches. Those are the priority for the next reading
-pass. (As of 2026-08-03 this KB + `OrientationMap.md` — not `CLAUDE.md` — are the
-reference of record; the deep per-addon detail is in §9 and the top-of-file
-reconcile note explains the split.)
+Best-understood (≥95%): the platform contract (§2), the taint rule, the Aux
+temp-table crash + workaround, the cross-addon hazards (§3), the distribution
+model. Weakest: EpogArmory internals (§5 → `ToDo.md`) and EpochFixes' live patch
+status (§7 → `Testing.md`).
 
 ---
 
 ## 9. Per-addon deep reference & SavedVariables (ported from CLAUDE.md 2026-08-03)
 
-_The detailed per-addon technical notes + the SavedVariables quick-reference that
-used to live in `CLAUDE.md`, moved here when `CLAUDE.md` was thinned to env/workflow
-only. `(Claude)` marks Defcon/Claude-authored additions to a community addon. The
+_The detailed per-addon technical notes + the SavedVariables quick-reference.
+`(Claude)` marks Defcon/Claude-authored additions to a community addon. The
 one-line index in §4 points here; navigation (which folder) is in `OrientationMap.md`._
 
 ### Aux-addon
@@ -296,13 +271,25 @@ one-line index in §4 points here; navigation (which folder) is in `OrientationM
 - **Price chain:** Aux weighted median → TSM DBMarket → `GetItemInfo` vendor → 0
 - **SavedVariables:** `GoldArray` keyed by `realm|charname`
 
-### EpochFixes *(status: not working as intended — issues may be server-side)*
+### EpochFixes *(status: not working as intended — issues may be server-side; see Testing.md)*
 Four targeted client bug patches:
 1. **Spellbook crash** — wraps `SpellBookFrameTabButton2:GetScript("OnEnter")` in `pcall()`
 2. **Quest abandon wrong quest** — hooks `QuestLogAbandonButton:OnClick()` to save title+index; hooks popup `OnAccept()` to restore selection by title before `AbandonQuest()` fires
 3. **Quest reward tooltips** — hooks each `QuestInfoItem[1-6]:OnEnter()` to force `GameTooltip:SetOwner()` before `SetQuestItem()`, undoing pfQuest/Leatrix anchor theft
 4. **Inspect tooltip cache expiry** — caches all 19 slot links on `INSPECT_READY`; `OnEnter()` hooks fall back to `SetHyperlink(cachedLink)` when live link is nil
 - **Pattern:** Separate frames for `PLAYER_LOGIN` and event handlers to avoid script clobbering.
+- Debug slash: `/epochdebug`
+
+### EpochSynch (was PEBGSync-3.3.5)
+- 3.3.5 BGs freeze raid-frame data + (x,y) for teammates beyond ~100-yard server
+  visibility; EpochSynch broadcasts each player's HP/MP/position over the addon
+  channel (observe-and-relay, latest-received-wins; wire details in the Journal M3)
+- v0.1↔v0.2 wire prefixes are INCOMPATIBLE (rename PEBGSync→EpochSynch changed them)
+- **v0.3 in-BG global override (deliberate taint trade):** overrides
+  `UnitHealth`/`UnitMana`/`GetPlayerMapPosition` inside BGs so _every_ raid-frame
+  addon (default, Grid, HealBot, ShadowedUF) sees fresh data. Cost (disclosed):
+  raid-frame right-click dropdown unreliable in combat inside BGs. The override
+  uninstalls on BG exit, so out-of-BG play is taint-free. [FACT, 90%]
 
 ### pfQuest-epoch
 - Depends on `pfQuest-wotlk` (loaded after via `depend pfQuest-wotlk` in TOC)

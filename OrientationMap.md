@@ -5,15 +5,19 @@
   Anchor to SYMBOL names, never line numbers. Only expensive-to-rediscover facts.
 -->
 
-_Last verified: 2026-08-03 @ 145a1c2 (+ uncommitted doc-thinning) — CLAUDE.md thinned to env/workflow only; its deep reference now lives in KnowledgeBase.md §2.1/§9; doc pointers below repointed_
+_Last verified: 2026-08-20 @ 6f85371 — bible pass: all pointers spot-checked against code (35/35 resolve); ESD section numbers re-verified live; ToDo/Testing seeded from repo state_
 
 ## What this is
-20+ WoW addons ported to / created for **Project Epoch** (vanilla + TBC talents, 3.3.5a client, Interface 30300, Lua 5.1). Each addon is a self-contained folder installed by copying into `Interface/Addons/`. Repo tracks only modified/created addons — everything else is excluded via `.gitignore` (default-deny `/*` + explicit `!Addon/` allowlist).
+29 tracked WoW addons ported to / created for **Project Epoch** (vanilla + TBC talents, 3.3.5a client, Interface 30300, Lua 5.1). Each addon is a self-contained folder installed by copying into `Interface/Addons/`. Repo tracks only modified/created addons — everything else is excluded via `.gitignore` (default-deny `/*` + explicit `!Addon/` allowlist; exception: `Postal/` has one tracked file but no allowlist entry — see ToDo.md).
+
+**Two checkouts, same origin** (`Defcons/epoch-addons`): this dev clone (`C:\Dev\games\wow\epoch-addons`) and the **live install checkout** inside the game client (path in `CLAUDE.md`) — the game only reads the latter; edits here are invisible in-game until synced via origin. See KnowledgeBase.md §6.
 
 ## Where the real docs live (don't duplicate here)
 - **`KnowledgeBase.md`** — the authoritative deep reference (as of 2026-08-03): the full 3.3.5 API-incompatibility table + code (§2/§2.1), cross-cutting behavioural truths (tooltip ownership, quest-log drift, price chain, BAG_UPDATE debounce — §3), the per-addon truth index (§4), and the per-addon deep notes + SavedVariables quick-reference (§9). Read it before touching any tracked addon.
 - **`CLAUDE.md`** — env/workflow ONLY: server/client versions, install path, session-commit workflow, sibling-repo paths. (No longer the deep reference — that moved to `KnowledgeBase.md`.)
-- **`README.md`** — user-facing addon catalog (new vs ported), bundle groupings, credits/licenses.
+- **`ToDo.md`** — deferral ledger (open work, blocked-on-user items).
+- **`Testing.md`** — pending human-in-game verifications (repro steps + pass criteria).
+- **`README.md`** — user-facing addon catalog (new vs ported), bundle groupings, credits/licenses. (Gap: no EpogArmory/Postal rows — ToDo.md.)
 - **`CHANGELOG.md`** — per-session change log (append at end of each session per CLAUDE.md workflow).
 
 ## Subsystems (where things live)
@@ -23,18 +27,18 @@ Each top-level folder is one addon. High-value ones (see KnowledgeBase.md §9 fo
 - **AuxTSMBridge** → feeds Aux prices into TSM by parsing raw aux history strings directly (avoids the temp-table allocator crash).
 - **BuffWatcher** → per-role buff/consume checker; `BW.*` tables in `BuffWatcher_Data.lua`, spec→role via `GetTalentTabInfo`.
 - **EpochFixes / FeralAPFix** → client-bug patches (spellbook, quest abandon, tooltip theft, inspect cache).
-- Others: ArkInventory, ItemRack(+Options), pfQuest-epoch(+wotlk), unitscan, TSM_Crafting(+AuctionDB), FavoriteContacts, Magnify-WotLK, NotPlater-3.3.5, Whats-Training-Epoch, DeleteItems, HCBreathBar, TitanSpeed, TitanPerformance, QuestRewardIcons, FishingBuddy, PlateBuffs, EpochSynch, EpogArmory, LootAppraiser-3.3.5.
+- Others: ArkInventory, ItemRack(+Options), pfQuest-epoch(+wotlk), unitscan, TSM_Crafting(+AuctionDB), FavoriteContacts, Magnify-WotLK, NotPlater-3.3.5, Whats-Training-Epoch, DeleteItems, HCBreathBar, TitanSpeed, TitanPerformance, QuestRewardIcons, FishingBuddy, PlateBuffs, EpochSynch, EpogArmory, LootAppraiser-3.3.5, Postal (only `Modules/OpenAll.lua` tracked).
 
 ### EpochSimData (ESD) — sim-calibration capture addon (NOT in this repo)
-Multi-class combat-data capture addon feeding sim calibration. **`.gitignore`'d from this repo** (calibration-only, not distributed) — code lives ONLY at the install path, edits are local, `/reload` in WoW to pick up changes.
+Multi-class combat-data capture addon feeding sim calibration. **`.gitignore`'d from this repo** (calibration-only, not distributed) — code lives ONLY at the install path, **untracked in ANY git repo** (single copy — backup risk, see ToDo.md); edits are local, `/reload` in WoW to pick up changes.
 - **Install path**: `C:\Private\Games\Ascension Launcher\resources\epoch_live\Interface\AddOns\EpochSimData\`
-- **Files**: `EpochSimData.toc` (Interface 30300), `EpochSimData.lua` (single file, ~950 lines), `parse_saved.py` (pure-Python Lua-table → JSON, no deps), `README.md` (class coverage matrix).
+- **Files** (as of 2026-08-20): `EpochSimData.toc` (Interface 30300), `EpochSimData.lua` (single file, ~1400 lines), `parse_saved.py` (pure-Python Lua-table → JSON, no deps), `README.md` (class coverage matrix), `FRIENDS_GUIDE.md`, analysis scripts `analyze_raid.py` / `fast_analyze.py` / `debuff_analyze.py`, plus generated `raid_analysis_*.md` / `raid_deep*.md` reports and `esd.json`.
 - **SavedVariables**: `EpochSimDataDB` (per-account, settings) + `EpochSimDataCharDB` (per-character, nearly all data — combat is character-specific).
 - **Slash commands**: `/esd` (help/status), `/esd snap <label>` (manual snapshot), `/esd clear` (wipe char DB, use after OOM), `/esd auto` (toggle idle-tick auto-snapshots; combat events always captured).
 - Supports Hunter/Warrior/Rogue/Mage/Druid/Shaman; class-specific data flows through generic capture and is sliced per-class by `identity.class` in the parser. Friends on other classes can contribute by sharing their SavedVariables file.
 
 ## Invariants & gotchas
-- **ring-buffer FIFO caps**: every event buffer is capped so the file can't grow unbounded. (ESD) latest documented caps: `snapshots` 2000, `damageEvents` 15000, `auraEvents` 12000, `castEvents` 12000, `powerEvents` 8000, `energizeEvents` 8000 (~21 MB ceiling). (Earlier v1.2 caps were much lower: 500/5000/2000/…) Verify current caps in `EpochSimData.lua` before relying on numbers.
+- **ring-buffer FIFO caps**: every event buffer is capped so the file can't grow unbounded. (ESD) caps (re-verified in `EpochSimData.lua` 2026-08-20): `snapshots` 2000, `damageEvents` 15000, `auraEvents` 12000, `castEvents` 12000, `powerEvents` 8000, `energizeEvents` 8000 (~21 MB ceiling). (Earlier v1.2 caps were much lower: 500/5000/2000/…)
 - **lua-block-too-big**: the 3.3.5 client SavedVariables serializer dies if any single table exceeds the Lua parser's per-chunk constant limit (`MAXARG_Bx` = 262143 constants). Burned in 2026-05 with a 33 MB file. **Fix (ESD architecture)**: heavy state (`gear`, `talents`, `petTalents`, `totems`) is stored ONCE at TOP level, NOT embedded per snapshot. Combine with the ring-buffer caps to stay under the limit. Any addon writing large SavedVariables must respect this.
 - **heavy-vs-light snapshot split** (ESD): `isHeavySnapshot(label)` decides weight by label prefix. Heavy (~25 KB) includes gear/talents/pet/totems, taken on manual/combat-start/combat-end/equip/inv/talent/spec/stance/totem/pre-bw/post-bw. Light (~5 KB) is just buffs + effective stats, taken on every in-combat aura event. Keeps bursty raid combat from bloating the file with redundant gear scans.
 - **ESD snapshot triggers** are a coarse schedule + a whitelist of "snapshot-worthy" auras (racials, trinket procs, raid CDs, raid buffs), with a per-aura 1.0s debounce and a 5s auto-tick that only fires if the buff-hash changed.
