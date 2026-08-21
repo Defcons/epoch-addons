@@ -4,6 +4,9 @@ All addons modified or created with Claude Code assistance for the Ascension pri
 
 ---
 
+## Consolidation — standalone addon repos folded back into the monorepo *(2026-08-21)*
+Retired the per-addon standalone repos (AuxTSMBridge, BuffWatcher, DeleteItems, EpochFixes, EpochSynch, FeralAPFix, QuestRewardIcons, TitanSpeed) in favour of this monorepo as the single source of truth. Ported back the improvements they carried: Author header on EpochFixes / FeralAPFix / TitanSpeed .toc files, and per-addon README.md for BuffWatcher, EpochSynch, QuestRewardIcons. No code changes.
+
 ## EpochSynch v0.3 — In-BG global override for universal raid-frame compatibility *(2026-05-25)*
 v0.2 ran as a non-invasive overlay only — broadcast data lived in the EpochSynch HUD and our own map/minimap blips, but default raid frames (and Grid / HealBot / ShadowedUF / etc.) still rendered the server's frozen "out-of-range" values for far-away teammates. v0.3 closes that gap.
 

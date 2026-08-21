@@ -1,5 +1,6 @@
 ## Interface: 30300
 ## Title: FeralAPFix
+## Author: Defcon
 ## Notes: Guards feral-attack.lua against nil item links in tooltip hooks
 ## LoadOnDemand: 0
 
