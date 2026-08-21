@@ -44,6 +44,6 @@ Read `OrientationMap.md` + `KnowledgeBase.md` before touching any tracked addon.
 
 ## Other Projects
 
-- **epoglogs** (formerly labelled "warcraftlogs-epog"): `C:\Dev\games\wow\epoglogs` — combat log viewer for epoglogs.com. Use this path for all file edits and git operations for that project.
+- **ConLogs** (folder formerly `epoglogs`; repo formerly "warcraftlogs-epog"): `C:\Dev\games\wow\ConLogs` — combat log viewer for epoglogs.com. Use this path for all file edits and git operations for that project.
 - **epog-data:** `C:\Dev\games\wow\epog-data` — shared DBC extraction toolkit. Consumed by armory + logs via `npm run publish`.
-- **epogarmory-web:** `C:\Dev\games\wow\epogarmory-web` — static armory viewer. Consumes EpogArmory addon SavedVariables uploads.
+- **epogarmory-web:** _retired_ — GitHub repo archived, local folder removed; armory superseded by ConLogs-Epoch.
