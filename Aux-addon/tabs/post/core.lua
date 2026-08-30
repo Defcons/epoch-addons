@@ -24,7 +24,7 @@ local settings_schema = {'tuple', '#', {duration='number'}, {start_price='number
 local scan_id, inventory_records, bid_records, buyout_records = 0, {}, {}, {}
 
 function get_default_settings()
-	return O('duration', DURATION_12, 'start_price', 0, 'buyout_price', 0, 'hidden', false)
+	return O('duration', DURATION_48, 'start_price', 0, 'buyout_price', 0, 'hidden', false)
 end
 
 function LOAD2()
@@ -255,7 +255,7 @@ function post_auctions()
             -- duration_code = 4
 		-- end
 
-		post.start(
+		post.start_direct(
 			key,
 			stack_size,
 			duration,
@@ -276,20 +276,18 @@ function post_auctions()
                 sort(filtered, function(a, b) return a.name < b.name end)
                 if getn(filtered) > 0 then
                     local next_item = nil
-                    -- Find first item strictly after the old item alphabetically (advance forward)
-                    for i = 1, getn(filtered) do
-                        if filtered[i].name > old_name then
-                            next_item = filtered[i]
+                    -- Stay on the same item first if there is still quantity left.
+                    for _, record in pairs(filtered) do
+                        if record.key == key then
+                            next_item = record
                             break
                         end
                     end
-                    -- Fallback: stay on same item if it still has quantity
-                    if not next_item then
-                        for _, record in pairs(filtered) do
-                            if record.key == key then
-                                next_item = record
-                                break
-                            end
+                    -- Otherwise find first item strictly after the old item alphabetically.
+                    for i = 1, getn(filtered) do
+                        if not next_item and filtered[i].name > old_name then
+                            next_item = filtered[i]
+                            break
                         end
                     end
                     -- Last resort: take the last item in the list
@@ -623,11 +621,9 @@ function update_item(item)
     else
 	    stack_size_slider:SetMinMaxValues(1, min(selected_item.max_stack, selected_item.aux_quantity))
     end
-    -- Default to 1 item per stack, half of total quantity as stack count
+    -- Default to posting all available single-item stacks.
     stack_size_slider:SetValue(1)
-    quantity_update(false)
-    local total = selected_item.max_charges and selected_item.availability[stack_size_slider:GetValue()] or selected_item.availability[0]
-    stack_count_slider:SetValue(max(1, floor(total / 2)))
+    quantity_update(true)
 
     unit_start_price_input:SetText(money.to_string(settings.start_price or 0, true, nil, nil, true)) -- Claude: guard nil from corrupt saved data
     unit_buyout_price_input:SetText(money.to_string(settings.buyout_price or 0, true, nil, nil, true)) -- Claude: guard nil from corrupt saved data
