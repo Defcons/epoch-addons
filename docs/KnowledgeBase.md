@@ -3,12 +3,12 @@
 _The distilled, canonical TRUTH about this addon collection: the platform
 contract it must obey, the cross-cutting behaviours that bite, and the per-addon
 facts that matter. This is the MODEL — not the code index
-([`OrientationMap.md`](OrientationMap.md)), not the chronology
+([`OrientationMap.md`](../OrientationMap.md)), not the chronology
 ([`ResearchJournal.md`](ResearchJournal.md)); deferred work lives in
 [`ToDo.md`](ToDo.md), pending human verifications in [`Testing.md`](Testing.md),
-per-session change detail in [`CHANGELOG.md`](CHANGELOG.md)._
+per-session change detail in [`CHANGELOG.md`](../CHANGELOG.md)._
 
-> **Reference of record:** this KB + `OrientationMap.md`. `CLAUDE.md` is
+> **Reference of record:** this KB + `../OrientationMap.md`. `../CLAUDE.md` is
 > env/workflow ONLY (since 2026-08-03); its old deep reference lives HERE — the
 > full 3.3.5 API table + code (§2.1), the per-addon notes + SavedVariables
 > quick-reference (§9). When docs and code disagree: **code wins, then this KB**;
@@ -33,21 +33,21 @@ consolidated into §9; README gap (§5) re-confirmed on disk._
   Epoch** — a WoW private server running the **3.3.5a client (Interface 30300,
   Lua 5.1)** with a _vanilla + TBC talents_ ruleset. Each top-level folder is a
   self-contained addon installed by copying into `Interface/Addons/`. No build
-  step. — repo tree, `README.md`. _(Re-counted 2026-08-20: still 29.)_
+  step. — repo tree, `../README.md`. _(Re-counted 2026-08-20: still 29.)_
 - **[FACT, 100%]** The repo is an **allowlist**: `.gitignore` default-denies
   `/*` and re-includes only the modified/created addons (`!Addon/`). Everything
   the author didn't touch is deliberately absent, so "not in the tree" ≠ "not
   installed". **Exception:** `Postal/Modules/OpenAll.lua` is tracked but `Postal/`
   has NO allowlist entry — new files under `Postal/` are silently ignored
   (see `ToDo.md`). — `.gitignore`, `git ls-files` (2026-08-20).
-- **[FACT, 100%]** Two authorship classes, credited in `README.md`: **new
+- **[FACT, 100%]** Two authorship classes, credited in `../README.md`: **new
   originals by Defcon** (BuffWatcher, QuestRewardIcons, DeleteItems, TitanSpeed,
   EpochFixes, AuxTSMBridge, HCBreathBar, FeralAPFix, EpochSynch, EpogArmory,
   TitanPerformance) under GPL-3.0, and **community addons adapted for Epoch**
   (each keeps its original author + license).
 - **[FACT, 95%]** Distribution is **per-addon versioned GitHub releases**, some
   **bundled** (ItemRack+ItemRackOptions; pfQuest-epoch+pfQuest-wotlk;
-  TSM_Crafting+TSM_AuctionDB ship in one zip). — `README.md`.
+  TSM_Crafting+TSM_AuctionDB ship in one zip). — `../README.md`.
 
 ## 2. The platform contract (3.3.5a / Lua 5.1) — the deaths that actually bite
 
@@ -155,7 +155,7 @@ Use `notCheckable = true` for non-radio menu items.
 
 _Pure index — one line per addon of note; the facts live in **§9** (deep notes +
 SavedVariables) or the named section. Navigation (which folder) is in
-[`OrientationMap.md`](OrientationMap.md)._
+[`OrientationMap.md`](../OrientationMap.md)._
 
 - **EpogArmory** — the flagship; combat-log/DPS/gear-scan armory → **§5**
   (no §9 notes yet — top doc debt, see `ToDo.md`).
@@ -183,9 +183,9 @@ SavedVariables) or the named section. Navigation (which folder) is in
 
 - **[FACT, 100%] EpogArmory is by far the most-developed addon here — ~145 of 284
   pre-doc commits (51%), v1.5→v2.0.2, Apr–Jun 2026** — yet it has **no entry in the
-  per-addon deep notes (§9) and no row in `README.md`'s catalog** _(re-verified
+  per-addon deep notes (§9) and no row in `../README.md`'s catalog** _(re-verified
   2026-08-20)_. This is the collection's biggest doc gap; its history lives only
-  in git + `CHANGELOG.md`.
+  in git + `../CHANGELOG.md`.
 - **[FACT, 90%]** Function, from its commit history: a **combat-log + DPS-meter +
   gear-scan armory** addon. Shipped features include a target-**dummy parse
   validation** module (fires a combat-log marker and verifies the parse landed),
@@ -198,20 +198,20 @@ SavedVariables) or the named section. Navigation (which folder) is in
 - **[FACT, 85%] Cross-repo role:** EpogArmory dumps gear scans (`GetItemStats`) to
   its SavedVariables, uploaded to **epogarmory-web**; those scans are one of the
   three stat sources reconciled by **epog-data** (see that repo's KB — "armory
-  `GetItemStats` scans"). — `CLAUDE.md` "Other Projects" + epog-data OrientationMap.
+  `GetItemStats` scans"). — `../CLAUDE.md` "Other Projects" + epog-data OrientationMap.
 - **[UNKNOWN]** EpogArmory's internal architecture (files, SavedVariables schema,
   the marker round-trip mechanism) is not distilled anywhere. Reading its source
-  into §9 / `OrientationMap.md` is the top documentation debt (`ToDo.md`).
+  into §9 / `../OrientationMap.md` is the top documentation debt (`ToDo.md`).
 
 ## 6. Distribution & workflow facts
 
-- **[FACT, 95%]** Session workflow (per `CLAUDE.md`): inline `-- Claude: <desc>`
-  comments on changed lines, update `CHANGELOG.md` per session, commit with a
-  descriptive message, `git status` before finishing. This is why `CHANGELOG.md`
+- **[FACT, 95%]** Session workflow (per `../CLAUDE.md`): inline `-- Claude: <desc>`
+  comments on changed lines, update `../CHANGELOG.md` per session, commit with a
+  descriptive message, `git status` before finishing. This is why `../CHANGELOG.md`
   is a genuine per-session ledger (165 entries) rather than a release-note stub.
 - **[FACT, 100%]** The repo has **two checkouts of the same origin**
   (`Defcons/epoch-addons`): the dev clone `C:\Dev\games\wow\epoch-addons` and the
-  **live install checkout** inside the game client (path in `CLAUDE.md`) — the
+  **live install checkout** inside the game client (path in `../CLAUDE.md`) — the
   game only reads the latter. Doc work happens in the dev clone; live addon edits
   historically happen in the install checkout. Sync via origin, not by copying.
   — verified 2026-08-20 (`git remote -v` in both).
@@ -241,7 +241,7 @@ status (§7 → `Testing.md`).
 
 _The detailed per-addon technical notes + the SavedVariables quick-reference.
 `(Claude)` marks Defcon/Claude-authored additions to a community addon. The
-one-line index in §4 points here; navigation (which folder) is in `OrientationMap.md`._
+one-line index in §4 points here; navigation (which folder) is in `../OrientationMap.md`._
 
 ### Aux-addon
 - Module system via `libs/module.lua` with `module` and `include` directives

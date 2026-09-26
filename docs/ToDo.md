@@ -27,6 +27,19 @@ _Last verified: 2026-08-20 @ 6f85371 — seeded from repo state during the bible
   Review in the install checkout: commit (with CHANGELOG entry) or discard. Also
   delete its stale `claude/romantic-knuth-22587d` branch (behind origin/master by 35).
 
+### Bible cleanup (repo-bible audit 2026-09-26)
+
+- [ ] **No `NavigationMap.md` exists despite ~560 tracked code files across 29 addon
+  folders** — this repo is flagged by the estate-wide doc-hygiene audit as the most
+  under-documented for its code size. Seeding a real one (per-addon file → symbol
+  pointers + domain-local gotchas, mirroring `OrientationMap.md`'s subsystem index)
+  is genuine content-authoring work, not mechanical — out of scope for this pass.
+  Size: **L**.
+- [ ] **All four `docs/*.md` stamps read `2026-08-20`** (~5 weeks stale as of this
+  2026-09-26 pass) — none of the underlying facts were re-verified in this pass
+  (mechanical move only). Re-verify pointers/facts on the next substantive touch.
+  Size: **S**.
+
 ## Blocked / needs the user
 
 (nothing yet)

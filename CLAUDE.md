@@ -31,14 +31,14 @@ duplicate it here:
 
 - **`OrientationMap.md`** — where code lives (addon → folder + key symbols), invariants,
   ordering constraints, cross-cutting flows, contracts, and known landmines.
-- **`KnowledgeBase.md`** — what's true: the platform contract + the **full 3.3.5
+- **`docs/KnowledgeBase.md`** — what's true: the platform contract + the **full 3.3.5
   API-incompatibility reference + code** (§2 / §2.1), cross-cutting behavioural
   truths (§3), the per-addon truth index (§4), and the **per-addon deep notes +
   SavedVariables quick-reference** (§9).
-- **`ResearchJournal.md`** — the history: milestones, lessons, known-issue chronology.
-- **`ToDo.md`** — deferral ledger. **`Testing.md`** — pending human in-game verifications.
+- **`docs/ResearchJournal.md`** — the history: milestones, lessons, known-issue chronology.
+- **`docs/ToDo.md`** — deferral ledger. **`docs/Testing.md`** — pending human in-game verifications.
 
-Read `OrientationMap.md` + `KnowledgeBase.md` before touching any tracked addon.
+Read `OrientationMap.md` + `docs/KnowledgeBase.md` before touching any tracked addon.
 
 ---
 

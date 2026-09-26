@@ -3,11 +3,11 @@
 _The chronological history of this addon collection: what shipped when, the
 milestones, and the hard-won lessons behind them. Append-only. The DISTILLED
 current truth lives in [`KnowledgeBase.md`](KnowledgeBase.md); the code index in
-[`OrientationMap.md`](OrientationMap.md). The triad: **OrientationMap = the machine · KnowledgeBase =
+[`OrientationMap.md`](../OrientationMap.md). The triad: **OrientationMap = the machine · KnowledgeBase =
 the model · ResearchJournal = the history.**_
 
 > **Reconcile note:** the rich, per-session, per-addon narrative already exists in
-> [`CHANGELOG.md`](CHANGELOG.md) (165 dated entries). This journal does NOT
+> [`CHANGELOG.md`](../CHANGELOG.md) (165 dated entries). This journal does NOT
 > duplicate it — it is the **milestone-level timeline + the lessons** distilled
 > from `git log` (284 commits) and that changelog. For "exactly what changed in
 > addon X on date Y", read `CHANGELOG.md`.
@@ -155,3 +155,22 @@ uncommitted Aux/TSM/pfQuest work → ToDo); `Postal/` is tracked without an allo
 entry; ESD is untracked in ANY repo (single copy → ToDo). The pre-M6 "Open threads":
 EpogArmory fold-in → `ToDo.md`; EpochFixes live-status → `Testing.md`; paths thread was
 resolved in M6. Layout stays all-root (no `docs/` dir — correct per the house rule).
+
+### M8 — Mechanical repo-bible pass: docs/ split (2026-09-26)
+Estate-wide doc-hygiene audit follow-up. Purely mechanical, content-preserving: `git mv`'d
+`KnowledgeBase.md`, `ResearchJournal.md`, `ToDo.md` and `Testing.md` from repo root into a
+new `docs/` folder (`OrientationMap.md`, `CLAUDE.md`, `README.md`, `CHANGELOG.md` stay at
+root — real code now has enough tracked files, 29 addons, to warrant the split). Repointed
+every reference to the moved files: the `.gitignore` allowlist (`!KnowledgeBase.md` etc. →
+`!docs/KnowledgeBase.md` etc. — confirmed the default-deny `/*` rule doesn't actually catch
+nested `docs/*` paths either way, so this was a correctness/clarity fix, not a functional
+one), the doc-index bullets and inline "see X.md §N" pointers in `CLAUDE.md` and
+`OrientationMap.md`, and the relative markdown links inside the four moved files that point
+back at root (`../OrientationMap.md`, `../README.md`, `../CLAUDE.md`, `../CHANGELOG.md`);
+sibling links between the four moved docs needed no change. Verified every relative
+markdown link target in the bible docs now resolves. Did NOT create a `NavigationMap.md`
+(none existed; seeding one is real authoring work, logged in ToDo as size L). Confirmed
+during the pass: `ToDo.md` has zero checked items (nothing to prune), all five stamps are
+single-line with no "Previous:" chain, and the Journal's M0–M7 headings are already in
+ascending order (dated/milestone-only convention — left as-is). No addon code, `.toc` file,
+or Journal history text was touched or reworded.
