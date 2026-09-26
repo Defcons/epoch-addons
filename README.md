@@ -1,5 +1,7 @@
 # Epoch Addons
 
+> **No longer maintained (2026-09-26).** The releases below stay available as they are; no further updates are planned.
+
 WoW addons ported to or created for **Project Epoch** (vanilla + TBC talents, 3.3.5 client).
 
 All addons are installed by extracting the zip into your `Interface/Addons/` folder.
